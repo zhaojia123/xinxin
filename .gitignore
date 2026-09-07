@@ -1,0 +1,8 @@
+config.toml
+.cache/
+bin/
+dist/
+*.log
+.DS_Store
+data/uploads/
+miniprogram/project.private.config.json

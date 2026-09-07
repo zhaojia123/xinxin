@@ -1,0 +1,6 @@
+.direction-tabs { display: flex; background: #f2f5fa; padding: 8rpx; border-radius: 18rpx; margin-bottom: 36rpx; }
+.direction-tab { width: 50%; text-align: center; padding: 18rpx; color: #718096; border-radius: 14rpx; }
+.chosen { background: #fff; box-shadow: 0 4rpx 14rpx rgba(31,45,74,.06); font-weight: 600; }
+.chosen.expense { color: #dc5c50; }.chosen.income { color: #16825d; }
+.amount-input { display: flex; align-items: center; border-bottom: 2rpx solid #e6eaf0; padding: 16rpx 0 24rpx; font-size: 48rpx; }
+.amount-input input { height: 88rpx; flex: 1; min-width: 0; font-size: 64rpx; font-weight: 600; margin-left: 20rpx; }

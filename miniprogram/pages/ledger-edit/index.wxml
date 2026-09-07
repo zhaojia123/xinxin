@@ -1,0 +1,26 @@
+<view class="page form-page">
+  <view class="eyebrow">日常收支</view><view class="title">{{locked ? '流水详情' : (id ? '编辑这笔记录' : '记下这一笔')}}</view><view class="subtitle">小小一笔，也是认真生活的痕迹。</view>
+  <view wx:if="{{error}}" class="error">{{error}}<button class="link" bindtap="load">重新加载</button></view>
+  <view wx:if="{{!ready &amp;&amp; !error}}" class="loading">正在加载…</view>
+  <block wx:if="{{ready}}">
+    <view wx:if="{{locked}}" class="notice">这笔流水关联工资发放，只能查看；请在后台工资模块处理相关调整。</view>
+    <view class="card amount-card">
+      <view class="direction-tabs"><view class="direction-tab {{form.direction === 'expense' ? 'chosen expense' : ''}}" data-value="expense" bindtap="direction">支出</view><view class="direction-tab {{form.direction === 'income' ? 'chosen income' : ''}}" data-value="income" bindtap="direction">收入</view></view>
+      <view class="label">{{form.direction === 'income' ? '收入' : '支出'}}金额（元）<text class="required">*</text></view>
+      <view class="amount-input"><text>¥</text><input type="digit" value="{{form.amount}}" data-field="amount" bindinput="input" placeholder="0.00" maxlength="15" disabled="{{locked || saving}}"/></view>
+    </view>
+    <view class="card"><view class="section-title">记账信息</view>
+      <view class="field"><view class="label">摘要<text class="required">*</text></view><input class="control" value="{{form.summary}}" data-field="summary" bindinput="input" placeholder="例如：今日营业收入、采购食材" maxlength="255" disabled="{{locked || saving}}"/></view>
+      <view class="field"><view class="label">日期<text class="required">*</text></view><picker mode="date" value="{{form.occurred_on}}" data-field="occurred_on" bindchange="input" disabled="{{locked || saving}}"><view class="control picker-row"><text>{{form.occurred_on}}</text><text class="chevron">›</text></view></picker></view>
+      <view class="field"><view class="row"><view class="label">资金账户<text class="required">*</text></view><button wx:if="{{!locked}}" class="link" data-kind="accounts" bindtap="create">＋ 新建</button></view><picker range="{{accounts}}" range-key="name" data-kind="accounts" data-field="account_id" bindchange="select" disabled="{{locked || saving}}"><view class="control picker-row"><text>{{accountName}}</text><text class="chevron">›</text></view></picker><view wx:if="{{!accounts.length}}" class="hint">还没有账户，点击“新建”，例如：现金、微信或银行卡。新账户期初余额为0。</view></view>
+      <view class="field"><view class="row"><view class="label">收支分类</view><button wx:if="{{!locked}}" class="link" data-kind="categories" bindtap="create">＋ 新建</button></view><picker range="{{categories}}" range-key="name" data-kind="categories" data-field="category_id" bindchange="select" disabled="{{locked || saving}}"><view class="control picker-row"><text>{{categoryName}}</text><text class="chevron">›</text></view></picker></view>
+      <view class="field"><view class="row"><view class="label">归属部门</view><button wx:if="{{!locked}}" class="link" data-kind="departments" bindtap="create">＋ 新建</button></view><picker range="{{departments}}" range-key="name" data-kind="departments" data-field="department_id" bindchange="select" disabled="{{locked || saving}}"><view class="control picker-row"><text>{{departmentName}}</text><text class="chevron">›</text></view></picker></view>
+    </view>
+    <view class="card"><view class="section-title">补充信息</view>
+      <view class="field"><view class="label">对方名称</view><input class="control" value="{{form.counterparty}}" data-field="counterparty" bindinput="input" placeholder="选填，对方姓名或单位" maxlength="128" disabled="{{locked || saving}}"/></view>
+      <view class="field"><view class="label">凭证号</view><input class="control" value="{{form.voucher_no}}" data-field="voucher_no" bindinput="input" placeholder="选填，发票或交易凭证编号" maxlength="64" disabled="{{locked || saving}}"/></view>
+      <view class="field"><view class="label">备注</view><textarea class="control" value="{{form.remark}}" data-field="remark" bindinput="input" placeholder="还想记住些什么…" maxlength="500" disabled="{{locked || saving}}"/></view>
+    </view>
+  </block>
+  <view class="form-footer"><button class="secondary" bindtap="back" disabled="{{saving}}">返回</button><button wx:if="{{!locked}}" class="primary" bindtap="save" loading="{{saving}}" disabled="{{!ready || saving}}">{{saving ? '保存中…' : '保存记录'}}</button></view>
+</view>

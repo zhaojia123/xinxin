@@ -1,0 +1,25 @@
+<view class="page form-page">
+  <view class="eyebrow">员工档案</view><view class="title">{{id ? '更新伙伴的资料' : '认识一位新伙伴'}}</view><view class="subtitle">基本资料、在职信息，整理在一处。</view>
+  <view wx:if="{{error}}" class="error">{{error}}<button class="link" bindtap="load">重新加载</button></view>
+  <view wx:if="{{!ready &amp;&amp; !error}}" class="loading">正在加载…</view>
+  <block wx:if="{{ready}}">
+    <view class="card"><view class="section-title">基本资料</view>
+      <view class="field" wx:for="{{basicFields}}" wx:key="key"><view class="label">{{item.label}}<text wx:if="{{item.required}}" class="required">*</text></view><input class="control" value="{{form[item.key]}}" data-field="{{item.key}}" bindinput="input" placeholder="{{item.placeholder}}" maxlength="{{item.max}}" disabled="{{saving}}"/></view>
+      <view class="field" wx:for="{{choiceFields}}" wx:key="key"><view class="label">{{item.label}}</view><picker range="{{selections[item.key]}}" range-key="name" data-field="{{item.key}}" bindchange="choice" disabled="{{saving}}"><view class="control picker-row"><text>{{labels[item.key]}}</text><text class="chevron">›</text></view></picker></view>
+    </view>
+    <view class="card"><view class="section-title">岗位与工资</view>
+      <view class="field"><view class="row"><view class="label">所属部门</view><button class="link" data-kind="departments" bindtap="create">＋ 新建</button></view><picker range="{{departments}}" range-key="name" data-kind="departments" data-field="department_id" bindchange="select" disabled="{{saving}}"><view class="control picker-row"><text>{{departmentName}}</text><text class="chevron">›</text></view></picker></view>
+      <view class="field"><view class="row"><view class="label">岗位</view><button class="link" data-kind="positions" bindtap="create">＋ 新建</button></view><picker range="{{positions}}" range-key="name" data-kind="positions" data-field="position_id" bindchange="select" disabled="{{saving}}"><view class="control picker-row"><text>{{positionName}}</text><text class="chevron">›</text></view></picker><view class="hint">岗位随部门联动；更换部门后需重新选择岗位。</view></view>
+      <view class="field"><view class="label">月基本工资（元）</view><input class="control" type="digit" value="{{form.current_salary}}" data-field="current_salary" bindinput="input" maxlength="13" placeholder="0.00" disabled="{{saving}}"/><view class="hint">用于后续工资生成，已生成的历史工资条保持不变。</view></view>
+    </view>
+    <view class="card"><view class="section-title">重要日期</view>
+      <view class="field" wx:for="{{dates}}" wx:key="key"><view class="row"><view class="label">{{item.label}}</view><button wx:if="{{form[item.key]}}" class="link" data-field="{{item.key}}" bindtap="clearDate" disabled="{{saving}}">清空</button></view><picker mode="date" value="{{form[item.key]}}" data-field="{{item.key}}" bindchange="input" disabled="{{saving}}"><view class="control picker-row"><text>{{form[item.key] || '未填写'}}</text><text class="chevron">›</text></view></picker></view>
+    </view>
+    <view class="card"><view class="section-title">更多资料</view>
+      <view class="field"><view class="label">学历</view><input class="control" value="{{form.education}}" data-field="education" bindinput="input" placeholder="选填" maxlength="32" disabled="{{saving}}"/></view>
+      <view class="field"><view class="label">籍贯</view><input class="control" value="{{form.hometown}}" data-field="hometown" bindinput="input" placeholder="选填" maxlength="128" disabled="{{saving}}"/></view>
+      <view class="field"><view class="label">备注</view><textarea class="control" value="{{form.remark}}" data-field="remark" bindinput="input" placeholder="关于这位伙伴的补充信息…" maxlength="500" disabled="{{saving}}"/></view>
+    </view>
+  </block>
+  <view class="form-footer"><button class="secondary" bindtap="back" disabled="{{saving}}">返回</button><button class="primary" bindtap="save" disabled="{{!ready || saving}}" loading="{{saving}}">{{saving ? '保存中…' : '保存员工资料'}}</button></view>
+</view>

@@ -1,0 +1,29 @@
+{
+  "pages": [
+    "pages/login/index",
+    "pages/ledger/index",
+    "pages/ledger-edit/index",
+    "pages/employees/index",
+    "pages/employee-edit/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "欣欣的日常记录",
+    "navigationBarBackgroundColor": "#f5f7fb",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f5f7fb",
+    "backgroundTextStyle": "dark"
+  },
+  "tabBar": {
+    "custom": true,
+    "color": "#718096",
+    "selectedColor": "#2457e6",
+    "backgroundColor": "#ffffff",
+    "list": [
+      {"pagePath": "pages/ledger/index", "text": "台账"},
+      {"pagePath": "pages/employees/index", "text": "员工"}
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

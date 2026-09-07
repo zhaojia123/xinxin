@@ -1,0 +1,18 @@
+page { background: #f5f7fb; }
+.login-page { padding: 80rpx 48rpx 70rpx; background: radial-gradient(circle at 90% 0, #e1eaff, transparent 44%); min-height: 100vh; }
+.brand-mark { width: 100rpx; height: 100rpx; background: linear-gradient(145deg,#2f67ff,#173eb0); color: #fff; font-size: 48rpx; font-weight: 700; text-align: center; line-height: 100rpx; border-radius: 30rpx; margin-bottom: 54rpx; box-shadow: 0 15rpx 36rpx rgba(36,87,230,.2); }
+.login-title { font-size: 53rpx; font-weight: 700; margin-top: 20rpx; letter-spacing: -2rpx; }
+.blue { color: #2457e6; }
+.intro { color: #718096; font-size: 29rpx; line-height: 1.9; margin-top: 26rpx; }
+.preview { padding: 32rpx; border-radius: 30rpx; background: #fff; border: 1rpx solid #e6eaf0; margin: 50rpx 0; box-shadow: 0 20rpx 50rpx rgba(31,45,74,.04); }
+.preview-top { display: flex; justify-content: space-between; font-size: 27rpx; font-weight: 600; margin-bottom: 14rpx; }
+.preview-tag { color: #718096; font-size: 22rpx; font-weight: 400; }
+.preview-line { display: flex; align-items: center; padding-top: 30rpx; }
+.mini-mark { width: 68rpx; height: 68rpx; border-radius: 20rpx; background: #edf2ff; color: #2457e6; text-align: center; line-height: 68rpx; margin-right: 24rpx; }
+.green { background: #eaf7f1; color: #16825d; }
+.preview-copy text { display: block; font-size: 26rpx; }
+.preview-copy .muted { font-size: 22rpx; margin-top: 10rpx; }
+.login-button { padding: 28rpx; box-shadow: 0 12rpx 30rpx rgba(36,87,230,.18); }
+.login-note { font-size: 22rpx; color: #98a2b3; text-align: center; margin-top: 24rpx; }
+.settings-link { margin: 30rpx auto 0; font-size: 23rpx; color: #718096; }
+.secondary { margin-top: 20rpx; }

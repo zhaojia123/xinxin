@@ -1,0 +1,20 @@
+<view class="login-page">
+  <view class="brand-mark">欣</view>
+  <view class="eyebrow">每一天，都值得好好记录</view>
+  <view class="login-title">欣欣的<text class="blue">日常记录</text></view>
+  <view class="intro"><view>一笔收入，一笔支出。</view><view>把日常理清，让心里有数。</view></view>
+  <view class="preview">
+    <view class="preview-top"><text>我的日常账本</text><text class="preview-tag">清晰 · 有序</text></view>
+    <view class="preview-line"><view class="mini-mark green">收</view><view class="preview-copy"><text>记录每一笔收支</text><text class="muted">分类、账户、备注，一目了然</text></view></view>
+    <view class="preview-line"><view class="mini-mark">人</view><view class="preview-copy"><text>照顾每一位伙伴</text><text class="muted">员工档案，随时查看与更新</text></view></view>
+  </view>
+  <button class="primary login-button" bindtap="login" loading="{{loading}}" disabled="{{loading}}">{{loading ? '正在登录…' : '微信登录，开始记录'}}</button>
+  <view class="login-note">仅用于识别登录身份，不读取微信聊天记录</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <button wx:if="{{dev}}" class="link settings-link" bindtap="toggleSettings">开发连接设置</button>
+  <view wx:if="{{dev &amp;&amp; settings}}" class="card">
+    <view class="label">后端地址</view><input class="control" value="{{host}}" bindinput="changeHost" placeholder="http://127.0.0.1:8999"/>
+    <view class="hint">模拟器可用本机地址；真机请填写电脑的局域网 IP。开发工具需关闭本地合法域名校验。</view>
+    <button class="secondary small-button" bindtap="saveHost">保存连接地址</button>
+  </view>
+</view>

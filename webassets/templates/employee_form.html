@@ -1,0 +1,24 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.PageTitle}} · 好友记录</title><link rel="stylesheet" href="/assets/app.css"><script defer src="/assets/app.js"></script></head>
+<body><div class="admin-shell">{{template "sidebar" .}}<main class="admin-main narrow-main">
+<header class="admin-topbar"><div><p class="breadcrumb"><a href="/admin/employees">员工档案</a> / {{.PageTitle}}</p><h1>{{.PageTitle}}</h1><p class="page-description">保存后自动返回员工档案列表</p></div></header>
+{{if .Error}}<div class="alert" role="alert">{{.Error}}</div>{{end}}
+<form class="detail-card" method="post"><div class="form-section"><div class="section-title"><div><h2>基本信息</h2><p>带 * 的项目为必填项</p></div></div><div class="form-grid">
+<label>员工编号 *<input name="employee_no" required maxlength="32" value="{{.Form.EmployeeNo}}" placeholder="例如 E006"></label>
+<label>姓名 *<input name="name" required maxlength="64" value="{{.Form.Name}}" placeholder="请输入姓名"></label>
+<label>性别<select name="gender"><option value="unknown" {{if eq .Form.Gender "unknown"}}selected{{end}}>未填写</option><option value="male" {{if eq .Form.Gender "male"}}selected{{end}}>男</option><option value="female" {{if eq .Form.Gender "female"}}selected{{end}}>女</option></select></label>
+<label>手机号<input name="mobile" maxlength="32" value="{{.Form.Mobile}}" placeholder="请输入手机号"></label>
+<label class="span-2">身份证号<input name="id_card" maxlength="32" value="{{.Form.IDCard}}" placeholder="请输入身份证号"></label>
+<label>学历<input name="education" maxlength="32" value="{{.Form.Education}}" placeholder="例如 本科"></label>
+<label>籍贯<input name="hometown" maxlength="128" value="{{.Form.Hometown}}" placeholder="例如 江苏南京"></label></div></div>
+<div class="form-section"><div class="section-title"><div><h2>任职信息</h2><p>用于请假异常、异动和工资统计</p></div></div><div class="form-grid">
+<label>部门<select name="department_id" data-department-select><option value="">不指定部门</option>{{range .Departments}}<option value="{{.ID}}" {{if eq .ID $.Form.DepartmentID}}selected{{end}}>{{.Name}}</option>{{end}}</select></label>
+<label>岗位<select name="position_id" data-position-select><option value="">不指定岗位</option>{{range .Positions}}<option value="{{.ID}}" data-department-id="{{.DepartmentID}}" {{if eq .ID $.Form.PositionID}}selected{{end}}>{{.Department}} / {{.Name}}</option>{{end}}</select></label>
+<label>员工状态<select name="employment_status"><option value="probation" {{if eq .Form.EmploymentStatus "probation"}}selected{{end}}>试用期</option><option value="active" {{if eq .Form.EmploymentStatus "active"}}selected{{end}}>在职</option><option value="left" {{if eq .Form.EmploymentStatus "left"}}selected{{end}}>已离职</option></select></label>
+<label>用工类型<select name="employment_type"><option value="full_time" {{if eq .Form.EmploymentType "full_time"}}selected{{end}}>正式员工</option><option value="part_time" {{if eq .Form.EmploymentType "part_time"}}selected{{end}}>兼职</option><option value="intern" {{if eq .Form.EmploymentType "intern"}}selected{{end}}>实习</option></select></label>
+<label>入职日期<input name="joined_on" type="date" value="{{.Form.JoinedOn}}"></label>
+<label>转正日期<input name="regularized_on" type="date" value="{{.Form.RegularizedOn}}"></label>
+<label>离职日期<input name="left_on" type="date" value="{{.Form.LeftOn}}"></label>
+<label>当前工资<input name="current_salary" type="number" min="0" max="9999999999.99" step="0.01" required value="{{.Form.CurrentSalary}}" placeholder="例如 8500.00"></label>
+<label class="span-2">备注<textarea name="remark" maxlength="500" placeholder="选填">{{.Form.Remark}}</textarea></label></div></div>
+<div class="form-actions"><a class="ghost-button link-button" href="/admin/employees">取消</a><button class="primary-button" type="submit">保存员工</button></div></form>
+</main></div><div class="demo-toast" role="status"></div></body></html>

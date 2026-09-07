@@ -1,0 +1,24 @@
+<!doctype html><html lang="zh-CN"><head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>员工档案 · 好友记录</title><link rel="stylesheet" href="/assets/app.css"><script defer src="/assets/app.js"></script>
+</head><body><div class="admin-shell">{{template "sidebar" .}}
+<main class="admin-main">
+  <header class="admin-topbar"><div><p class="breadcrumb">人员管理 / 员工档案</p><h1>员工档案</h1><p class="page-description">维护员工基本资料、任职状态与联系方式</p></div><a class="primary-button compact link-button" href="/admin/employees/new">＋ 新增员工</a></header>
+  <section class="stat-grid four-cols employee-stats">
+    <article class="stat-card"><span>员工总数</span><strong>{{.Summary.Total}}</strong><small>含离职员工</small></article>
+    <article class="stat-card"><span>当前在职</span><strong>{{.Summary.Active}}</strong><small>正式在职员工</small></article>
+    <article class="stat-card"><span>试用期</span><strong>{{.Summary.Probation}}</strong><small>待转正员工</small></article>
+    <article class="stat-card"><span>本月离职</span><strong>{{.Summary.LeftThisMonth}}</strong><small>本月异动数据</small></article>
+  </section>
+  {{if .HealthReminders}}<section class="health-reminder-card"><div class="health-reminder-heading"><span>证</span><div><h2>健康证到期提醒</h2><p>以下员工健康证已经过期或将在 20 天内到期，请及时安排续证</p></div><strong>{{len .HealthReminders}} 人</strong></div><div class="health-reminder-list">{{range .HealthReminders}}<a href="/admin/employees/view?id={{.EmployeeID}}"><span><b>{{.Name}}</b><small>{{.EmployeeNo}} · 到期日期 {{.ExpiresOn}}</small></span><i class="status {{.StatusClass}}">{{.Status}}</i></a>{{end}}</div></section>{{end}}
+  <section class="table-card">
+    <div class="table-toolbar"><div class="search-box">⌕ <input aria-label="搜索员工" placeholder="搜索姓名、工号或手机号"></div><select aria-label="部门筛选"><option>全部部门</option><option>运营部</option><option>财务部</option><option>仓储部</option><option>销售部</option></select><select aria-label="状态筛选"><option>全部状态</option><option>在职</option><option>试用期</option><option>已离职</option></select><button class="ghost-button" data-demo-action="导出员工表">导出</button></div>
+    <div class="table-header"><div><h2>全部员工</h2><p>身份证号和手机号已做脱敏展示</p></div><span class="count-badge">{{len .Employees}} 人</span></div>
+    <div class="table-wrap"><table><thead><tr><th>员工</th><th>部门 / 岗位</th><th>状态</th><th>身份证号</th><th>手机号</th><th>入职时间</th><th>当前工资</th><th>健康证</th><th>操作</th></tr></thead><tbody>
+    {{range .Employees}}<tr>
+      <td><div class="employee-name"><span class="employee-avatar">{{.Gender}}</span><span><strong>{{.Name}}</strong><small>{{.EmployeeNo}}</small></span></div></td>
+      <td><strong>{{.Department}}</strong><small class="cell-subtitle">{{.Position}}</small></td><td><span class="status {{.StatusClass}}">{{.Status}}</span></td><td><span class="mono">{{.IDCard}}</span></td><td>{{.Mobile}}</td><td>{{.JoinedOn}}</td><td><strong class="salary">{{.Salary}}</strong></td><td><span class="status {{.HealthCertificateStatusClass}}">{{.HealthCertificateStatus}}</span><small class="cell-subtitle">{{if .HealthCertificateExpiresOn}}{{.HealthCertificateExpiresOn}}{{else}}暂无到期日期{{end}}</small></td>
+      <td><div class="row-actions"><a href="/admin/employees/view?id={{.ID}}">详情</a><a href="/admin/employees/edit?id={{.ID}}">编辑</a>{{if ne .Status "已离职"}}<button data-employee-leave data-id="{{.ID}}" data-name="{{.Name}}">离职</button>{{end}}</div></td>
+    </tr>{{else}}<tr><td colspan="9" class="empty-cell">暂无员工数据，请先维护部门和岗位后再新增员工</td></tr>{{end}}</tbody></table></div>
+  </section>
+</main></div><div class="demo-toast" role="status"></div></body></html>

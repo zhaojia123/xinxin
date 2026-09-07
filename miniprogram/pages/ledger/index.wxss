@@ -1,0 +1,23 @@
+.overview { margin-top: 30rpx; background: linear-gradient(135deg,#2e62ed,#1942bc); padding: 32rpx; border-radius: 30rpx; color: #fff; box-shadow: 0 18rpx 36rpx rgba(36,87,230,.18); }
+.overview-label { color: #d6e1ff; font-size: 24rpx; }
+.month-picker { padding: 12rpx 18rpx; background: rgba(255,255,255,.14); border-radius: 14rpx; font-size: 24rpx; }
+.net { font-size: 57rpx; font-weight: 700; margin: 28rpx 0; word-break: break-all; }
+.overview-bottom { display: flex; justify-content: space-between; align-items: center; border-top: 1rpx solid rgba(255,255,255,.2); padding-top: 24rpx; }
+.balance { font-size: 30rpx; margin-top: 8rpx; }
+.overview-seal { width: 65rpx; height: 65rpx; line-height: 65rpx; border: 1rpx solid rgba(255,255,255,.3); text-align: center; border-radius: 20rpx; font-size: 30rpx; color: #d6e1ff; transform: rotate(-10deg); }
+.totals { display: flex; gap: 20rpx; margin: 24rpx 0 36rpx; }
+.total { flex: 1; min-width: 0; padding: 24rpx; background: #fff; border: 1rpx solid #e6eaf0; border-radius: 24rpx; font-size: 24rpx; }
+.total-amount { margin-top: 18rpx; font-size: 33rpx; font-weight: 600; word-break: break-all; }
+.records-heading { margin-top: 38rpx; }
+.entry { background: #fff; padding: 27rpx; border-radius: 24rpx; border: 1rpx solid #e6eaf0; margin-top: 18rpx; }
+.entry-top { display: flex; align-items: center; }
+.entry-icon { width: 66rpx; height: 66rpx; border-radius: 20rpx; text-align: center; line-height: 66rpx; flex-shrink: 0; font-weight: 600; margin-right: 20rpx; }
+.entry-icon.income { color: #16825d; background: #eaf7f1; }
+.entry-icon.expense { color: #dc5c50; background: #fff0eb; }
+.entry-main { flex: 1; min-width: 0; }
+.entry-title { font-size: 28rpx; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entry-meta { margin-top: 10rpx; font-size: 22rpx; color: #718096; }
+.entry-amount { max-width: 270rpx; font-size: 30rpx; font-weight: 600; margin-left: 12rpx; word-break: break-all; }
+.entry-bottom { display: flex; justify-content: space-between; gap: 16rpx; border-top: 1rpx solid #f0f2f7; padding-top: 20rpx; margin-top: 22rpx; color: #98a2b3; font-size: 22rpx; }
+.entry-bottom > text:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.edit-label { color: #718096; flex-shrink: 0; }

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>后台登录 · 好友记录</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="login-body">
+  <main class="login-shell">
+    <section class="login-card">
+      <div class="brand-mark">FR</div>
+      <p class="eyebrow">FRIENDS RECORDS</p>
+      <h1>后台登录</h1>
+      <p class="muted">管理成员、数据记录和统计信息</p>
+
+      {{if .Error}}<div class="alert">{{.Error}}</div>{{end}}
+
+      <form method="post" action="/admin/login" class="form-stack">
+        <label>
+          <span>用户名</span>
+          <input name="username" value="{{.Username}}" autocomplete="username" required maxlength="64" placeholder="请输入用户名">
+        </label>
+        <label>
+          <span>密码</span>
+          <input type="password" name="password" autocomplete="current-password" required maxlength="128" placeholder="请输入密码">
+        </label>
+        <button type="submit" class="primary-button">登录后台</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

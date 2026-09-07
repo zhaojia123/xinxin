@@ -1,0 +1,21 @@
+<view class="page">
+  <view class="row"><view><view class="eyebrow">欣欣的日常记录</view><view class="title">日常台账</view></view><button class="link" bindtap="logout">退出</button></view>
+  <view class="subtitle">把每一笔日常，记得明明白白。</view>
+  <view class="overview">
+    <view class="row"><text class="overview-label">本月净收支</text><picker mode="date" fields="month" value="{{month}}" bindchange="monthChanged"><view class="month-picker">{{month}} ▾</view></picker></view>
+    <view class="net">{{summary ? summary.month_net : '—'}}</view>
+    <view class="overview-bottom"><view><view class="overview-label">月末累计结存</view><view class="balance">{{summary ? summary.current_balance : '—'}}</view></view><view class="overview-seal">记</view></view>
+  </view>
+  <view class="totals"><view class="total"><view class="muted">↗ 本月收入</view><view class="total-amount positive">{{summary ? summary.month_income : '—'}}</view></view><view class="total"><view class="muted">↘ 本月支出</view><view class="total-amount negative">{{summary ? summary.month_expense : '—'}}</view></view></view>
+  <view class="row records-heading"><view class="section-title">收支明细</view><button class="primary small-button" bindtap="add">＋ 记一笔</button></view>
+  <view class="search"><input placeholder="搜索摘要、对方名称" value="{{q}}" bindinput="search" maxlength="128" confirm-type="search"/></view>
+  <view class="filters"><view class="filter {{direction === '' ? 'active' : ''}}" data-value="" bindtap="filter">全部</view><view class="filter {{direction === 'income' ? 'active' : ''}}" data-value="income" bindtap="filter">收入</view><view class="filter {{direction === 'expense' ? 'active' : ''}}" data-value="expense" bindtap="filter">支出</view></view>
+  <view class="entry" wx:for="{{records}}" wx:key="id" data-id="{{item.id}}" bindtap="edit">
+    <view class="entry-top"><view class="entry-icon {{item.direction}}">{{item.badge}}</view><view class="entry-main"><view class="entry-title">{{item.summary}}</view><view class="entry-meta">{{item.category || '未分类'}} · {{item.account}}</view></view><view class="entry-amount {{item.direction === 'income' ? 'positive' : 'negative'}}">{{item.sign}}{{item.amount}}</view></view>
+    <view class="entry-bottom"><text>{{item.occurred_on}}<text wx:if="{{item.counterparty}}"> · {{item.counterparty}}</text></text><text class="edit-label">{{item.payroll_batch_id ? '工资关联 · 查看' : '编辑 ›'}}</text></view>
+  </view>
+  <view wx:if="{{error}}" class="error">{{error}}<button class="link" bindtap="retry">重新加载</button></view>
+  <view wx:if="{{loading}}" class="loading">正在整理账目…</view>
+  <view wx:if="{{loaded &amp;&amp; !records.length &amp;&amp; !loading &amp;&amp; !error}}" class="empty card"><view class="empty-mark">记</view><view class="empty-title">{{q || direction ? '没有找到匹配的记录' : '这个月，等你记下第一笔'}}</view><view>{{q || direction ? '试试其他关键词或收支类型' : '收入与支出，都可以从这里开始'}}</view><button class="link" bindtap="add">＋ 添加收支</button></view>
+  <view wx:if="{{loaded &amp;&amp; records.length &amp;&amp; !more &amp;&amp; !loading}}" class="end">本次筛选的记录都在这里了</view>
+</view>

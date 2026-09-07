@@ -1,0 +1,36 @@
+{{define "sidebar"}}
+<aside class="sidebar">
+  <a class="sidebar-brand" href="/admin/employees">
+    <span class="brand-mark brand-mark-small">FR</span>
+    <span>
+      <strong>好友记录</strong>
+      <small>人事管理后台</small>
+    </span>
+  </a>
+
+  <nav class="sidebar-nav" aria-label="后台菜单">
+    <p class="nav-label">人员管理</p>
+    <a class="nav-item {{if eq .ActiveMenu "employees"}}active{{end}}" href="/admin/employees">
+      <span class="nav-icon">员</span>
+      <span>员工档案</span>
+    </a>
+    <a class="nav-item {{if eq .ActiveMenu "organization"}}active{{end}}" href="/admin/organization"><span class="nav-icon">组</span><span>部门岗位</span></a>
+    <a class="nav-item {{if eq .ActiveMenu "leaves"}}active{{end}}" href="/admin/leaves"><span class="nav-icon">假</span><span>请假管理</span></a>
+    <a class="nav-item {{if eq .ActiveMenu "changes"}}active{{end}}" href="/admin/changes"><span class="nav-icon">异</span><span>人事异动</span></a>
+    <p class="nav-label">薪资管理</p>
+    <a class="nav-item {{if eq .ActiveMenu "salary"}}active{{end}}" href="/admin/salary-adjustments"><span class="nav-icon">调</span><span>调薪记录</span></a>
+    <a class="nav-item {{if eq .ActiveMenu "payroll"}}active{{end}}" href="/admin/payroll"><span class="nav-icon">薪</span><span>月度工资</span></a>
+    <p class="nav-label">业务与系统</p>
+    <a class="nav-item {{if eq .ActiveMenu "ledger"}}active{{end}}" href="/admin/ledger">
+      <span class="nav-icon">账</span>
+      <span>台账流水</span>
+    </a>
+    <a class="nav-item {{if eq .ActiveMenu "audit"}}active{{end}}" href="/admin/audit-logs"><span class="nav-icon">志</span><span>操作日志</span></a>
+  </nav>
+
+  <div class="sidebar-footer">
+    <span class="avatar">管</span>
+    <span><strong>管理员</strong><small>本地演示模式</small></span>
+  </div>
+</aside>
+{{end}}
