@@ -46,15 +46,71 @@ func createdStatus(method string) int {
 }
 
 func (h *Handler) AdminOptionsAPI(w http.ResponseWriter, r *http.Request) {
-	if !getOnly(w, r) {
-		return
+	switch r.Method {
+	case http.MethodGet:
+		v, err := h.Store.AdminOptions(r.Context())
+		if err != nil {
+			adminWriteError(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, v)
+	case http.MethodPost:
+		var v request.OptionInput
+		if !decodeJSON(w, r, &v) {
+			return
+		}
+		if err := v.Validate(); err != nil {
+			httpx.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		id, err := h.Store.CreateMiniOption(r.Context(), v.Kind, v.Name, v.Direction, v.DepartmentID, 0)
+		if err != nil {
+			adminWriteError(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusCreated, map[string]any{"id": id, "name": v.Name, "direction": v.Direction, "department_id": v.DepartmentID})
+	default:
+		httpx.MethodNotAllowed(w, http.MethodGet, http.MethodPost)
 	}
-	v, err := h.Store.AdminOptions(r.Context())
-	if err != nil {
-		adminWriteError(w, err)
-		return
+}
+
+func (h *Handler) AdminEmployeesAPI(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		if id, ok := adminID(w, r, false); !ok {
+			return
+		} else if id != 0 {
+			v, err := h.Store.MiniEmployee(r.Context(), id)
+			if err != nil {
+				adminWriteError(w, err)
+				return
+			}
+			httpx.JSON(w, http.StatusOK, v)
+			return
+		}
+		h.EmployeesAPI(w, r)
+	case http.MethodPost, http.MethodPut:
+		id, ok := adminID(w, r, r.Method == http.MethodPut)
+		if !ok {
+			return
+		}
+		var v request.EmployeeInput
+		if !decodeJSON(w, r, &v) {
+			return
+		}
+		if err := v.Validate(); err != nil {
+			httpx.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		id, err := h.Store.SaveEmployee(r.Context(), id, 0, v)
+		if err != nil {
+			adminWriteError(w, err)
+			return
+		}
+		httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": id})
+	default:
+		httpx.MethodNotAllowed(w, http.MethodGet, http.MethodPost, http.MethodPut)
 	}
-	httpx.JSON(w, 200, v)
 }
 
 func (h *Handler) AdminDepartmentsAPI(w http.ResponseWriter, r *http.Request) {

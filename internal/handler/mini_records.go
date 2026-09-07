@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"friends-records/api/request"
 	"friends-records/internal/httpx"
@@ -242,22 +241,12 @@ func (h *Handler) MiniOptionsAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		httpx.JSON(w, 200, v)
 	case http.MethodPost:
-		var input struct {
-			Kind         string `json:"kind"`
-			Name         string `json:"name"`
-			Direction    string `json:"direction"`
-			DepartmentID uint64 `json:"department_id"`
-		}
+		var input request.OptionInput
 		if !decodeJSON(w, r, &input) {
 			return
 		}
-		input.Name = strings.TrimSpace(input.Name)
-		if input.Name == "" || utf8.RuneCountInString(input.Name) > 64 {
-			httpx.Error(w, 400, "名称必填且不能超过64字")
-			return
-		}
-		if input.Kind == "categories" && input.Direction != "income" && input.Direction != "expense" {
-			httpx.Error(w, 400, "请选择分类的收支方向")
+		if err := input.Validate(); err != nil {
+			httpx.Error(w, 400, err.Error())
 			return
 		}
 		id, err := h.Store.CreateMiniOption(r.Context(), input.Kind, input.Name, input.Direction, input.DepartmentID, miniActor(r))

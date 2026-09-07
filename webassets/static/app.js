@@ -58,6 +58,26 @@ document.addEventListener("DOMContentLoaded", () => {
     return data;
   };
   const loadAdminOptions = async () => adminOptions || (adminOptions = await fetchJSON("/api/admin/options"));
+  const askValue = ({ title, label, type = "text", value = "" }) => new Promise(resolve => {
+    const overlay = document.createElement("div");
+    overlay.className = "record-prompt";
+    overlay.innerHTML = `<form class="record-prompt-card"><h3>${escapeHTML(title)}</h3><label>${escapeHTML(label)}<input name="value" type="${type}" value="${escapeHTML(value)}" required autofocus></label><div class="form-actions"><button type="button" class="ghost-button" data-prompt-cancel>取消</button><button type="submit" class="primary-button">确定</button></div></form>`;
+    let finished = false;
+    const finish = result => {
+      if (finished) return;
+      finished = true;
+      overlay.remove();
+      resolve(result);
+    };
+    document.body.appendChild(overlay);
+    overlay.querySelector("input").focus();
+    overlay.querySelector("[data-prompt-cancel]").addEventListener("click", () => finish(""));
+    overlay.addEventListener("click", event => { if (event.target === overlay) finish(""); });
+    overlay.querySelector("form").addEventListener("submit", event => {
+      event.preventDefault();
+      finish(event.currentTarget.elements.value.value.trim());
+    });
+  });
   const fieldOptions = (type) => choices[type] || adminOptions?.[type] || [];
   const fieldHTML = (field, data, readonly) => {
     const [name,label,type,required] = field;
@@ -67,7 +87,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const options = fieldOptions(type);
     if (options.length || ["departments","employees","positions","accounts","categories"].includes(type)) {
       const empty = required ? "请选择" : "不指定";
-      return `<label data-record-field="${name}">${escapeHTML(label)}${required ? " *" : ""}<select name="${name}" ${required ? "required" : ""} ${readonly ? "disabled" : ""}><option value="">${empty}</option>${options.map(item => `<option value="${escapeHTML(item.id)}" data-department-id="${escapeHTML(item.department_id || "")}" data-direction="${escapeHTML(item.direction || "")}" ${String(item.id) === String(value) ? "selected" : ""}>${escapeHTML(item.name)}${item.direction ? ` · ${item.direction === "income" ? "收入" : "支出"}` : ""}</option>`).join("")}</select></label>`;
+      const create = !readonly && ["accounts","categories"].includes(type) ? `<button type="button" class="record-inline-add" data-create-option="${type}">＋ 新建</button>` : "";
+      return `<label data-record-field="${name}"><span class="record-label-row"><span>${escapeHTML(label)}${required ? " *" : ""}</span>${create}</span><select name="${name}" ${required ? "required" : ""} ${readonly ? "disabled" : ""}><option value="">${empty}</option>${options.map(item => `<option value="${escapeHTML(item.id)}" data-department-id="${escapeHTML(item.department_id || "")}" data-direction="${escapeHTML(item.direction || "")}" ${String(item.id) === String(value) ? "selected" : ""}>${escapeHTML(item.name)}${item.direction ? ` · ${item.direction === "income" ? "收入" : "支出"}` : ""}</option>`).join("")}</select></label>`;
     }
     const inputType = ["number","date","time"].includes(type) ? type : "text";
     const step = type === "number" ? ' step="0.01"' : "";
@@ -96,6 +117,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (minutes) minutes.required = !leave;
     }
     if (kind === "change") {
+      const changeType = overlay.querySelector('[name="change_type"]')?.value;
+      const status = overlay.querySelector('[name="after_status"]');
+      if (status && changeType === "leave") status.value = "left";
+      if (status && changeType === "regularize") status.value = "active";
       filterDialogOptions(overlay.querySelector('[name="after_position_id"]'), "departmentId", overlay.querySelector('[name="after_department_id"]')?.value || "");
     }
     if (kind === "ledger") {
@@ -118,8 +143,35 @@ document.addEventListener("DOMContentLoaded", () => {
       document.body.appendChild(overlay);
       overlay.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", closeRecordDialog));
       overlay.addEventListener("click", event => { if (event.target === overlay) closeRecordDialog(); });
+      overlay.querySelectorAll("[data-create-option]").forEach(button => button.addEventListener("click", async event => {
+        event.preventDefault();
+        const kind = button.dataset.createOption;
+        const label = kind === "accounts" ? "资金账户" : "收支分类";
+        const name = await askValue({title:`新建${label}`,label:`${label}名称`});
+        if (!name) return;
+        button.disabled = true;
+        try {
+          const direction = kind === "categories" ? overlay.querySelector('[name="direction"]')?.value || "" : "";
+          const created = await fetchJSON("/api/admin/options", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind,name,direction})});
+          const select = button.closest("label").querySelector("select");
+          const option = document.createElement("option");
+          option.value = String(created.id);
+          option.textContent = created.name;
+          option.dataset.direction = created.direction || "";
+          select.appendChild(option);
+          select.value = option.value;
+          adminOptions[kind].push(created);
+          syncDialogDependencies(overlay, kind === "categories" ? "ledger" : kind);
+          showMessage(`${label}已新建`);
+        } catch (error) {
+          overlay.querySelector(".record-dialog-error").textContent = error.message;
+        } finally {
+          button.disabled = false;
+        }
+      }));
       syncDialogDependencies(overlay, kind);
       overlay.querySelector('[name="category"]')?.addEventListener("change", () => syncDialogDependencies(overlay, kind));
+      overlay.querySelector('[name="change_type"]')?.addEventListener("change", () => syncDialogDependencies(overlay, kind));
       overlay.querySelector('[name="after_department_id"]')?.addEventListener("change", () => syncDialogDependencies(overlay, kind));
       overlay.querySelector('[name="direction"]')?.addEventListener("change", () => syncDialogDependencies(overlay, kind));
       if (readonly) return;
@@ -173,7 +225,7 @@ document.addEventListener("DOMContentLoaded", () => {
     catch(error){showMessage(error.message);button.disabled=false;}
   }));
   document.querySelectorAll("[data-employee-leave]").forEach(button => button.addEventListener("click", async () => {
-    const date = window.prompt(`请输入 ${button.dataset.name} 的离职日期`,today());
+    const date = await askValue({title:`办理 ${button.dataset.name} 离职`,label:"离职日期",type:"date",value:today()});
     if (!date) return;
     button.disabled=true;
     try { await fetchJSON(`/api/admin/employees/leave?id=${button.dataset.id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({left_on:date})}); window.location.href="/admin/employees"; }

@@ -54,7 +54,7 @@ friends-records/
 4. 启动：
 
 ```bash
-cd /Users/zhaojia/Documents/go/friends-records
+cd /Users/mrzhao/go/friends-records
 make run
 ```
 
@@ -69,7 +69,7 @@ GO111MODULE=on go run .
 需要在 SQL 执行失败时显示准确行号，可以使用批处理方式执行：
 
 ```bash
-mysql --show-warnings --verbose -u root -p friends_records < /Users/zhaojia/Documents/go/friends-records/sql/schema.sql
+mysql --show-warnings --verbose -u root -p friends_records < /Users/mrzhao/go/friends-records/sql/schema.sql
 ```
 
 MySQL 会输出类似 `ERROR 1064 ... at line 90`。Go 服务的所有 HTTP 错误响应也会包含项目相对文件和行号；数据库错误还会附带 SQL 查询所在的 Go 文件、行号和 MySQL 原因。
@@ -89,17 +89,23 @@ MySQL 会输出类似 `ERROR 1064 ... at line 90`。Go 服务的所有 HTTP 错�
 
 ```text
 GET/POST /admin/login
-GET  /api/admin/employees
+GET/POST/PUT /api/admin/employees
+PUT  /api/admin/employees/leave
+GET/POST /api/admin/options
 POST /api/admin/upload/health-certificate
 GET  /api/admin/organization
-GET  /api/admin/attendance?period=month|quarter|half|year
-GET  /api/admin/employment-changes
-GET  /api/admin/salary-adjustments
+GET/POST/PUT /api/admin/departments
+GET/POST/PUT /api/admin/positions
+GET/POST/PUT /api/admin/attendance?period=month|quarter|half|year
+PUT  /api/admin/attendance/status
+GET/POST /api/admin/employment-changes
+GET/POST /api/admin/salary-adjustments
 GET  /api/admin/payroll?month=2026-09
 PUT  /api/admin/payroll?id=工资明细ID
 POST /api/admin/payroll/generate
+POST /api/admin/payroll/confirm
 POST /api/admin/payroll/pay
-GET  /api/admin/ledger?month=2026-09
+GET/POST/PUT /api/admin/ledger?month=2026-09
 GET  /api/admin/audit-logs
 POST /api/mini/login
 GET/POST/PUT /api/mini/ledger

@@ -248,7 +248,12 @@ func (s *Store) SetAttendanceStatus(ctx context.Context, id uint64, status strin
 	if status != "approved" && status != "rejected" {
 		return MiniInputError{"审批状态不正确"}
 	}
-	result, err := s.DB.ExecContext(ctx, `UPDATE attendance_records SET status=?,reviewed_at=NOW() WHERE id=? AND status='pending'`, status, id)
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE attendance_records SET status=?,reviewed_at=NOW() WHERE id=? AND status='pending'`, status, id)
 	if err != nil {
 		return err
 	}
@@ -259,7 +264,10 @@ func (s *Store) SetAttendanceStatus(ctx context.Context, id uint64, status strin
 	if n == 0 {
 		return MiniInputError{"只有待审批记录可以通过或驳回"}
 	}
-	return nil
+	if err := miniAudit(ctx, tx, 0, "attendance", id, status); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 type ChangeRecordInput struct {
@@ -386,8 +394,14 @@ func (s *Store) LeaveEmployee(ctx context.Context, id uint64, date string) error
 	if err := s.ready(); err != nil {
 		return err
 	}
-	if _, err := time.Parse("2006-01-02", date); err != nil {
+	leftOn, err := time.ParseInLocation("2006-01-02", date, time.Local)
+	if err != nil {
 		return MiniInputError{"离职日期不正确"}
+	}
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	if leftOn.After(today) {
+		return MiniInputError{"办理离职会立即更新员工档案，离职日期不能晚于今天"}
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {

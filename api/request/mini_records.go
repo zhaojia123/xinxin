@@ -31,6 +31,30 @@ func validDate(value string, optional bool) bool {
 
 func textLength(value string, max int) bool { return utf8.RuneCountInString(value) <= max }
 
+type OptionInput struct {
+	Kind         string `json:"kind"`
+	Name         string `json:"name"`
+	Direction    string `json:"direction"`
+	DepartmentID uint64 `json:"department_id"`
+}
+
+func (v *OptionInput) Validate() error {
+	v.Name = strings.TrimSpace(v.Name)
+	if !map[string]bool{"accounts": true, "categories": true, "departments": true, "positions": true}[v.Kind] {
+		return fmt.Errorf("不支持的选项类型")
+	}
+	if v.Name == "" || !textLength(v.Name, 64) {
+		return fmt.Errorf("名称必填且不能超过64字")
+	}
+	if v.Kind == "categories" && v.Direction != "income" && v.Direction != "expense" {
+		return fmt.Errorf("请选择分类的收支方向")
+	}
+	if v.Kind == "positions" && v.DepartmentID == 0 {
+		return fmt.Errorf("请先选择岗位所属部门")
+	}
+	return nil
+}
+
 type LedgerInput struct {
 	OccurredOn   string `json:"occurred_on"`
 	AccountID    uint64 `json:"account_id"`

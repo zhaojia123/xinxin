@@ -54,6 +54,10 @@ func Load(name string) (Config, error) {
 	if cfg.App.Addr == "" {
 		cfg.App.Addr = ":8080"
 	}
+	// 临时联调或同机多实例运行时，可用环境变量覆盖监听端口。
+	if addr := strings.TrimSpace(os.Getenv("FRIENDS_RECORDS_ADDR")); addr != "" {
+		cfg.App.Addr = addr
+	}
 	if cfg.Upload.Dir == "" {
 		cfg.Upload.Dir = "data/uploads"
 	}
