@@ -295,6 +295,24 @@ document.addEventListener("DOMContentLoaded", () => {
   departmentSelect?.addEventListener("change", filterPositions);
   filterPositions();
 
+  const employeeSearch = document.querySelector("[data-employee-search]");
+  const employeeDepartment = document.querySelector("[data-employee-department]");
+  const employeeStatus = document.querySelector("[data-employee-status]");
+  const filterEmployees = () => {
+    const keyword = employeeSearch?.value.trim().toLowerCase() || "";
+    const departmentID = employeeDepartment?.value || "";
+    const status = employeeStatus?.value || "";
+    document.querySelectorAll("[data-employee-row]").forEach((row) => {
+      const matchesKeyword = !keyword || row.dataset.search.toLowerCase().includes(keyword);
+      const matchesDepartment = !departmentID || row.dataset.departmentId === departmentID;
+      const matchesStatus = !status || row.dataset.status === status;
+      row.hidden = !(matchesKeyword && matchesDepartment && matchesStatus);
+    });
+  };
+  employeeSearch?.addEventListener("input", filterEmployees);
+  employeeDepartment?.addEventListener("change", filterEmployees);
+  employeeStatus?.addEventListener("change", filterEmployees);
+
   const numberValue = (row, name) => Number(row.querySelector(`[data-field="${name}"]`)?.value || 0);
   const calculateNet = (row) => numberValue(row, "base_salary") + numberValue(row, "bonus")
     - numberValue(row, "attendance_deduction") - numberValue(row, "other_deduction")

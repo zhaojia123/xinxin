@@ -15,6 +15,7 @@ import (
 type EmployeesPageData struct {
 	ActiveMenu      string
 	Employees       []response.Employee
+	Departments     []response.Department
 	Summary         response.EmployeeSummary
 	HealthReminders []response.HealthCertificateReminder
 }
@@ -57,7 +58,12 @@ func (h *Handler) EmployeesPage(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "健康证到期提醒读取失败")
 		return
 	}
-	h.render(w, "employees.html", EmployeesPageData{ActiveMenu: "employees", Employees: items, Summary: summary, HealthReminders: reminders})
+	departments, err := h.Store.Departments(r.Context())
+	if err != nil {
+		fail(w, err, "部门筛选项读取失败")
+		return
+	}
+	h.render(w, "employees.html", EmployeesPageData{ActiveMenu: "employees", Employees: items, Departments: departments, Summary: summary, HealthReminders: reminders})
 }
 func (h *Handler) EmployeeDetail(w http.ResponseWriter, r *http.Request) {
 	if !getOnly(w, r) {
