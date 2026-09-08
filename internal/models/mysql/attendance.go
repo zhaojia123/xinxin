@@ -44,7 +44,7 @@ func (s *Store) AttendanceRecords(ctx context.Context) ([]response.AttendanceRec
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT a.id,e.employee_no,e.name,a.category,a.record_type,DATE_FORMAT(a.occurred_on,'%Y-%m-%d'),COALESCE(DATE_FORMAT(a.start_time,'%H:%i'),''),a.duration_minutes,a.duration_days,a.reason,a.status,a.source FROM attendance_records a JOIN employees e ON e.id=a.employee_id ORDER BY a.occurred_on DESC,a.id DESC LIMIT 500`)
+	rows, err := s.DB.QueryContext(ctx, `SELECT a.id,e.employee_no,e.name,a.category,a.record_type,DATE_FORMAT(a.occurred_on,'%Y-%m-%d'),COALESCE(DATE_FORMAT(a.start_time,'%H:%i'),''),a.duration_minutes,a.duration_days,a.reason,a.status,a.source FROM attendance_records a JOIN employees e ON e.id=a.employee_id WHERE a.active=1 ORDER BY a.occurred_on DESC,a.id DESC LIMIT 500`)
 	if err != nil {
 		return nil, apperror.Wrap(err, "查询请假与异常记录失败")
 	}
@@ -108,7 +108,7 @@ func (s *Store) AttendanceStatistics(ctx context.Context, period string) (respon
 		return response.AttendanceStatistics{}, err
 	}
 	period, label, start, end := periodRange(period, time.Now())
-	rows, err := s.DB.QueryContext(ctx, `SELECT e.employee_no,e.name,COALESCE(SUM(CASE WHEN a.category='leave' AND a.status='approved' THEN a.duration_days ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.category='leave' AND a.status='approved' THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='迟到' AND a.status IN ('recorded','confirmed','approved') THEN a.duration_minutes ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='迟到' AND a.status IN ('recorded','confirmed','approved') THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='早退' AND a.status IN ('recorded','confirmed','approved') THEN a.duration_minutes ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='早退' AND a.status IN ('recorded','confirmed','approved') THEN 1 ELSE 0 END),0) FROM employees e LEFT JOIN attendance_records a ON a.employee_id=e.id AND a.occurred_on>=? AND a.occurred_on<? WHERE e.employment_status IN ('active','probation') GROUP BY e.id,e.employee_no,e.name ORDER BY e.employee_no`, start, end)
+	rows, err := s.DB.QueryContext(ctx, `SELECT e.employee_no,e.name,COALESCE(SUM(CASE WHEN a.category='leave' AND a.status='approved' THEN a.duration_days ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.category='leave' AND a.status='approved' THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='迟到' AND a.status IN ('recorded','confirmed','approved') THEN a.duration_minutes ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='迟到' AND a.status IN ('recorded','confirmed','approved') THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='早退' AND a.status IN ('recorded','confirmed','approved') THEN a.duration_minutes ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='早退' AND a.status IN ('recorded','confirmed','approved') THEN 1 ELSE 0 END),0) FROM employees e LEFT JOIN attendance_records a ON a.employee_id=e.id AND a.occurred_on>=? AND a.occurred_on<? AND a.active=1 WHERE e.employment_status IN ('active','probation') AND e.active=1 GROUP BY e.id,e.employee_no,e.name ORDER BY e.employee_no`, start, end)
 	if err != nil {
 		return response.AttendanceStatistics{}, apperror.Wrap(err, "查询员工出勤统计失败")
 	}
@@ -125,7 +125,7 @@ func (s *Store) AttendanceStatistics(ctx context.Context, period string) (respon
 		return response.AttendanceStatistics{}, apperror.Wrap(err, "遍历员工出勤统计失败")
 	}
 	result := response.AttendanceStatistics{Period: period, Label: label, Leave: metrics(all, "leave"), Late: metrics(all, "late"), Early: metrics(all, "early"), Best: bestEmployees(all, period)}
-	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM attendance_records WHERE status='pending' AND occurred_on>=? AND occurred_on<?`, start, end).Scan(&result.PendingCount); err != nil {
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM attendance_records WHERE status='pending' AND active=1 AND occurred_on>=? AND occurred_on<?`, start, end).Scan(&result.PendingCount); err != nil {
 		return response.AttendanceStatistics{}, apperror.Wrap(err, "统计待审批记录失败")
 	}
 	return result, nil

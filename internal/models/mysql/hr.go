@@ -80,7 +80,7 @@ func (s *Store) SalarySummary(ctx context.Context) (response.SalarySummary, erro
 	}
 	var v response.SalarySummary
 	var avg, percent, total float64
-	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(DISTINCT CASE WHEN YEAR(effective_on)=YEAR(CURDATE()) THEN employee_id END),COALESCE(AVG(CASE WHEN YEAR(effective_on)=YEAR(CURDATE()) THEN after_salary-before_salary END),0),COALESCE(AVG(CASE WHEN YEAR(effective_on)=YEAR(CURDATE()) AND before_salary>0 THEN (after_salary-before_salary)/before_salary*100 END),0),COALESCE((SELECT SUM(current_salary) FROM employees WHERE employment_status IN ('active','probation')),0),COALESCE(SUM(effective_on>CURDATE()),0) FROM salary_adjustments`).Scan(&v.AdjustedEmployees, &avg, &percent, &total, &v.PendingCount)
+	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(DISTINCT CASE WHEN YEAR(effective_on)=YEAR(CURDATE()) THEN employee_id END),COALESCE(AVG(CASE WHEN YEAR(effective_on)=YEAR(CURDATE()) THEN after_salary-before_salary END),0),COALESCE(AVG(CASE WHEN YEAR(effective_on)=YEAR(CURDATE()) AND before_salary>0 THEN (after_salary-before_salary)/before_salary*100 END),0),COALESCE((SELECT SUM(current_salary) FROM employees WHERE employment_status IN ('active','probation') AND active=1),0),COALESCE(SUM(effective_on>CURDATE()),0) FROM salary_adjustments`).Scan(&v.AdjustedEmployees, &avg, &percent, &total, &v.PendingCount)
 	if err != nil {
 		return response.SalarySummary{}, apperror.Wrap(err, "统计调薪数据失败")
 	}

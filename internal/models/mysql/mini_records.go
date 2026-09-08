@@ -44,8 +44,8 @@ func (s *Store) MiniOptions(ctx context.Context) (map[string][]MiniOption, error
 	queries := map[string]string{
 		"accounts":    `SELECT id,name,'',0 FROM ledger_accounts WHERE enabled=1 ORDER BY id`,
 		"categories":  `SELECT id,name,direction,0 FROM ledger_categories WHERE enabled=1 ORDER BY sort_order,id`,
-		"departments": `SELECT id,name,'',0 FROM departments WHERE enabled=1 ORDER BY sort_order,id`,
-		"positions":   `SELECT p.id,p.name,'',p.department_id FROM positions p JOIN departments d ON d.id=p.department_id WHERE p.enabled=1 AND d.enabled=1 ORDER BY p.sort_order,p.id`,
+		"departments": `SELECT id,name,'',0 FROM departments WHERE enabled=1 AND active=1 ORDER BY sort_order,id`,
+		"positions":   `SELECT p.id,p.name,'',p.department_id FROM positions p JOIN departments d ON d.id=p.department_id WHERE p.enabled=1 AND d.enabled=1 AND p.active=1 AND d.active=1 ORDER BY p.sort_order,p.id`,
 	}
 	for key, query := range queries {
 		rows, err := s.DB.QueryContext(ctx, query)
@@ -92,7 +92,7 @@ func (s *Store) MiniLedger(ctx context.Context, id uint64) (MiniLedger, error) {
 	if err := s.ready(); err != nil {
 		return MiniLedger{}, err
 	}
-	v, err := scanMiniLedger(s.DB.QueryRowContext(ctx, miniLedgerSelect+` WHERE l.id=?`, id))
+	v, err := scanMiniLedger(s.DB.QueryRowContext(ctx, miniLedgerSelect+` WHERE l.id=? AND l.active=1`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -103,7 +103,7 @@ func (s *Store) MiniLedgerList(ctx context.Context, month, direction, search str
 	if err := s.ready(); err != nil {
 		return nil, false, err
 	}
-	rows, err := s.DB.QueryContext(ctx, miniLedgerSelect+` WHERE l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 MONTH) AND (?='' OR l.direction=?) AND (?='' OR LOCATE(?,l.summary)>0 OR LOCATE(?,l.counterparty)>0) ORDER BY l.occurred_on DESC,l.id DESC LIMIT 31 OFFSET ?`, month+"-01", month+"-01", direction, direction, search, search, search, offset)
+	rows, err := s.DB.QueryContext(ctx, miniLedgerSelect+` WHERE l.active=1 AND l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 MONTH) AND (?='' OR l.direction=?) AND (?='' OR LOCATE(?,l.summary)>0 OR LOCATE(?,l.counterparty)>0) ORDER BY l.occurred_on DESC,l.id DESC LIMIT 31 OFFSET ?`, month+"-01", month+"-01", direction, direction, search, search, search, offset)
 	if err != nil {
 		return nil, false, err
 	}
@@ -168,7 +168,7 @@ func (s *Store) SaveMiniLedger(ctx context.Context, id, actor uint64, v request.
 	defer tx.Rollback()
 	if id != 0 {
 		var locked uint64
-		if err := tx.QueryRowContext(ctx, `SELECT id FROM ledger_entries WHERE id=? FOR UPDATE`, id).Scan(&locked); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM ledger_entries WHERE id=? AND active=1 FOR UPDATE`, id).Scan(&locked); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return 0, ErrNotFound
 			}
@@ -192,7 +192,7 @@ func (s *Store) SaveMiniLedger(ctx context.Context, id, actor uint64, v request.
 		}
 	}
 	if v.DepartmentID != 0 {
-		if err := requireReference(ctx, tx, `SELECT id FROM departments WHERE id=? AND enabled=1 FOR SHARE`, "部门不存在或已停用", v.DepartmentID); err != nil {
+		if err := requireReference(ctx, tx, `SELECT id FROM departments WHERE id=? AND enabled=1 AND active=1 FOR SHARE`, "部门不存在或已停用", v.DepartmentID); err != nil {
 			return 0, err
 		}
 	}
@@ -209,7 +209,7 @@ func (s *Store) SaveMiniLedger(ctx context.Context, id, actor uint64, v request.
 		id = uint64(inserted)
 	} else {
 		args = append(args, id)
-		if _, err := tx.ExecContext(ctx, `UPDATE ledger_entries SET occurred_on=?,account_id=?,category_id=?,department_id=?,direction=?,amount=?,summary=?,counterparty=?,voucher_no=?,remark=? WHERE id=?`, args...); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE ledger_entries SET occurred_on=?,account_id=?,category_id=?,department_id=?,direction=?,amount=?,summary=?,counterparty=?,voucher_no=?,remark=? WHERE id=? AND active=1`, args...); err != nil {
 			return 0, err
 		}
 	}
@@ -217,6 +217,38 @@ func (s *Store) SaveMiniLedger(ctx context.Context, id, actor uint64, v request.
 		return 0, err
 	}
 	return id, tx.Commit()
+}
+
+func (s *Store) DeleteLedger(ctx context.Context, id, actor uint64) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var summary string
+	if err := tx.QueryRowContext(ctx, `SELECT summary FROM ledger_entries WHERE id=? AND active=1 FOR UPDATE`, id).Scan(&summary); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	var payrollCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM payroll_batches WHERE ledger_entry_id=?`, id).Scan(&payrollCount); err != nil {
+		return err
+	}
+	if payrollCount > 0 {
+		return MiniInputError{"工资发放产生的流水不能删除"}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE ledger_entries SET active=0,deleted_at=NOW(),deleted_by=? WHERE id=? AND active=1`, actor, id); err != nil {
+		return err
+	}
+	if err := miniAudit(ctx, tx, actor, "ledger", id, "删除流水："+summary); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 type MiniEmployee struct {
@@ -229,7 +261,7 @@ func (s *Store) MiniEmployee(ctx context.Context, id uint64) (MiniEmployee, erro
 		return MiniEmployee{}, err
 	}
 	var v MiniEmployee
-	err := s.DB.QueryRowContext(ctx, `SELECT id,employee_no,name,gender,id_card,mobile,COALESCE(department_id,0),COALESCE(position_id,0),employment_status,employment_type,COALESCE(DATE_FORMAT(joined_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(regularized_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(left_on,'%Y-%m-%d'),''),CAST(current_salary AS CHAR),education,hometown,remark FROM employees WHERE id=?`, id).Scan(&v.ID, &v.EmployeeNo, &v.Name, &v.Gender, &v.IDCard, &v.Mobile, &v.DepartmentID, &v.PositionID, &v.EmploymentStatus, &v.EmploymentType, &v.JoinedOn, &v.RegularizedOn, &v.LeftOn, &v.CurrentSalary, &v.Education, &v.Hometown, &v.Remark)
+	err := s.DB.QueryRowContext(ctx, `SELECT id,employee_no,name,gender,id_card,mobile,COALESCE(department_id,0),COALESCE(position_id,0),employment_status,employment_type,COALESCE(DATE_FORMAT(joined_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(regularized_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(left_on,'%Y-%m-%d'),''),CAST(current_salary AS CHAR),education,hometown,remark FROM employees WHERE id=? AND active=1`, id).Scan(&v.ID, &v.EmployeeNo, &v.Name, &v.Gender, &v.IDCard, &v.Mobile, &v.DepartmentID, &v.PositionID, &v.EmploymentStatus, &v.EmploymentType, &v.JoinedOn, &v.RegularizedOn, &v.LeftOn, &v.CurrentSalary, &v.Education, &v.Hometown, &v.Remark)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -240,7 +272,7 @@ func (s *Store) MiniEmployeeList(ctx context.Context, search, status string, off
 	if err := s.ready(); err != nil {
 		return nil, false, err
 	}
-	rows, err := s.DB.QueryContext(ctx, employeeSelect+` WHERE (?='' OR LOCATE(?,e.name)>0 OR LOCATE(?,e.employee_no)>0 OR LOCATE(?,e.mobile)>0) AND (?='' OR e.employment_status=?) ORDER BY e.employment_status='left',e.employee_no,e.id LIMIT 31 OFFSET ?`, search, search, search, search, status, status, offset)
+	rows, err := s.DB.QueryContext(ctx, employeeSelect+` WHERE e.active=1 AND (?='' OR LOCATE(?,e.name)>0 OR LOCATE(?,e.employee_no)>0 OR LOCATE(?,e.mobile)>0) AND (?='' OR e.employment_status=?) ORDER BY e.employment_status='left',e.employee_no,e.id LIMIT 31 OFFSET ?`, search, search, search, search, status, status, offset)
 	if err != nil {
 		return nil, false, err
 	}
@@ -274,7 +306,7 @@ func (s *Store) SaveEmployee(ctx context.Context, id, actor uint64, v request.Em
 	defer tx.Rollback()
 	if id != 0 {
 		var locked uint64
-		if err := tx.QueryRowContext(ctx, `SELECT id FROM employees WHERE id=? FOR UPDATE`, id).Scan(&locked); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM employees WHERE id=? AND active=1 FOR UPDATE`, id).Scan(&locked); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return 0, ErrNotFound
 			}
@@ -282,12 +314,12 @@ func (s *Store) SaveEmployee(ctx context.Context, id, actor uint64, v request.Em
 		}
 	}
 	if v.DepartmentID != 0 {
-		if err := requireReference(ctx, tx, `SELECT id FROM departments WHERE id=? AND enabled=1 FOR SHARE`, "部门不存在或已停用", v.DepartmentID); err != nil {
+		if err := requireReference(ctx, tx, `SELECT id FROM departments WHERE id=? AND enabled=1 AND active=1 FOR SHARE`, "部门不存在或已停用", v.DepartmentID); err != nil {
 			return 0, err
 		}
 	}
 	if v.PositionID != 0 {
-		if err := requireReference(ctx, tx, `SELECT id FROM positions WHERE id=? AND department_id=? AND enabled=1 FOR SHARE`, "岗位与所选部门不匹配", v.PositionID, v.DepartmentID); err != nil {
+		if err := requireReference(ctx, tx, `SELECT id FROM positions WHERE id=? AND department_id=? AND enabled=1 AND active=1 FOR SHARE`, "岗位与所选部门不匹配", v.PositionID, v.DepartmentID); err != nil {
 			return 0, err
 		}
 	}
@@ -304,7 +336,7 @@ func (s *Store) SaveEmployee(ctx context.Context, id, actor uint64, v request.Em
 		id = uint64(inserted)
 	} else {
 		args = append(args, id)
-		if _, err := tx.ExecContext(ctx, `UPDATE employees SET employee_no=?,name=?,gender=?,id_card=?,mobile=?,department_id=?,position_id=?,employment_status=?,employment_type=?,joined_on=?,regularized_on=?,left_on=?,current_salary=?,education=?,hometown=?,remark=? WHERE id=?`, args...); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE employees SET employee_no=?,name=?,gender=?,id_card=?,mobile=?,department_id=?,position_id=?,employment_status=?,employment_type=?,joined_on=?,regularized_on=?,left_on=?,current_salary=?,education=?,hometown=?,remark=? WHERE id=? AND active=1`, args...); err != nil {
 			return 0, err
 		}
 	}
@@ -312,6 +344,34 @@ func (s *Store) SaveEmployee(ctx context.Context, id, actor uint64, v request.Em
 		return 0, err
 	}
 	return id, tx.Commit()
+}
+
+func (s *Store) DeleteEmployee(ctx context.Context, id, actor uint64) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var name string
+	if err := tx.QueryRowContext(ctx, `SELECT name FROM employees WHERE id=? AND active=1 FOR UPDATE`, id).Scan(&name); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE mini_users SET enabled=0 WHERE employee_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE employees SET active=0,deleted_at=NOW(),deleted_by=? WHERE id=? AND active=1`, actor, id); err != nil {
+		return err
+	}
+	if err := miniAudit(ctx, tx, actor, "employees", id, "删除员工："+name); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // CreateMiniOption 支持空数据库首次建账，不自动插入业务数据。
@@ -338,7 +398,7 @@ func (s *Store) CreateMiniOption(ctx context.Context, kind, name, direction stri
 	case "departments":
 		result, err = tx.ExecContext(ctx, `INSERT INTO departments(department_no,name) VALUES(?,?)`, no, name)
 	case "positions":
-		if err := requireReference(ctx, tx, `SELECT id FROM departments WHERE id=? AND enabled=1 FOR SHARE`, "请先选择有效部门", departmentID); err != nil {
+		if err := requireReference(ctx, tx, `SELECT id FROM departments WHERE id=? AND enabled=1 AND active=1 FOR SHARE`, "请先选择有效部门", departmentID); err != nil {
 			return 0, err
 		}
 		result, err = tx.ExecContext(ctx, `INSERT INTO positions(position_no,name,department_id) VALUES(?,?,?)`, no, name, departmentID)

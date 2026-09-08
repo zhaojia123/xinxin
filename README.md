@@ -89,14 +89,14 @@ MySQL 会输出类似 `ERROR 1064 ... at line 90`。Go 服务的所有 HTTP 错�
 
 ```text
 GET/POST /admin/login
-GET/POST/PUT /api/admin/employees
+GET/POST/PUT/DELETE /api/admin/employees
 PUT  /api/admin/employees/leave
 GET/POST /api/admin/options
 POST /api/admin/upload/health-certificate
 GET  /api/admin/organization
-GET/POST/PUT /api/admin/departments
-GET/POST/PUT /api/admin/positions
-GET/POST/PUT /api/admin/attendance?period=month|quarter|half|year
+GET/POST/PUT/DELETE /api/admin/departments
+GET/POST/PUT/DELETE /api/admin/positions
+GET/POST/PUT/DELETE /api/admin/attendance?period=month|quarter|half|year
 PUT  /api/admin/attendance/status
 GET/POST /api/admin/employment-changes
 GET/POST /api/admin/salary-adjustments
@@ -105,7 +105,7 @@ PUT  /api/admin/payroll?id=工资明细ID
 POST /api/admin/payroll/generate
 POST /api/admin/payroll/confirm
 POST /api/admin/payroll/pay
-GET/POST/PUT /api/admin/ledger?month=2026-09
+GET/POST/PUT/DELETE /api/admin/ledger?month=2026-09
 GET  /api/admin/audit-logs
 POST /api/mini/login
 GET/POST/PUT /api/mini/ledger

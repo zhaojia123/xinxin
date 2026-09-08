@@ -9,8 +9,23 @@ import (
 	"friends-records/api/request"
 	"friends-records/internal/httpx"
 	"friends-records/internal/models/mysql"
+	"friends-records/internal/token"
 	driver "github.com/go-sql-driver/mysql"
 )
+
+func adminActor(w http.ResponseWriter, r *http.Request, tokens *token.Manager) (uint64, bool) {
+	cookie, err := r.Cookie("admin_token")
+	if err != nil {
+		httpx.Error(w, http.StatusUnauthorized, "请重新登录后台")
+		return 0, false
+	}
+	claims, err := tokens.Parse(cookie.Value, "admin")
+	if err != nil {
+		httpx.Error(w, http.StatusUnauthorized, "登录已过期，请重新登录")
+		return 0, false
+	}
+	return claims.SubjectID, true
+}
 
 func adminID(w http.ResponseWriter, r *http.Request, required bool) (uint64, bool) {
 	value := r.URL.Query().Get("id")
@@ -74,154 +89,218 @@ func (h *Handler) AdminOptionsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Handler) AdminEmployeesAPI(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		if id, ok := adminID(w, r, false); !ok {
-			return
-		} else if id != 0 {
-			v, err := h.Store.MiniEmployee(r.Context(), id)
+func (h *Handler) AdminEmployeesAPI(tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			if id, ok := adminID(w, r, false); !ok {
+				return
+			} else if id != 0 {
+				v, err := h.Store.MiniEmployee(r.Context(), id)
+				if err != nil {
+					adminWriteError(w, err)
+					return
+				}
+				httpx.JSON(w, http.StatusOK, v)
+				return
+			}
+			h.EmployeesAPI(w, r)
+		case http.MethodPost, http.MethodPut:
+			id, ok := adminID(w, r, r.Method == http.MethodPut)
+			if !ok {
+				return
+			}
+			var v request.EmployeeInput
+			if !decodeJSON(w, r, &v) {
+				return
+			}
+			if err := v.Validate(); err != nil {
+				httpx.Error(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			id, err := h.Store.SaveEmployee(r.Context(), id, 0, v)
 			if err != nil {
 				adminWriteError(w, err)
 				return
 			}
-			httpx.JSON(w, http.StatusOK, v)
-			return
+			httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": id})
+		case http.MethodDelete:
+			actor, ok := adminActor(w, r, tokens)
+			if !ok {
+				return
+			}
+			id, ok := adminID(w, r, true)
+			if !ok {
+				return
+			}
+			if err := h.Store.DeleteEmployee(r.Context(), id, actor); err != nil {
+				adminWriteError(w, err)
+				return
+			}
+			httpx.JSON(w, http.StatusOK, map[string]any{"id": id})
+		default:
+			httpx.MethodNotAllowed(w, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete)
 		}
-		h.EmployeesAPI(w, r)
-	case http.MethodPost, http.MethodPut:
-		id, ok := adminID(w, r, r.Method == http.MethodPut)
-		if !ok {
-			return
-		}
-		var v request.EmployeeInput
-		if !decodeJSON(w, r, &v) {
-			return
-		}
-		if err := v.Validate(); err != nil {
-			httpx.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		id, err := h.Store.SaveEmployee(r.Context(), id, 0, v)
-		if err != nil {
-			adminWriteError(w, err)
-			return
-		}
-		httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": id})
-	default:
-		httpx.MethodNotAllowed(w, http.MethodGet, http.MethodPost, http.MethodPut)
 	}
 }
 
-func (h *Handler) AdminDepartmentsAPI(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		id, ok := adminID(w, r, true)
-		if !ok {
-			return
-		}
-		v, err := h.Store.DepartmentRecord(r.Context(), id)
-		if err != nil {
-			adminWriteError(w, err)
-			return
-		}
-		httpx.JSON(w, 200, v)
-	case http.MethodPost, http.MethodPut:
-		id, ok := adminID(w, r, r.Method == http.MethodPut)
-		if !ok {
-			return
-		}
-		var v request.DepartmentInput
-		if !decodeJSON(w, r, &v) {
-			return
-		}
-		if err := v.Validate(); err != nil {
-			httpx.Error(w, 400, err.Error())
-			return
-		}
-		id, err := h.Store.SaveDepartment(r.Context(), id, v)
-		if err != nil {
-			adminWriteError(w, err)
-			return
-		}
-		httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": id})
-	default:
-		httpx.MethodNotAllowed(w, "GET", "POST", "PUT")
-	}
-}
-func (h *Handler) AdminPositionsAPI(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		id, ok := adminID(w, r, true)
-		if !ok {
-			return
-		}
-		v, err := h.Store.PositionRecord(r.Context(), id)
-		if err != nil {
-			adminWriteError(w, err)
-			return
-		}
-		httpx.JSON(w, 200, v)
-	case http.MethodPost, http.MethodPut:
-		id, ok := adminID(w, r, r.Method == http.MethodPut)
-		if !ok {
-			return
-		}
-		var v request.PositionInput
-		if !decodeJSON(w, r, &v) {
-			return
-		}
-		if err := v.Validate(); err != nil {
-			httpx.Error(w, 400, err.Error())
-			return
-		}
-		id, err := h.Store.SavePosition(r.Context(), id, v)
-		if err != nil {
-			adminWriteError(w, err)
-			return
-		}
-		httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": id})
-	default:
-		httpx.MethodNotAllowed(w, "GET", "POST", "PUT")
-	}
-}
-
-func (h *Handler) AdminAttendanceAPI(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		if id, ok := adminID(w, r, false); !ok {
-			return
-		} else if id != 0 {
-			v, err := h.Store.AttendanceRecordInput(r.Context(), id)
+func (h *Handler) AdminDepartmentsAPI(tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			id, ok := adminID(w, r, true)
+			if !ok {
+				return
+			}
+			v, err := h.Store.DepartmentRecord(r.Context(), id)
 			if err != nil {
 				adminWriteError(w, err)
 				return
 			}
 			httpx.JSON(w, 200, v)
-			return
+		case http.MethodPost, http.MethodPut:
+			id, ok := adminID(w, r, r.Method == http.MethodPut)
+			if !ok {
+				return
+			}
+			var v request.DepartmentInput
+			if !decodeJSON(w, r, &v) {
+				return
+			}
+			if err := v.Validate(); err != nil {
+				httpx.Error(w, 400, err.Error())
+				return
+			}
+			id, err := h.Store.SaveDepartment(r.Context(), id, v)
+			if err != nil {
+				adminWriteError(w, err)
+				return
+			}
+			httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": id})
+		case http.MethodDelete:
+			actor, ok := adminActor(w, r, tokens)
+			if !ok {
+				return
+			}
+			id, ok := adminID(w, r, true)
+			if !ok {
+				return
+			}
+			if err := h.Store.DeleteDepartment(r.Context(), id, actor); err != nil {
+				adminWriteError(w, err)
+				return
+			}
+			httpx.JSON(w, http.StatusOK, map[string]any{"id": id})
+		default:
+			httpx.MethodNotAllowed(w, "GET", "POST", "PUT", "DELETE")
 		}
-		h.AttendanceAPI(w, r)
-	case http.MethodPost, http.MethodPut:
-		id, ok := adminID(w, r, r.Method == http.MethodPut)
-		if !ok {
-			return
+	}
+}
+func (h *Handler) AdminPositionsAPI(tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			id, ok := adminID(w, r, true)
+			if !ok {
+				return
+			}
+			v, err := h.Store.PositionRecord(r.Context(), id)
+			if err != nil {
+				adminWriteError(w, err)
+				return
+			}
+			httpx.JSON(w, 200, v)
+		case http.MethodPost, http.MethodPut:
+			id, ok := adminID(w, r, r.Method == http.MethodPut)
+			if !ok {
+				return
+			}
+			var v request.PositionInput
+			if !decodeJSON(w, r, &v) {
+				return
+			}
+			if err := v.Validate(); err != nil {
+				httpx.Error(w, 400, err.Error())
+				return
+			}
+			id, err := h.Store.SavePosition(r.Context(), id, v)
+			if err != nil {
+				adminWriteError(w, err)
+				return
+			}
+			httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": id})
+		case http.MethodDelete:
+			actor, ok := adminActor(w, r, tokens)
+			if !ok {
+				return
+			}
+			id, ok := adminID(w, r, true)
+			if !ok {
+				return
+			}
+			if err := h.Store.DeletePosition(r.Context(), id, actor); err != nil {
+				adminWriteError(w, err)
+				return
+			}
+			httpx.JSON(w, http.StatusOK, map[string]any{"id": id})
+		default:
+			httpx.MethodNotAllowed(w, "GET", "POST", "PUT", "DELETE")
 		}
-		var v request.AttendanceInput
-		if !decodeJSON(w, r, &v) {
-			return
+	}
+}
+
+func (h *Handler) AdminAttendanceAPI(tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			if id, ok := adminID(w, r, false); !ok {
+				return
+			} else if id != 0 {
+				v, err := h.Store.AttendanceRecordInput(r.Context(), id)
+				if err != nil {
+					adminWriteError(w, err)
+					return
+				}
+				httpx.JSON(w, 200, v)
+				return
+			}
+			h.AttendanceAPI(w, r)
+		case http.MethodPost, http.MethodPut:
+			id, ok := adminID(w, r, r.Method == http.MethodPut)
+			if !ok {
+				return
+			}
+			var v request.AttendanceInput
+			if !decodeJSON(w, r, &v) {
+				return
+			}
+			if err := v.Validate(); err != nil {
+				httpx.Error(w, 400, err.Error())
+				return
+			}
+			id, err := h.Store.SaveAttendance(r.Context(), id, v)
+			if err != nil {
+				adminWriteError(w, err)
+				return
+			}
+			httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": id})
+		case http.MethodDelete:
+			actor, ok := adminActor(w, r, tokens)
+			if !ok {
+				return
+			}
+			id, ok := adminID(w, r, true)
+			if !ok {
+				return
+			}
+			if err := h.Store.DeleteAttendance(r.Context(), id, actor); err != nil {
+				adminWriteError(w, err)
+				return
+			}
+			httpx.JSON(w, http.StatusOK, map[string]any{"id": id})
+		default:
+			httpx.MethodNotAllowed(w, "GET", "POST", "PUT", "DELETE")
 		}
-		if err := v.Validate(); err != nil {
-			httpx.Error(w, 400, err.Error())
-			return
-		}
-		id, err := h.Store.SaveAttendance(r.Context(), id, v)
-		if err != nil {
-			adminWriteError(w, err)
-			return
-		}
-		httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": id})
-	default:
-		httpx.MethodNotAllowed(w, "GET", "POST", "PUT")
 	}
 }
 func (h *Handler) AdminAttendanceStatusAPI(w http.ResponseWriter, r *http.Request) {
@@ -314,42 +393,58 @@ func (h *Handler) AdminSalaryAPI(w http.ResponseWriter, r *http.Request) {
 		httpx.MethodNotAllowed(w, "GET", "POST")
 	}
 }
-func (h *Handler) AdminLedgerAPI(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		if id, ok := adminID(w, r, false); !ok {
-			return
-		} else if id != 0 {
-			v, err := h.Store.MiniLedger(r.Context(), id)
+func (h *Handler) AdminLedgerAPI(tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			if id, ok := adminID(w, r, false); !ok {
+				return
+			} else if id != 0 {
+				v, err := h.Store.MiniLedger(r.Context(), id)
+				if err != nil {
+					adminWriteError(w, err)
+					return
+				}
+				httpx.JSON(w, 200, v)
+				return
+			}
+			h.LedgerAPI(w, r)
+		case http.MethodPost, http.MethodPut:
+			id, ok := adminID(w, r, r.Method == http.MethodPut)
+			if !ok {
+				return
+			}
+			var v request.LedgerInput
+			if !decodeJSON(w, r, &v) {
+				return
+			}
+			if err := v.Validate(); err != nil {
+				httpx.Error(w, 400, err.Error())
+				return
+			}
+			id, err := h.Store.SaveMiniLedger(r.Context(), id, 0, v)
 			if err != nil {
 				adminWriteError(w, err)
 				return
 			}
-			httpx.JSON(w, 200, v)
-			return
+			httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": id})
+		case http.MethodDelete:
+			actor, ok := adminActor(w, r, tokens)
+			if !ok {
+				return
+			}
+			id, ok := adminID(w, r, true)
+			if !ok {
+				return
+			}
+			if err := h.Store.DeleteLedger(r.Context(), id, actor); err != nil {
+				adminWriteError(w, err)
+				return
+			}
+			httpx.JSON(w, http.StatusOK, map[string]any{"id": id})
+		default:
+			httpx.MethodNotAllowed(w, "GET", "POST", "PUT", "DELETE")
 		}
-		h.LedgerAPI(w, r)
-	case http.MethodPost, http.MethodPut:
-		id, ok := adminID(w, r, r.Method == http.MethodPut)
-		if !ok {
-			return
-		}
-		var v request.LedgerInput
-		if !decodeJSON(w, r, &v) {
-			return
-		}
-		if err := v.Validate(); err != nil {
-			httpx.Error(w, 400, err.Error())
-			return
-		}
-		id, err := h.Store.SaveMiniLedger(r.Context(), id, 0, v)
-		if err != nil {
-			adminWriteError(w, err)
-			return
-		}
-		httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": id})
-	default:
-		httpx.MethodNotAllowed(w, "GET", "POST", "PUT")
 	}
 }
 func (h *Handler) AdminEmployeeLeaveAPI(w http.ResponseWriter, r *http.Request) {

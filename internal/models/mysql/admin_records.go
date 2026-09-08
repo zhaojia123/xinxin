@@ -24,7 +24,7 @@ func (s *Store) AdminOptions(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT id,CONCAT(name,' · ',employee_no),COALESCE(department_id,0),COALESCE(position_id,0),employment_status,CAST(current_salary AS CHAR) FROM employees ORDER BY employment_status='left',employee_no`)
+	rows, err := s.DB.QueryContext(ctx, `SELECT id,CONCAT(name,' · ',employee_no),COALESCE(department_id,0),COALESCE(position_id,0),employment_status,CAST(current_salary AS CHAR) FROM employees WHERE active=1 ORDER BY employment_status='left',employee_no`)
 	if err != nil {
 		return nil, apperror.Wrap(err, "查询员工选项失败")
 	}
@@ -50,7 +50,7 @@ func (s *Store) DepartmentRecord(ctx context.Context, id uint64) (DepartmentReco
 		return DepartmentRecord{}, err
 	}
 	var v DepartmentRecord
-	err := s.DB.QueryRowContext(ctx, `SELECT id,department_no,name,COALESCE(parent_id,0),COALESCE(manager_employee_id,0),sort_order,enabled,remark FROM departments WHERE id=?`, id).Scan(&v.ID, &v.DepartmentNo, &v.Name, &v.ParentID, &v.ManagerEmployeeID, &v.SortOrder, &v.Enabled, &v.Remark)
+	err := s.DB.QueryRowContext(ctx, `SELECT id,department_no,name,COALESCE(parent_id,0),COALESCE(manager_employee_id,0),sort_order,enabled,remark FROM departments WHERE id=? AND active=1`, id).Scan(&v.ID, &v.DepartmentNo, &v.Name, &v.ParentID, &v.ManagerEmployeeID, &v.SortOrder, &v.Enabled, &v.Remark)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -67,7 +67,7 @@ func (s *Store) SaveDepartment(ctx context.Context, id uint64, v request.Departm
 	defer tx.Rollback()
 	if id != 0 {
 		var found uint64
-		if err := tx.QueryRowContext(ctx, `SELECT id FROM departments WHERE id=? FOR UPDATE`, id).Scan(&found); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM departments WHERE id=? AND active=1 FOR UPDATE`, id).Scan(&found); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return 0, ErrNotFound
 			}
@@ -78,12 +78,12 @@ func (s *Store) SaveDepartment(ctx context.Context, id uint64, v request.Departm
 		return 0, MiniInputError{"部门不能把自己设为上级"}
 	}
 	if v.ParentID != 0 {
-		if err := requireReference(ctx, tx, `SELECT id FROM departments WHERE id=? FOR SHARE`, "上级部门不存在", v.ParentID); err != nil {
+		if err := requireReference(ctx, tx, `SELECT id FROM departments WHERE id=? AND active=1 FOR SHARE`, "上级部门不存在", v.ParentID); err != nil {
 			return 0, err
 		}
 	}
 	if v.ManagerEmployeeID != 0 {
-		if err := requireReference(ctx, tx, `SELECT id FROM employees WHERE id=? FOR SHARE`, "负责人员工不存在", v.ManagerEmployeeID); err != nil {
+		if err := requireReference(ctx, tx, `SELECT id FROM employees WHERE id=? AND active=1 FOR SHARE`, "负责人员工不存在", v.ManagerEmployeeID); err != nil {
 			return 0, err
 		}
 	}
@@ -98,7 +98,7 @@ func (s *Store) SaveDepartment(ctx context.Context, id uint64, v request.Departm
 		}
 		id = uint64(inserted)
 	} else {
-		_, err = tx.ExecContext(ctx, `UPDATE departments SET department_no=?,name=?,parent_id=?,manager_employee_id=?,sort_order=?,enabled=?,remark=? WHERE id=?`, v.DepartmentNo, v.Name, optionalID(v.ParentID), optionalID(v.ManagerEmployeeID), v.SortOrder, v.Enabled, v.Remark, id)
+		_, err = tx.ExecContext(ctx, `UPDATE departments SET department_no=?,name=?,parent_id=?,manager_employee_id=?,sort_order=?,enabled=?,remark=? WHERE id=? AND active=1`, v.DepartmentNo, v.Name, optionalID(v.ParentID), optionalID(v.ManagerEmployeeID), v.SortOrder, v.Enabled, v.Remark, id)
 		if err != nil {
 			return 0, err
 		}
@@ -107,6 +107,42 @@ func (s *Store) SaveDepartment(ctx context.Context, id uint64, v request.Departm
 		return 0, err
 	}
 	return id, tx.Commit()
+}
+
+func (s *Store) DeleteDepartment(ctx context.Context, id, actor uint64) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var name string
+	if err := tx.QueryRowContext(ctx, `SELECT name FROM departments WHERE id=? AND active=1 FOR UPDATE`, id).Scan(&name); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	var references int
+	err = tx.QueryRowContext(ctx, `SELECT
+		(SELECT COUNT(*) FROM departments WHERE parent_id=? AND active=1)+
+		(SELECT COUNT(*) FROM positions WHERE department_id=? AND active=1)+
+		(SELECT COUNT(*) FROM employees WHERE department_id=? AND active=1)`, id, id, id).Scan(&references)
+	if err != nil {
+		return err
+	}
+	if references > 0 {
+		return MiniInputError{"该部门仍有关联的下级部门、岗位或员工，请先处理当前关联数据"}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE departments SET active=0,deleted_at=NOW(),deleted_by=?,enabled=0 WHERE id=? AND active=1`, actor, id); err != nil {
+		return err
+	}
+	if err := miniAudit(ctx, tx, actor, "organization", id, "删除部门："+name); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 type PositionRecord struct {
@@ -119,7 +155,7 @@ func (s *Store) PositionRecord(ctx context.Context, id uint64) (PositionRecord, 
 		return PositionRecord{}, err
 	}
 	var v PositionRecord
-	err := s.DB.QueryRowContext(ctx, `SELECT id,position_no,name,department_id,level_name,COALESCE(CAST(min_salary AS CHAR),''),COALESCE(CAST(max_salary AS CHAR),''),sort_order,enabled,remark FROM positions WHERE id=?`, id).Scan(&v.ID, &v.PositionNo, &v.Name, &v.DepartmentID, &v.LevelName, &v.MinSalary, &v.MaxSalary, &v.SortOrder, &v.Enabled, &v.Remark)
+	err := s.DB.QueryRowContext(ctx, `SELECT id,position_no,name,department_id,level_name,COALESCE(CAST(min_salary AS CHAR),''),COALESCE(CAST(max_salary AS CHAR),''),sort_order,enabled,remark FROM positions WHERE id=? AND active=1`, id).Scan(&v.ID, &v.PositionNo, &v.Name, &v.DepartmentID, &v.LevelName, &v.MinSalary, &v.MaxSalary, &v.SortOrder, &v.Enabled, &v.Remark)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -142,14 +178,14 @@ func (s *Store) SavePosition(ctx context.Context, id uint64, v request.PositionI
 	defer tx.Rollback()
 	if id != 0 {
 		var found uint64
-		if err := tx.QueryRowContext(ctx, `SELECT id FROM positions WHERE id=? FOR UPDATE`, id).Scan(&found); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM positions WHERE id=? AND active=1 FOR UPDATE`, id).Scan(&found); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return 0, ErrNotFound
 			}
 			return 0, err
 		}
 	}
-	if err := requireReference(ctx, tx, `SELECT id FROM departments WHERE id=? AND enabled=1 FOR SHARE`, "所属部门不存在或已停用", v.DepartmentID); err != nil {
+	if err := requireReference(ctx, tx, `SELECT id FROM departments WHERE id=? AND enabled=1 AND active=1 FOR SHARE`, "所属部门不存在或已停用", v.DepartmentID); err != nil {
 		return 0, err
 	}
 	if id == 0 {
@@ -163,7 +199,7 @@ func (s *Store) SavePosition(ctx context.Context, id uint64, v request.PositionI
 		}
 		id = uint64(inserted)
 	} else {
-		_, err = tx.ExecContext(ctx, `UPDATE positions SET position_no=?,name=?,department_id=?,level_name=?,min_salary=?,max_salary=?,sort_order=?,enabled=?,remark=? WHERE id=?`, v.PositionNo, v.Name, v.DepartmentID, v.LevelName, optionalText(v.MinSalary), optionalText(v.MaxSalary), v.SortOrder, v.Enabled, v.Remark, id)
+		_, err = tx.ExecContext(ctx, `UPDATE positions SET position_no=?,name=?,department_id=?,level_name=?,min_salary=?,max_salary=?,sort_order=?,enabled=?,remark=? WHERE id=? AND active=1`, v.PositionNo, v.Name, v.DepartmentID, v.LevelName, optionalText(v.MinSalary), optionalText(v.MaxSalary), v.SortOrder, v.Enabled, v.Remark, id)
 		if err != nil {
 			return 0, err
 		}
@@ -172,6 +208,39 @@ func (s *Store) SavePosition(ctx context.Context, id uint64, v request.PositionI
 		return 0, err
 	}
 	return id, tx.Commit()
+}
+
+func (s *Store) DeletePosition(ctx context.Context, id, actor uint64) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var name string
+	if err := tx.QueryRowContext(ctx, `SELECT name FROM positions WHERE id=? AND active=1 FOR UPDATE`, id).Scan(&name); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	var references int
+	err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM employees WHERE position_id=? AND active=1`, id).Scan(&references)
+	if err != nil {
+		return err
+	}
+	if references > 0 {
+		return MiniInputError{"该岗位仍有关联员工，请先处理当前关联数据"}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE positions SET active=0,deleted_at=NOW(),deleted_by=?,enabled=0 WHERE id=? AND active=1`, actor, id); err != nil {
+		return err
+	}
+	if err := miniAudit(ctx, tx, actor, "organization", id, "删除岗位："+name); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 type AttendanceRecordInput struct {
@@ -185,7 +254,7 @@ func (s *Store) AttendanceRecordInput(ctx context.Context, id uint64) (Attendanc
 		return AttendanceRecordInput{}, err
 	}
 	var v AttendanceRecordInput
-	err := s.DB.QueryRowContext(ctx, `SELECT id,employee_id,category,record_type,DATE_FORMAT(occurred_on,'%Y-%m-%d'),COALESCE(DATE_FORMAT(start_time,'%H:%i'),''),COALESCE(DATE_FORMAT(end_time,'%H:%i'),''),duration_minutes,CAST(duration_days AS CHAR),reason,status FROM attendance_records WHERE id=?`, id).Scan(&v.ID, &v.EmployeeID, &v.Category, &v.RecordType, &v.OccurredOn, &v.StartTime, &v.EndTime, &v.DurationMinutes, &v.DurationDays, &v.Reason, &v.Status)
+	err := s.DB.QueryRowContext(ctx, `SELECT id,employee_id,category,record_type,DATE_FORMAT(occurred_on,'%Y-%m-%d'),COALESCE(DATE_FORMAT(start_time,'%H:%i'),''),COALESCE(DATE_FORMAT(end_time,'%H:%i'),''),duration_minutes,CAST(duration_days AS CHAR),reason,status FROM attendance_records WHERE id=? AND active=1`, id).Scan(&v.ID, &v.EmployeeID, &v.Category, &v.RecordType, &v.OccurredOn, &v.StartTime, &v.EndTime, &v.DurationMinutes, &v.DurationDays, &v.Reason, &v.Status)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -210,14 +279,14 @@ func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.Attenda
 		status = "recorded"
 	}
 	if id != 0 {
-		if err := tx.QueryRowContext(ctx, `SELECT status FROM attendance_records WHERE id=? FOR UPDATE`, id).Scan(&status); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT status FROM attendance_records WHERE id=? AND active=1 FOR UPDATE`, id).Scan(&status); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return 0, ErrNotFound
 			}
 			return 0, err
 		}
 	}
-	if err := requireReference(ctx, tx, `SELECT id FROM employees WHERE id=? FOR SHARE`, "员工不存在", v.EmployeeID); err != nil {
+	if err := requireReference(ctx, tx, `SELECT id FROM employees WHERE id=? AND active=1 FOR SHARE`, "员工不存在", v.EmployeeID); err != nil {
 		return 0, err
 	}
 	if id == 0 {
@@ -231,7 +300,7 @@ func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.Attenda
 		}
 		id = uint64(inserted)
 	} else {
-		_, err = tx.ExecContext(ctx, `UPDATE attendance_records SET employee_id=?,category=?,record_type=?,occurred_on=?,start_time=?,end_time=?,duration_minutes=?,duration_days=?,reason=? WHERE id=?`, v.EmployeeID, v.Category, v.RecordType, v.OccurredOn, optionalText(v.StartTime), optionalText(v.EndTime), v.DurationMinutes, v.DurationDays, v.Reason, id)
+		_, err = tx.ExecContext(ctx, `UPDATE attendance_records SET employee_id=?,category=?,record_type=?,occurred_on=?,start_time=?,end_time=?,duration_minutes=?,duration_days=?,reason=? WHERE id=? AND active=1`, v.EmployeeID, v.Category, v.RecordType, v.OccurredOn, optionalText(v.StartTime), optionalText(v.EndTime), v.DurationMinutes, v.DurationDays, v.Reason, id)
 		if err != nil {
 			return 0, err
 		}
@@ -240,6 +309,31 @@ func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.Attenda
 		return 0, err
 	}
 	return id, tx.Commit()
+}
+
+func (s *Store) DeleteAttendance(ctx context.Context, id, actor uint64) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var recordType string
+	if err := tx.QueryRowContext(ctx, `SELECT record_type FROM attendance_records WHERE id=? AND active=1 FOR UPDATE`, id).Scan(&recordType); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE attendance_records SET active=0,deleted_at=NOW(),deleted_by=?,status='cancelled' WHERE id=? AND active=1`, actor, id); err != nil {
+		return err
+	}
+	if err := miniAudit(ctx, tx, actor, "attendance", id, "删除记录："+recordType); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 func (s *Store) SetAttendanceStatus(ctx context.Context, id uint64, status string) error {
 	if err := s.ready(); err != nil {
@@ -253,7 +347,7 @@ func (s *Store) SetAttendanceStatus(ctx context.Context, id uint64, status strin
 		return err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `UPDATE attendance_records SET status=?,reviewed_at=NOW() WHERE id=? AND status='pending'`, status, id)
+	result, err := tx.ExecContext(ctx, `UPDATE attendance_records SET status=?,reviewed_at=NOW() WHERE id=? AND status='pending' AND active=1`, status, id)
 	if err != nil {
 		return err
 	}
@@ -297,19 +391,19 @@ func (s *Store) CreateEmploymentChange(ctx context.Context, v request.ChangeInpu
 	defer tx.Rollback()
 	var beforeDepartment, beforePosition uint64
 	var beforeStatus string
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(department_id,0),COALESCE(position_id,0),employment_status FROM employees WHERE id=? FOR UPDATE`, v.EmployeeID).Scan(&beforeDepartment, &beforePosition, &beforeStatus); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(department_id,0),COALESCE(position_id,0),employment_status FROM employees WHERE id=? AND active=1 FOR UPDATE`, v.EmployeeID).Scan(&beforeDepartment, &beforePosition, &beforeStatus); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, MiniInputError{"员工不存在"}
 		}
 		return 0, err
 	}
 	if v.AfterDepartmentID != 0 {
-		if err := requireReference(ctx, tx, `SELECT id FROM departments WHERE id=? AND enabled=1 FOR SHARE`, "异动后部门不存在或已停用", v.AfterDepartmentID); err != nil {
+		if err := requireReference(ctx, tx, `SELECT id FROM departments WHERE id=? AND enabled=1 AND active=1 FOR SHARE`, "异动后部门不存在或已停用", v.AfterDepartmentID); err != nil {
 			return 0, err
 		}
 	}
 	if v.AfterPositionID != 0 {
-		if err := requireReference(ctx, tx, `SELECT id FROM positions WHERE id=? AND department_id=? AND enabled=1 FOR SHARE`, "异动后岗位与部门不匹配", v.AfterPositionID, v.AfterDepartmentID); err != nil {
+		if err := requireReference(ctx, tx, `SELECT id FROM positions WHERE id=? AND department_id=? AND enabled=1 AND active=1 FOR SHARE`, "异动后岗位与部门不匹配", v.AfterPositionID, v.AfterDepartmentID); err != nil {
 			return 0, err
 		}
 	}
@@ -325,7 +419,7 @@ func (s *Store) CreateEmploymentChange(ctx context.Context, v request.ChangeInpu
 	if v.AfterStatus == "left" {
 		leftOn = v.EffectiveOn
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE employees SET department_id=?,position_id=?,employment_status=?,left_on=?,regularized_on=IF(?='regularize',?,regularized_on),joined_on=IF(?='hire',?,joined_on) WHERE id=?`, optionalID(v.AfterDepartmentID), optionalID(v.AfterPositionID), v.AfterStatus, leftOn, v.ChangeType, v.EffectiveOn, v.ChangeType, v.EffectiveOn, v.EmployeeID)
+	_, err = tx.ExecContext(ctx, `UPDATE employees SET department_id=?,position_id=?,employment_status=?,left_on=?,regularized_on=IF(?='regularize',?,regularized_on),joined_on=IF(?='hire',?,joined_on) WHERE id=? AND active=1`, optionalID(v.AfterDepartmentID), optionalID(v.AfterPositionID), v.AfterStatus, leftOn, v.ChangeType, v.EffectiveOn, v.ChangeType, v.EffectiveOn, v.EmployeeID)
 	if err != nil {
 		return 0, err
 	}
@@ -362,7 +456,7 @@ func (s *Store) CreateSalaryAdjustment(ctx context.Context, v request.SalaryAdju
 	}
 	defer tx.Rollback()
 	var before string
-	if err := tx.QueryRowContext(ctx, `SELECT CAST(current_salary AS CHAR) FROM employees WHERE id=? FOR UPDATE`, v.EmployeeID).Scan(&before); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT CAST(current_salary AS CHAR) FROM employees WHERE id=? AND active=1 FOR UPDATE`, v.EmployeeID).Scan(&before); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, MiniInputError{"员工不存在"}
 		}
@@ -380,7 +474,7 @@ func (s *Store) CreateSalaryAdjustment(ctx context.Context, v request.SalaryAdju
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	if !date.After(today) {
-		if _, err := tx.ExecContext(ctx, `UPDATE employees SET current_salary=? WHERE id=?`, v.AfterSalary, v.EmployeeID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE employees SET current_salary=? WHERE id=? AND active=1`, v.AfterSalary, v.EmployeeID); err != nil {
 			return 0, err
 		}
 	}
@@ -410,7 +504,7 @@ func (s *Store) LeaveEmployee(ctx context.Context, id uint64, date string) error
 	defer tx.Rollback()
 	var department, position uint64
 	var status string
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(department_id,0),COALESCE(position_id,0),employment_status FROM employees WHERE id=? FOR UPDATE`, id).Scan(&department, &position, &status); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(department_id,0),COALESCE(position_id,0),employment_status FROM employees WHERE id=? AND active=1 FOR UPDATE`, id).Scan(&department, &position, &status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -419,7 +513,7 @@ func (s *Store) LeaveEmployee(ctx context.Context, id uint64, date string) error
 	if status == "left" {
 		return MiniInputError{"该员工已经离职"}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE employees SET employment_status='left',left_on=? WHERE id=?`, date, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE employees SET employment_status='left',left_on=? WHERE id=? AND active=1`, date, id); err != nil {
 		return err
 	}
 	result, err := tx.ExecContext(ctx, `INSERT INTO employment_changes(employee_id,change_type,before_department_id,after_department_id,before_position_id,after_position_id,before_status,after_status,effective_on,reason) VALUES(?,'leave',?,?,?,?,?,'left',?,'后台办理离职')`, id, optionalID(department), optionalID(department), optionalID(position), optionalID(position), status, date)

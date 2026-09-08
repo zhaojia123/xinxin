@@ -31,7 +31,7 @@ func (s *Store) SaveHealthCertificate(ctx context.Context, input HealthCertifica
 	}
 	defer tx.Rollback()
 	var employeeID uint64
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM employees WHERE id=? FOR UPDATE`, input.EmployeeID).Scan(&employeeID); errors.Is(err, sql.ErrNoRows) {
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM employees WHERE id=? AND active=1 FOR UPDATE`, input.EmployeeID).Scan(&employeeID); errors.Is(err, sql.ErrNoRows) {
 		return 0, ErrNotFound
 	} else if err != nil {
 		return 0, apperror.Wrap(err, "确认健康证所属员工失败")

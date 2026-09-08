@@ -24,7 +24,7 @@ func New(cfg config.Config, db *sql.DB, templates *template.Template, static fs.
 	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(static))))
 	// GET /healthz：检查 HTTP 服务和 MySQL 连接状态。
 	mux.HandleFunc("/healthz", health(db))
-	registerAdminRoutes(mux, handlers, store)
+	registerAdminRoutes(mux, handlers, store, tokens)
 	registerMiniRoutes(mux, handlers, store, cfg, tokens)
 	registerUploadRoutes(mux, handlers, store, cfg)
 	// GET /：跳转后台入口。

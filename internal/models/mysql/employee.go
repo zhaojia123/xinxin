@@ -63,7 +63,7 @@ func (s *Store) Employees(ctx context.Context) ([]response.Employee, error) {
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.QueryContext(ctx, employeeSelect+` ORDER BY e.employment_status='left',e.employee_no`)
+	rows, err := s.DB.QueryContext(ctx, employeeSelect+` WHERE e.active=1 ORDER BY e.employment_status='left',e.employee_no`)
 	if err != nil {
 		return nil, apperror.Wrap(err, "查询员工列表失败")
 	}
@@ -86,7 +86,7 @@ func (s *Store) Employee(ctx context.Context, id uint64) (response.Employee, boo
 	if err := s.ready(); err != nil {
 		return response.Employee{}, false, err
 	}
-	item, err := scanEmployee(s.DB.QueryRowContext(ctx, employeeSelect+` WHERE e.id=? LIMIT 1`, id))
+	item, err := scanEmployee(s.DB.QueryRowContext(ctx, employeeSelect+` WHERE e.id=? AND e.active=1 LIMIT 1`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return response.Employee{}, false, nil
 	}
@@ -101,7 +101,7 @@ func (s *Store) EmployeeSummary(ctx context.Context) (response.EmployeeSummary, 
 		return response.EmployeeSummary{}, err
 	}
 	var v response.EmployeeSummary
-	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(employment_status='active'),0),COALESCE(SUM(employment_status='probation'),0),COALESCE(SUM(employment_status='left' AND left_on>=DATE_FORMAT(CURDATE(),'%Y-%m-01') AND left_on<DATE_ADD(DATE_FORMAT(CURDATE(),'%Y-%m-01'),INTERVAL 1 MONTH)),0) FROM employees`).Scan(&v.Total, &v.Active, &v.Probation, &v.LeftThisMonth)
+	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(employment_status='active'),0),COALESCE(SUM(employment_status='probation'),0),COALESCE(SUM(employment_status='left' AND left_on>=DATE_FORMAT(CURDATE(),'%Y-%m-01') AND left_on<DATE_ADD(DATE_FORMAT(CURDATE(),'%Y-%m-01'),INTERVAL 1 MONTH)),0) FROM employees WHERE active=1`).Scan(&v.Total, &v.Active, &v.Probation, &v.LeftThisMonth)
 	if err != nil {
 		return response.EmployeeSummary{}, apperror.Wrap(err, "统计员工数据失败")
 	}
@@ -112,7 +112,7 @@ func (s *Store) HealthCertificateReminders(ctx context.Context) ([]response.Heal
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT e.id,e.employee_no,e.name,DATE_FORMAT(hc.expires_on,'%Y-%m-%d'),DATEDIFF(hc.expires_on,CURDATE()) FROM employee_health_certificates hc JOIN employees e ON e.id=hc.employee_id WHERE hc.is_current=1 AND e.employment_status IN ('active','probation') AND hc.expires_on<=DATE_ADD(CURDATE(),INTERVAL 20 DAY) ORDER BY hc.expires_on,e.employee_no`)
+	rows, err := s.DB.QueryContext(ctx, `SELECT e.id,e.employee_no,e.name,DATE_FORMAT(hc.expires_on,'%Y-%m-%d'),DATEDIFF(hc.expires_on,CURDATE()) FROM employee_health_certificates hc JOIN employees e ON e.id=hc.employee_id WHERE hc.is_current=1 AND e.active=1 AND e.employment_status IN ('active','probation') AND hc.expires_on>=CURDATE() AND hc.expires_on<DATE_ADD(CURDATE(),INTERVAL 20 DAY) ORDER BY hc.expires_on,e.employee_no`)
 	if err != nil {
 		return nil, apperror.Wrap(err, "查询健康证到期提醒失败")
 	}
@@ -141,7 +141,7 @@ func (s *Store) EmployeeEvents(ctx context.Context, id uint64) ([]response.Emplo
 		return nil, err
 	}
 	rows, err := s.DB.QueryContext(ctx, `SELECT event_date,title,detail,color FROM (
-		SELECT occurred_on event_date,CONCAT(record_type,' · ',CASE status WHEN 'approved' THEN '已通过' WHEN 'pending' THEN '待审批' WHEN 'recorded' THEN '已记录' WHEN 'confirmed' THEN '已确认' ELSE '已结束' END) title,reason detail,'blue' color FROM attendance_records WHERE employee_id=?
+		SELECT occurred_on event_date,CONCAT(record_type,' · ',CASE status WHEN 'approved' THEN '已通过' WHEN 'pending' THEN '待审批' WHEN 'recorded' THEN '已记录' WHEN 'confirmed' THEN '已确认' ELSE '已结束' END) title,reason detail,'blue' color FROM attendance_records WHERE employee_id=? AND active=1
 		UNION ALL SELECT effective_on,CONCAT('人事异动 · ',CASE change_type WHEN 'hire' THEN '入职' WHEN 'regularize' THEN '转正' WHEN 'transfer' THEN '调岗' WHEN 'promotion' THEN '晋升' WHEN 'demotion' THEN '降职' WHEN 'leave' THEN '离职' END),reason,'green' FROM employment_changes WHERE employee_id=?
 		UNION ALL SELECT effective_on,CONCAT('工资调整至 ',FORMAT(after_salary,2)),reason,'green' FROM salary_adjustments WHERE employee_id=?
 		UNION ALL SELECT issued_on,CONCAT('健康证更新 · 到期日期 ',DATE_FORMAT(expires_on,'%Y-%m-%d')),original_name,'blue' FROM employee_health_certificates WHERE employee_id=?

@@ -3,9 +3,11 @@ package handler
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"friends-records/internal/httpx"
 	"friends-records/internal/service"
+	"friends-records/internal/token"
 )
 
 type LoginPageData struct{ Error, Username string }
@@ -20,7 +22,7 @@ func (h *Handler) AdminRoot(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 }
-func (h *Handler) AdminLoginPage(admin service.Admin) http.HandlerFunc {
+func (h *Handler) AdminLoginPage(admin service.Admin, tokens *token.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			h.render(w, "login.html", LoginPageData{})
@@ -35,7 +37,7 @@ func (h *Handler) AdminLoginPage(admin service.Admin) http.HandlerFunc {
 			return
 		}
 		username := strings.TrimSpace(r.FormValue("username"))
-		_, err := admin.Login(r.Context(), username, r.FormValue("password"))
+		user, err := admin.Login(r.Context(), username, r.FormValue("password"))
 		if service.IsInvalidCredentials(err) {
 			h.render(w, "login.html", LoginPageData{Error: "用户名或密码错误", Username: username})
 			return
@@ -44,6 +46,12 @@ func (h *Handler) AdminLoginPage(admin service.Admin) http.HandlerFunc {
 			fail(w, err, "登录服务暂时不可用")
 			return
 		}
+		value, err := tokens.Issue("admin", user.ID, 12*time.Hour)
+		if err != nil {
+			fail(w, err, "生成后台登录凭证失败")
+			return
+		}
+		http.SetCookie(w, &http.Cookie{Name: "admin_token", Value: value, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: 12 * 60 * 60})
 		http.Redirect(w, r, "/admin/employees", http.StatusSeeOther)
 	}
 }

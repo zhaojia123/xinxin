@@ -6,17 +6,18 @@ import (
 	"friends-records/internal/handler"
 	modelmysql "friends-records/internal/models/mysql"
 	"friends-records/internal/service"
+	"friends-records/internal/token"
 )
 
 // registerAdminRoutes 只注册后台 HTML 页面和 /api/admin 接口。
-func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmysql.Store) {
+func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmysql.Store, tokens *token.Manager) {
 	admin := service.Admin{Store: store}
 	payroll := service.Payroll{Store: store}
 
 	// GET /admin：跳转后台登录页。
 	mux.HandleFunc("/admin", h.AdminRoot)
 	// GET /admin/login：显示登录页；POST /admin/login：提交后台登录表单。
-	mux.HandleFunc("/admin/login", h.AdminLoginPage(admin))
+	mux.HandleFunc("/admin/login", h.AdminLoginPage(admin, tokens))
 	// GET /admin/employees：员工档案列表和健康证到期提醒。
 	mux.HandleFunc("/admin/employees", h.EmployeesPage)
 	// GET /admin/employees/view：员工详情、健康证和员工动态。
@@ -40,16 +41,16 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	// GET /admin/audit-logs：后台操作日志页面。
 	mux.HandleFunc("/admin/audit-logs", h.AuditPage)
 
-	// GET/POST/PUT /api/admin/employees：查询、新增和修改员工档案。
-	mux.HandleFunc("/api/admin/employees", h.AdminEmployeesAPI)
+	// GET/POST/PUT/DELETE /api/admin/employees：查询、新增、修改和安全删除员工档案。
+	mux.HandleFunc("/api/admin/employees", h.AdminEmployeesAPI(tokens))
 	mux.HandleFunc("/api/admin/employees/leave", h.AdminEmployeeLeaveAPI)
 	mux.HandleFunc("/api/admin/options", h.AdminOptionsAPI)
-	mux.HandleFunc("/api/admin/departments", h.AdminDepartmentsAPI)
-	mux.HandleFunc("/api/admin/positions", h.AdminPositionsAPI)
+	mux.HandleFunc("/api/admin/departments", h.AdminDepartmentsAPI(tokens))
+	mux.HandleFunc("/api/admin/positions", h.AdminPositionsAPI(tokens))
 	// GET /api/admin/organization：查询部门和岗位。
 	mux.HandleFunc("/api/admin/organization", h.OrganizationAPI)
-	// GET/POST/PUT /api/admin/attendance：查询、新增和修改请假异常。
-	mux.HandleFunc("/api/admin/attendance", h.AdminAttendanceAPI)
+	// GET/POST/PUT/DELETE /api/admin/attendance：查询、新增、修改和删除请假异常。
+	mux.HandleFunc("/api/admin/attendance", h.AdminAttendanceAPI(tokens))
 	mux.HandleFunc("/api/admin/attendance/status", h.AdminAttendanceStatusAPI)
 	// GET/POST /api/admin/employment-changes：查询和新增人事异动。
 	mux.HandleFunc("/api/admin/employment-changes", h.AdminChangesAPI)
@@ -62,8 +63,8 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	// POST /api/admin/payroll/pay：发放工资并自动生成关联台账支出。
 	mux.HandleFunc("/api/admin/payroll/pay", h.PayrollPayAPI(payroll))
 	mux.HandleFunc("/api/admin/payroll/confirm", h.PayrollConfirmAPI(payroll))
-	// GET/POST/PUT /api/admin/ledger：查询、新增和修改台账记录。
-	mux.HandleFunc("/api/admin/ledger", h.AdminLedgerAPI)
+	// GET/POST/PUT/DELETE /api/admin/ledger：查询、新增、修改和删除普通台账记录。
+	mux.HandleFunc("/api/admin/ledger", h.AdminLedgerAPI(tokens))
 	// GET /api/admin/audit-logs：查询操作日志。
 	mux.HandleFunc("/api/admin/audit-logs", h.AuditAPI)
 }

@@ -171,11 +171,11 @@ func (s *Store) GeneratePayroll(ctx context.Context, month string) (uint64, erro
 	if err != nil {
 		return 0, apperror.Wrap(err, "读取工资批次ID失败")
 	}
-	_, err = tx.ExecContext(ctx, `INSERT IGNORE INTO payroll_items(payroll_batch_id,employee_id,base_salary,net_salary) SELECT ?,id,current_salary,current_salary FROM employees WHERE employment_status IN ('active','probation') AND (joined_on IS NULL OR joined_on<?) AND (left_on IS NULL OR left_on>=?)`, batchID, end, start)
+	_, err = tx.ExecContext(ctx, `INSERT IGNORE INTO payroll_items(payroll_batch_id,employee_id,base_salary,net_salary) SELECT ?,id,current_salary,current_salary FROM employees WHERE employment_status IN ('active','probation') AND active=1 AND (joined_on IS NULL OR joined_on<?) AND (left_on IS NULL OR left_on>=?)`, batchID, end, start)
 	if err != nil {
 		return 0, apperror.Wrap(err, "生成员工工资明细失败")
 	}
-	_, err = tx.ExecContext(ctx, `INSERT IGNORE INTO payroll_adjustments(payroll_item_id,attendance_record_id,adjustment_type,amount,description) SELECT i.id,a.id,'deduction',0,CONCAT('待人工核算：',a.record_type,' ',IF(a.category='leave',CONCAT(a.duration_days,'天'),CONCAT(a.duration_minutes,'分钟'))) FROM payroll_items i JOIN attendance_records a ON a.employee_id=i.employee_id AND a.occurred_on>=? AND a.occurred_on<? AND a.status IN ('approved','recorded','confirmed') WHERE i.payroll_batch_id=?`, start, end, batchID)
+	_, err = tx.ExecContext(ctx, `INSERT IGNORE INTO payroll_adjustments(payroll_item_id,attendance_record_id,adjustment_type,amount,description) SELECT i.id,a.id,'deduction',0,CONCAT('待人工核算：',a.record_type,' ',IF(a.category='leave',CONCAT(a.duration_days,'天'),CONCAT(a.duration_minutes,'分钟'))) FROM payroll_items i JOIN attendance_records a ON a.employee_id=i.employee_id AND a.occurred_on>=? AND a.occurred_on<? AND a.status IN ('approved','recorded','confirmed') AND a.active=1 WHERE i.payroll_batch_id=?`, start, end, batchID)
 	if err != nil {
 		return 0, apperror.Wrap(err, "关联请假与异常记录失败")
 	}

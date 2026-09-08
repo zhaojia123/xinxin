@@ -78,6 +78,22 @@ document.addEventListener("DOMContentLoaded", () => {
       finish(event.currentTarget.elements.value.value.trim());
     });
   });
+  const askConfirm = ({ title, message, confirmText = "确认删除" }) => new Promise(resolve => {
+    const overlay = document.createElement("div");
+    overlay.className = "record-prompt";
+    overlay.innerHTML = `<div class="record-prompt-card"><h3>${escapeHTML(title)}</h3><p class="record-prompt-message">${escapeHTML(message)}</p><div class="form-actions"><button type="button" class="ghost-button" data-confirm-cancel>取消</button><button type="button" class="primary-button danger-button" data-confirm-submit>${escapeHTML(confirmText)}</button></div></div>`;
+    let finished = false;
+    const finish = result => {
+      if (finished) return;
+      finished = true;
+      overlay.remove();
+      resolve(result);
+    };
+    document.body.appendChild(overlay);
+    overlay.querySelector("[data-confirm-cancel]").addEventListener("click", () => finish(false));
+    overlay.querySelector("[data-confirm-submit]").addEventListener("click", () => finish(true));
+    overlay.addEventListener("click", event => { if (event.target === overlay) finish(false); });
+  });
   const fieldOptions = (type) => choices[type] || adminOptions?.[type] || [];
   const fieldHTML = (field, data, readonly) => {
     const [name,label,type,required] = field;
@@ -217,6 +233,21 @@ document.addEventListener("DOMContentLoaded", () => {
     openRecordDialog(kind,Number(button.dataset.id || 0),defaults);
   }));
   document.querySelectorAll("[data-record-view]").forEach(button => button.addEventListener("click", () => openRecordDialog(button.dataset.recordView,Number(button.dataset.id),{},true)));
+  document.querySelectorAll("[data-record-delete]").forEach(button => button.addEventListener("click", async () => {
+    const kind = button.dataset.recordDelete;
+    const endpoint = kind === "employee" ? "/api/admin/employees" : recordEndpoints[kind];
+    const labels = {employee:"员工",department:"部门",position:"岗位",attendance:"请假或异常记录",ledger:"台账记录"};
+    const confirmed = await askConfirm({title:`删除${labels[kind] || "记录"}`,message:`确定删除“${button.dataset.name || "这条记录"}”吗？有关联业务数据时，系统会阻止删除并说明原因。`});
+    if (!confirmed) return;
+    button.disabled = true;
+    try {
+      await fetchJSON(`${endpoint}?id=${button.dataset.id}`, {method:"DELETE"});
+      window.location.href = window.location.pathname + window.location.search;
+    } catch (error) {
+      showMessage(error.message);
+      button.disabled = false;
+    }
+  }));
   document.querySelectorAll("[data-record-status]").forEach(button => button.addEventListener("click", async () => {
     const label = button.dataset.recordStatus === "approved" ? "通过" : "驳回";
     if (!window.confirm(`确定${label}这条申请吗？`)) return;
