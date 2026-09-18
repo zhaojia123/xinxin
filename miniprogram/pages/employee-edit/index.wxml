@@ -1,7 +1,7 @@
 <view class="page form-page">
   <view class="eyebrow">员工档案</view><view class="title">{{id ? '更新伙伴的资料' : '认识一位新伙伴'}}</view><view class="subtitle">基本资料、在职信息，整理在一处。</view>
   <view wx:if="{{error}}" class="error">{{error}}<button class="link" bindtap="load">重新加载</button></view>
-  <view wx:if="{{!ready &amp;&amp; !error}}" class="loading">正在加载…</view>
+  <view wx:if="{{!ready && !error}}" class="loading">正在加载…</view>
   <block wx:if="{{ready}}">
     <view class="card"><view class="section-title">基本资料</view>
       <view class="field" wx:for="{{basicFields}}" wx:key="key"><view class="label">{{item.label}}<text wx:if="{{item.required}}" class="required">*</text></view><input class="control" value="{{form[item.key]}}" data-field="{{item.key}}" bindinput="input" placeholder="{{item.placeholder}}" maxlength="{{item.max}}" disabled="{{saving}}"/></view>
@@ -10,7 +10,8 @@
     <view class="card"><view class="section-title">岗位与工资</view>
       <view class="field"><view class="row"><view class="label">所属部门</view><button class="link" data-kind="departments" bindtap="create">＋ 新建</button></view><picker range="{{departments}}" range-key="name" data-kind="departments" data-field="department_id" bindchange="select" disabled="{{saving}}"><view class="control picker-row"><text>{{departmentName}}</text><text class="chevron">›</text></view></picker></view>
       <view class="field"><view class="row"><view class="label">岗位</view><button class="link" data-kind="positions" bindtap="create">＋ 新建</button></view><picker range="{{positions}}" range-key="name" data-kind="positions" data-field="position_id" bindchange="select" disabled="{{saving}}"><view class="control picker-row"><text>{{positionName}}</text><text class="chevron">›</text></view></picker><view class="hint">岗位随部门联动；更换部门后需重新选择岗位。</view></view>
-      <view class="field"><view class="label">月基本工资（元）</view><input class="control" type="digit" value="{{form.current_salary}}" data-field="current_salary" bindinput="input" maxlength="13" placeholder="0.00" disabled="{{saving}}"/><view class="hint">用于后续工资生成，已生成的历史工资条保持不变。</view></view>
+      <view class="field"><view class="label">{{form.pay_basis === 'hourly' ? '小时工资' : (form.pay_basis === 'daily' ? '日工资' : '月基本工资')}}（元）</view><input class="control" type="digit" value="{{form.current_salary}}" data-field="current_salary" bindinput="input" maxlength="13" placeholder="未知可留空" disabled="{{saving}}"/><view class="hint">月薪会自动带入工资批次；日薪、时薪先生成空白明细，按实际工时或出勤后手动填写。</view></view>
+      <view class="field"><view class="label">入职时总工资（元）</view><input class="control" type="digit" value="{{form.entry_salary}}" data-field="entry_salary" bindinput="input" maxlength="13" placeholder="未知可留空" disabled="{{saving}}"/><view class="hint">用于保留入职时工资快照，后续调薪不会自动覆盖。</view></view>
     </view>
     <view class="card"><view class="section-title">重要日期</view>
       <view class="field" wx:for="{{dates}}" wx:key="key"><view class="row"><view class="label">{{item.label}}</view><button wx:if="{{form[item.key]}}" class="link" data-field="{{item.key}}" bindtap="clearDate" disabled="{{saving}}">清空</button></view><picker mode="date" value="{{form[item.key]}}" data-field="{{item.key}}" bindchange="input" disabled="{{saving}}"><view class="control picker-row"><text>{{form[item.key] || '未填写'}}</text><text class="chevron">›</text></view></picker></view>
@@ -20,6 +21,10 @@
       <view class="field"><view class="label">籍贯</view><input class="control" value="{{form.hometown}}" data-field="hometown" bindinput="input" placeholder="选填" maxlength="128" disabled="{{saving}}"/></view>
       <view class="field"><view class="label">备注</view><textarea class="control" value="{{form.remark}}" data-field="remark" bindinput="input" placeholder="关于这位伙伴的补充信息…" maxlength="500" disabled="{{saving}}"/></view>
     </view>
+    <view class="card"><view class="section-title">证件图片</view>
+      <view class="upload-doc-grid"><view class="upload-doc-box" wx:for="{{documentKinds}}" wx:key="kind" data-kind="{{item.kind}}" bindtap="chooseDocument"><view class="upload-plus">＋</view><view>{{item.label}}</view><view class="hint">{{selectedDocuments[item.kind] ? '已选择图片' : '点击从相册选择'}}</view></view></view>
+      <view wx:if="{{pendingDocuments.length}}" class="upload-names">已选择 {{pendingDocuments.length}} 张图片，保存员工后自动上传</view>
+    </view>
   </block>
-  <view class="form-footer"><button class="secondary" bindtap="back" disabled="{{saving}}">返回</button><button class="primary" bindtap="save" disabled="{{!ready || saving}}" loading="{{saving}}">{{saving ? '保存中…' : '保存员工资料'}}</button></view>
+  <view class="form-footer"><button class="secondary" bindtap="back" disabled="{{saving || uploading}}">返回</button><button class="primary" bindtap="save" disabled="{{!ready || saving || uploading}}" loading="{{saving || uploading}}">{{uploading ? '上传证件…' : (saving ? '保存中…' : '保存员工资料')}}</button></view>
 </view>

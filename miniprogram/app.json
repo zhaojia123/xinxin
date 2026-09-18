@@ -3,8 +3,12 @@
     "pages/login/index",
     "pages/ledger/index",
     "pages/ledger-edit/index",
+    "pages/ledger-detail/index",
+    "pages/purchases/index",
+    "pages/purchases-edit/index",
     "pages/employees/index",
-    "pages/employee-edit/index"
+    "pages/employee-edit/index",
+    "pages/employee-detail/index"
   ],
   "window": {
     "navigationBarTitleText": "欣欣的日常记录",
@@ -20,7 +24,7 @@
     "backgroundColor": "#ffffff",
     "list": [
       {"pagePath": "pages/ledger/index", "text": "台账"},
-      {"pagePath": "pages/employees/index", "text": "员工"}
+      {"pagePath": "pages/employees/index", "text": "员工管理"}
     ]
   },
   "style": "v2",

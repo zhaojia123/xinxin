@@ -44,7 +44,7 @@ func (s *Store) AttendanceRecords(ctx context.Context) ([]response.AttendanceRec
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT a.id,e.employee_no,e.name,a.category,a.record_type,DATE_FORMAT(a.occurred_on,'%Y-%m-%d'),COALESCE(DATE_FORMAT(a.start_time,'%H:%i'),''),a.duration_minutes,a.duration_days,a.reason,a.status,a.source FROM attendance_records a JOIN employees e ON e.id=a.employee_id WHERE a.active=1 ORDER BY a.occurred_on DESC,a.id DESC LIMIT 500`)
+	rows, err := s.DB.QueryContext(ctx, `SELECT a.id,e.employee_no,e.name,a.category,a.record_type,DATE_FORMAT(a.occurred_on,'%Y-%m-%d'),COALESCE(DATE_FORMAT(a.start_time,'%H:%i'),''),a.duration_minutes,a.duration_days,a.salary_effect,COALESCE(a.subsidy_amount,0),a.reason,a.status,a.source FROM attendance_records a JOIN employees e ON e.id=a.employee_id WHERE a.active=1 ORDER BY a.occurred_on DESC,a.id DESC LIMIT 500`)
 	if err != nil {
 		return nil, apperror.Wrap(err, "查询请假与异常记录失败")
 	}
@@ -52,16 +52,25 @@ func (s *Store) AttendanceRecords(ctx context.Context) ([]response.AttendanceRec
 	result := make([]response.AttendanceRecord, 0)
 	for rows.Next() {
 		var item response.AttendanceRecord
-		var category, status, source string
+		var category, status, source, effect string
 		var minutes int
-		var days float64
-		if err := rows.Scan(&item.ID, &item.EmployeeNo, &item.Name, &category, &item.Type, &item.Date, &item.Time, &minutes, &days, &item.Reason, &status, &source); err != nil {
+		var days, subsidy float64
+		if err := rows.Scan(&item.ID, &item.EmployeeNo, &item.Name, &category, &item.Type, &item.Date, &item.Time, &minutes, &days, &effect, &subsidy, &item.Reason, &status, &source); err != nil {
 			return nil, apperror.Wrap(err, "读取请假与异常记录失败")
 		}
 		if category == "leave" {
 			item.Category, item.Duration = "请假", fmt.Sprintf("%g天", days)
 		} else {
-			item.Category, item.Duration = "异常", fmt.Sprintf("%d分钟", minutes)
+			item.Category = "异常"
+			if days > 0 {
+				item.Duration = fmt.Sprintf("%g天", days)
+			} else {
+				item.Duration = fmt.Sprintf("%d分钟", minutes)
+			}
+		}
+		item.SalaryEffect = effect
+		if subsidy > 0 {
+			item.Subsidy = Money(subsidy)
 		}
 		item.Status, item.StatusClass = attendanceStatus(status)
 		item.Source = sourceLabel(source)

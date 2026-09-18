@@ -1,7 +1,7 @@
 <view class="page form-page">
   <view class="eyebrow">日常收支</view><view class="title">{{locked ? '流水详情' : (id ? '编辑这笔记录' : '记下这一笔')}}</view><view class="subtitle">小小一笔，也是认真生活的痕迹。</view>
   <view wx:if="{{error}}" class="error">{{error}}<button class="link" bindtap="load">重新加载</button></view>
-  <view wx:if="{{!ready &amp;&amp; !error}}" class="loading">正在加载…</view>
+  <view wx:if="{{!ready && !error}}" class="loading">正在加载…</view>
   <block wx:if="{{ready}}">
     <view wx:if="{{locked}}" class="notice">这笔流水关联工资发放，只能查看；请在后台工资模块处理相关调整。</view>
     <view class="card amount-card">
@@ -21,6 +21,10 @@
       <view class="field"><view class="label">凭证号</view><input class="control" value="{{form.voucher_no}}" data-field="voucher_no" bindinput="input" placeholder="选填，发票或交易凭证编号" maxlength="64" disabled="{{locked || saving}}"/></view>
       <view class="field"><view class="label">备注</view><textarea class="control" value="{{form.remark}}" data-field="remark" bindinput="input" placeholder="还想记住些什么…" maxlength="500" disabled="{{locked || saving}}"/></view>
     </view>
+    <view wx:if="{{!locked}}" class="card"><view class="section-title">转账凭证</view>
+      <view class="upload-box" bindtap="chooseProof"><view class="upload-plus">＋</view><view>选择转账凭证</view><view class="hint">可从手机相册选择银行回单或转账截图</view></view>
+      <view wx:if="{{pendingProofs.length}}" class="upload-names">已选择 {{pendingProofs.length}} 张图片，保存台账后自动上传</view>
+    </view>
   </block>
-  <view class="form-footer"><button class="secondary" bindtap="back" disabled="{{saving}}">返回</button><button wx:if="{{!locked}}" class="primary" bindtap="save" loading="{{saving}}" disabled="{{!ready || saving}}">{{saving ? '保存中…' : '保存记录'}}</button></view>
+  <view class="form-footer"><button class="secondary" bindtap="back" disabled="{{saving || uploading}}">返回</button><button wx:if="{{!locked}}" class="primary" bindtap="save" loading="{{saving || uploading}}" disabled="{{!ready || saving || uploading}}">{{uploading ? '上传凭证…' : (saving ? '保存中…' : '保存记录')}}</button></view>
 </view>

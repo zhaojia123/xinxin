@@ -1,16 +1,17 @@
 <view class="page">
-  <view class="row"><view><view class="eyebrow">一起把日子过好</view><view class="title">员工档案</view></view><button class="primary small-button" bindtap="add">＋ 新增</button></view>
+  <view class="row"><view><view class="eyebrow">一起把日子过好</view><view class="title">员工档案</view></view><button wx:if="{{canCreate}}" class="primary small-button" bindtap="add">＋ 新增</button></view>
   <view class="subtitle">每一位伙伴，都有一份清晰的记录。</view>
+  <view class="health-reminder card"><view class="row"><view><view class="section-title">健康证到期提醒</view><view class="muted">未来 20 天内到期</view></view><view class="health-count">{{reminders.length}} 人</view></view><view wx:if="{{reminders.length}}" class="health-names"><text wx:for="{{reminders}}" wx:key="employee_id">{{item.name}}（{{item.days_remaining}}天）</text></view><view wx:else class="muted">未来 20 天暂无健康证到期员工</view></view>
   <view class="stats card"><view><text class="count">{{summary ? summary.total : '—'}}</text><text class="muted">员工总数</text></view><view><text class="count positive">{{summary ? summary.active : '—'}}</text><text class="muted">在职</text></view><view><text class="count blue">{{summary ? summary.probation : '—'}}</text><text class="muted">试用期</text></view></view>
   <view class="search"><input placeholder="搜索姓名、员工编号、手机号" value="{{q}}" bindinput="search" maxlength="64" confirm-type="search"/></view>
   <view class="filters"><view class="filter {{status === '' ? 'active' : ''}}" data-value="" bindtap="filter">全部</view><view class="filter {{status === 'active' ? 'active' : ''}}" data-value="active" bindtap="filter">在职</view><view class="filter {{status === 'probation' ? 'active' : ''}}" data-value="probation" bindtap="filter">试用期</view><view class="filter {{status === 'left' ? 'active' : ''}}" data-value="left" bindtap="filter">离职</view></view>
-  <view class="employee-card card" wx:for="{{records}}" wx:key="id" data-id="{{item.id}}" bindtap="edit">
+  <view class="employee-card card" wx:for="{{records}}" wx:key="id" data-id="{{item.id}}" bindtap="detail">
     <view class="employee-top"><view class="avatar">{{item.initial}}</view><view class="employee-main"><view class="employee-name">{{item.name}}<text class="status {{item.status_class}}">{{item.status}}</text></view><view class="employee-no">{{item.employee_no}} · {{item.employment_type}}</view></view><text class="chevron">›</text></view>
-    <view class="employee-detail"><text>{{item.department || '未分配部门'}} / {{item.position || '未分配岗位'}}</text><text>基本工资 {{item.salary}}</text></view>
-    <view class="employee-bottom"><text>{{item.mobile || '未填写手机号'}}</text><text class="health {{item.health_certificate_status_class}}">健康证 · {{item.health_certificate_status}}</text></view>
+    <view class="employee-detail"><text>{{item.department || '未分配部门'}} / {{item.position || '未分配岗位'}}</text><text wx:if="{{item.left_on}}">离职时间 {{item.left_on}}</text><text wx:else>基本工资 {{item.salary}}</text></view>
+    <view class="employee-bottom"><text>{{item.mobile || '未填写手机号'}}</text><view class="employee-actions"><text class="health {{item.health_certificate_status_class}}">健康证 · {{item.health_certificate_status}}</text><text class="detail-label" catchtap="detail" data-id="{{item.id}}">详情 ›</text><text wx:if="{{canEdit}}" class="edit-label" catchtap="edit" data-id="{{item.id}}">编辑 ›</text><button wx:if="{{canDelete}}" class="mini-danger" catchtap="remove" data-id="{{item.id}}">删除</button></view></view>
   </view>
   <view wx:if="{{error}}" class="error">{{error}}<button class="link" bindtap="retry">重新加载</button></view>
   <view wx:if="{{loading}}" class="loading">正在加载员工档案…</view>
-  <view wx:if="{{loaded &amp;&amp; !records.length &amp;&amp; !loading &amp;&amp; !error}}" class="empty card"><view class="empty-mark">人</view><view class="empty-title">{{q || status ? '没有找到匹配的员工' : '从第一位伙伴开始'}}</view><view>{{q || status ? '试试其他关键词或在职状态' : '录入员工资料，日常管理更轻松'}}</view><button class="link" bindtap="add">＋ 新增员工</button></view>
-  <view wx:if="{{loaded &amp;&amp; records.length &amp;&amp; !more &amp;&amp; !loading}}" class="end">本次筛选的员工都在这里了</view>
+  <view wx:if="{{loaded && !records.length && !loading && !error}}" class="empty card"><view class="empty-mark">人</view><view class="empty-title">{{q || status ? '没有找到匹配的员工' : '从第一位伙伴开始'}}</view><view>{{q || status ? '试试其他关键词或在职状态' : canCreate ? '录入员工资料，日常管理更轻松' : '当前账号只有查看权限'}}</view><button wx:if="{{canCreate}}" class="link" bindtap="add">＋ 新增员工</button></view>
+  <view wx:if="{{loaded && records.length && !more && !loading}}" class="end">本次筛选的员工都在这里了</view>
 </view>

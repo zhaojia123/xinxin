@@ -1,0 +1,1 @@
+.field-row { display: flex; gap: 18rpx; }.field-row .field { flex: 1; min-width: 0; }.purchase-total-box { display: flex; justify-content: space-between; margin-top: 22rpx; padding: 22rpx; border-radius: 16rpx; color: #475467; background: #f4f7ff; }.purchase-total-box text:last-child { color: #b42318; font-size: 34rpx; font-weight: 700; }

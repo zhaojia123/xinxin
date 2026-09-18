@@ -1,32 +1,46 @@
 package response
 
 type Employee struct {
-	ID                             uint64 `json:"id"`
-	DepartmentID                   uint64 `json:"department_id"`
-	PositionID                     uint64 `json:"position_id"`
-	EmployeeNo                     string `json:"employee_no"`
-	Name                           string `json:"name"`
-	Gender                         string `json:"gender"`
-	IDCard                         string `json:"id_card"`
-	Mobile                         string `json:"mobile"`
-	Department                     string `json:"department"`
-	Position                       string `json:"position"`
-	Status                         string `json:"status"`
-	StatusClass                    string `json:"status_class"`
-	JoinedOn                       string `json:"joined_on"`
-	RegularizedOn                  string `json:"regularized_on"`
-	EmploymentType                 string `json:"employment_type"`
-	Salary                         string `json:"salary"`
-	SalaryValue                    string `json:"salary_value"`
-	Education                      string `json:"education"`
-	Hometown                       string `json:"hometown"`
-	HealthCertificateID            uint64 `json:"health_certificate_id"`
-	HealthCertificateURL           string `json:"health_certificate_url"`
-	HealthCertificateIssuedOn      string `json:"health_certificate_issued_on"`
-	HealthCertificateExpiresOn     string `json:"health_certificate_expires_on"`
-	HealthCertificateStatus        string `json:"health_certificate_status"`
-	HealthCertificateStatusClass   string `json:"health_certificate_status_class"`
-	HealthCertificateDaysRemaining int    `json:"health_certificate_days_remaining"`
+	ID                             uint64               `json:"id"`
+	DepartmentID                   uint64               `json:"department_id"`
+	PositionID                     uint64               `json:"position_id"`
+	EmployeeNo                     string               `json:"employee_no"`
+	Name                           string               `json:"name"`
+	Gender                         string               `json:"gender"`
+	IDCard                         string               `json:"id_card"`
+	Mobile                         string               `json:"mobile"`
+	Department                     string               `json:"department"`
+	Position                       string               `json:"position"`
+	Status                         string               `json:"status"`
+	StatusClass                    string               `json:"status_class"`
+	JoinedOn                       string               `json:"joined_on"`
+	RegularizedOn                  string               `json:"regularized_on"`
+	LeftOn                         string               `json:"left_on"`
+	EmploymentType                 string               `json:"employment_type"`
+	PayBasis                       string               `json:"pay_basis"`
+	EntrySalary                    string               `json:"entry_salary"`
+	Salary                         string               `json:"salary"`
+	SalaryValue                    string               `json:"salary_value"`
+	Education                      string               `json:"education"`
+	Hometown                       string               `json:"hometown"`
+	HealthCertificateID            uint64               `json:"health_certificate_id"`
+	HealthCertificateURL           string               `json:"health_certificate_url"`
+	HealthCertificateIssuedOn      string               `json:"health_certificate_issued_on"`
+	HealthCertificateExpiresOn     string               `json:"health_certificate_expires_on"`
+	HealthCertificateStatus        string               `json:"health_certificate_status"`
+	HealthCertificateStatusClass   string               `json:"health_certificate_status_class"`
+	HealthCertificateDaysRemaining int                  `json:"health_certificate_days_remaining"`
+	Attachments                    []EmployeeAttachment `json:"attachments"`
+}
+type EmployeeAttachment struct {
+	ID             uint64 `json:"id"`
+	EmployeeID     uint64 `json:"employee_id"`
+	AttachmentType string `json:"attachment_type"`
+	Title          string `json:"title"`
+	FileURL        string `json:"file_url"`
+	OriginalName   string `json:"original_name"`
+	MIMEType       string `json:"mime_type"`
+	FileSize       int64  `json:"file_size"`
 }
 type HealthCertificateReminder struct {
 	EmployeeID    uint64 `json:"employee_id"`
@@ -51,18 +65,21 @@ type EmployeeEvent struct {
 }
 
 type AttendanceRecord struct {
-	ID          uint64 `json:"id"`
-	EmployeeNo  string `json:"employee_no"`
-	Name        string `json:"name"`
-	Category    string `json:"category"`
-	Type        string `json:"type"`
-	Date        string `json:"date"`
-	Time        string `json:"time"`
-	Duration    string `json:"duration"`
-	Reason      string `json:"reason"`
-	Status      string `json:"status"`
-	StatusClass string `json:"status_class"`
-	Source      string `json:"source"`
+	Seq          int    `json:"seq,omitempty"`
+	ID           uint64 `json:"id"`
+	EmployeeNo   string `json:"employee_no"`
+	Name         string `json:"name"`
+	Category     string `json:"category"`
+	Type         string `json:"type"`
+	Date         string `json:"date"`
+	Time         string `json:"time"`
+	Duration     string `json:"duration"`
+	Reason       string `json:"reason"`
+	Status       string `json:"status"`
+	StatusClass  string `json:"status_class"`
+	Source       string `json:"source"`
+	SalaryEffect string `json:"salary_effect"`
+	Subsidy      string `json:"subsidy"`
 }
 type EmployeeMetric struct {
 	EmployeeNo string `json:"employee_no"`
@@ -93,6 +110,7 @@ type AttendanceStatistics struct {
 }
 
 type EmploymentChange struct {
+	Seq         int    `json:"seq,omitempty"`
 	ID          uint64 `json:"id"`
 	EmployeeNo  string `json:"employee_no"`
 	Name        string `json:"name"`
@@ -135,6 +153,8 @@ type PayrollRecord struct {
 	Month                    string `json:"month"`
 	EmployeeNo               string `json:"employee_no"`
 	Name                     string `json:"name"`
+	PayBasis                 string `json:"pay_basis"`
+	EntrySalary              string `json:"entry_salary"`
 	BaseSalary               string `json:"base_salary"`
 	Bonus                    string `json:"bonus"`
 	AttendanceDeduction      string `json:"attendance_deduction"`
@@ -212,6 +232,7 @@ type LedgerRecord struct {
 }
 type LedgerSummary struct {
 	Month          string `json:"month"`
+	Period         string `json:"period"`
 	MonthIncome    string `json:"month_income"`
 	MonthExpense   string `json:"month_expense"`
 	MonthNet       string `json:"month_net"`

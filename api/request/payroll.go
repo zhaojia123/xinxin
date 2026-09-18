@@ -11,6 +11,7 @@ type PayrollUpdate struct {
 
 type PayrollPay struct {
 	BatchID    uint64 `json:"batch_id"`
+	ItemID     uint64 `json:"item_id"`
 	AccountID  uint64 `json:"account_id"`
 	OccurredOn string `json:"occurred_on"`
 }

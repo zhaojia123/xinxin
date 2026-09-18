@@ -10,15 +10,15 @@ import (
 	"friends-records/internal/apperror"
 )
 
-const employeeSelect = `SELECT e.id,e.employee_no,e.name,e.gender,e.id_card,e.mobile,COALESCE(e.department_id,0),COALESCE(d.name,''),COALESCE(e.position_id,0),COALESCE(p.name,''),e.employment_status,COALESCE(DATE_FORMAT(e.joined_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.regularized_on,'%Y-%m-%d'),''),e.employment_type,e.current_salary,e.education,e.hometown,COALESCE(hc.id,0),COALESCE(hc.file_url,''),COALESCE(DATE_FORMAT(hc.issued_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(hc.expires_on,'%Y-%m-%d'),''),COALESCE(DATEDIFF(hc.expires_on,CURDATE()),0) FROM employees e LEFT JOIN departments d ON d.id=e.department_id LEFT JOIN positions p ON p.id=e.position_id LEFT JOIN employee_health_certificates hc ON hc.id=(SELECT current_hc.id FROM employee_health_certificates current_hc WHERE current_hc.employee_id=e.id AND current_hc.is_current=1 ORDER BY current_hc.expires_on DESC,current_hc.id DESC LIMIT 1)`
+const employeeSelect = `SELECT e.id,e.employee_no,e.name,e.gender,e.id_card,e.mobile,COALESCE(e.department_id,0),COALESCE(d.name,''),COALESCE(e.position_id,0),COALESCE(p.name,''),e.employment_status,COALESCE(DATE_FORMAT(e.joined_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.regularized_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.left_on,'%Y-%m-%d'),''),e.employment_type,COALESCE(e.pay_basis,'monthly'),e.entry_salary,e.current_salary,e.education,e.hometown,COALESCE(hc.id,0),COALESCE(hc.file_url,''),COALESCE(DATE_FORMAT(hc.issued_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(hc.expires_on,'%Y-%m-%d'),''),COALESCE(DATEDIFF(hc.expires_on,CURDATE()),0) FROM employees e LEFT JOIN departments d ON d.id=e.department_id LEFT JOIN positions p ON p.id=e.position_id LEFT JOIN employee_health_certificates hc ON hc.id=(SELECT current_hc.id FROM employee_health_certificates current_hc WHERE current_hc.employee_id=e.id AND current_hc.is_current=1 ORDER BY current_hc.expires_on DESC,current_hc.id DESC LIMIT 1)`
 
 type scanner interface{ Scan(...any) error }
 
 func scanEmployee(row scanner) (response.Employee, error) {
 	var item response.Employee
 	var gender, status, employmentType, idCard, mobile string
-	var salary float64
-	err := row.Scan(&item.ID, &item.EmployeeNo, &item.Name, &gender, &idCard, &mobile, &item.DepartmentID, &item.Department, &item.PositionID, &item.Position, &status, &item.JoinedOn, &item.RegularizedOn, &employmentType, &salary, &item.Education, &item.Hometown, &item.HealthCertificateID, &item.HealthCertificateURL, &item.HealthCertificateIssuedOn, &item.HealthCertificateExpiresOn, &item.HealthCertificateDaysRemaining)
+	var entrySalary, salary sql.NullFloat64
+	err := row.Scan(&item.ID, &item.EmployeeNo, &item.Name, &gender, &idCard, &mobile, &item.DepartmentID, &item.Department, &item.PositionID, &item.Position, &status, &item.JoinedOn, &item.RegularizedOn, &item.LeftOn, &employmentType, &item.PayBasis, &entrySalary, &salary, &item.Education, &item.Hometown, &item.HealthCertificateID, &item.HealthCertificateURL, &item.HealthCertificateIssuedOn, &item.HealthCertificateExpiresOn, &item.HealthCertificateDaysRemaining)
 	if err != nil {
 		return response.Employee{}, err
 	}
@@ -41,7 +41,12 @@ func scanEmployee(row scanner) (response.Employee, error) {
 	default:
 		item.EmploymentType = "正式员工"
 	}
-	item.Salary, item.SalaryValue = Money(salary), Decimal(salary)
+	if salary.Valid {
+		item.Salary, item.SalaryValue = Money(salary.Float64), Decimal(salary.Float64)
+	}
+	if entrySalary.Valid {
+		item.EntrySalary = Money(entrySalary.Float64)
+	}
 	item.HealthCertificateStatus, item.HealthCertificateStatusClass = healthCertificateStatus(item.HealthCertificateID, item.HealthCertificateDaysRemaining)
 	return item, nil
 }
@@ -92,6 +97,10 @@ func (s *Store) Employee(ctx context.Context, id uint64) (response.Employee, boo
 	}
 	if err != nil {
 		return response.Employee{}, false, apperror.Wrap(err, "查询员工详情失败")
+	}
+	item.Attachments, err = s.EmployeeAttachments(ctx, id)
+	if err != nil {
+		return response.Employee{}, false, err
 	}
 	return item, true, nil
 }

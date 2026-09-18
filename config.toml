@@ -10,7 +10,7 @@ addr = ":8999"
 # 开发环境可以留空，程序会在每次启动时生成临时密钥。
 # 正式环境必须填写至少32个字符，推荐执行 openssl rand -hex 32 生成64位随机字符串。
 # 不要使用姓名、手机号、生日或常见句子。
-token_secret = ""
+token_secret = "9b33a573914d14dd3c87fadaf9e0b2b45241b5b9110831e325757a5edf397b91"
 
 [mysql]
 # 留空时程序仍可启动，但员工、工资、台账等数据页面会返回“数据库尚未配置”。
@@ -23,7 +23,7 @@ dsn = "root:ZhaoJia@0424@tcp(47.94.206.184:3306)/xx_taizhang?charset=utf8mb4&par
 # 上传文件保存目录。相对路径以程序启动目录为基准；服务器上建议填写自己的绝对目录。
 # 服务器示例：dir = "/data/friends-records/uploads"
 dir = "data/uploads"
-# 单张健康证照片大小上限，单位MB，允许1到20。
+# 单张证件/台账凭证图片大小上限，单位MB，允许1到20。
 max_size_mb = 5
 
 [wechat]
@@ -36,4 +36,5 @@ app_secret = "6b3f2f143632b03733c805805a0980d4"
 mock_login = true
 # 是否允许首次登录的小程序用户自动启用。
 # true 表示自动启用；false 表示需要管理员在数据库中手动启用。
-auto_register = true
+# 新用户默认停用，需管理员手动启用后才能使用小程序
+auto_register = false

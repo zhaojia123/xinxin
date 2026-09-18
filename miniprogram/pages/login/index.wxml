@@ -12,7 +12,7 @@
   <view class="login-note">仅用于识别登录身份，不读取微信聊天记录</view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
   <button wx:if="{{dev}}" class="link settings-link" bindtap="toggleSettings">开发连接设置</button>
-  <view wx:if="{{dev &amp;&amp; settings}}" class="card">
+  <view wx:if="{{dev && settings}}" class="card">
     <view class="label">后端地址</view><input class="control" value="{{host}}" bindinput="changeHost" placeholder="http://127.0.0.1:8999"/>
     <view class="hint">模拟器可用本机地址；真机请填写电脑的局域网 IP。开发工具需关闭本地合法域名校验。</view>
     <button class="secondary small-button" bindtap="saveHost">保存连接地址</button>

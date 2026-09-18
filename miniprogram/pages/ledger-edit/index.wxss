@@ -4,3 +4,8 @@
 .chosen.expense { color: #dc5c50; }.chosen.income { color: #16825d; }
 .amount-input { display: flex; align-items: center; border-bottom: 2rpx solid #e6eaf0; padding: 16rpx 0 24rpx; font-size: 48rpx; }
 .amount-input input { height: 88rpx; flex: 1; min-width: 0; font-size: 64rpx; font-weight: 600; margin-left: 20rpx; }
+.upload-box { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 220rpx; margin-top: 22rpx; border: 2rpx dashed #cbd5e1; border-radius: 20rpx; color: #475467; background: #fbfcfe; }
+.upload-box:active { background: #f0f5ff; }
+.upload-plus { color: #98a2b3; font-size: 58rpx; line-height: 1; }
+.upload-box .hint { margin-top: 10rpx; }
+.upload-names { margin-top: 16rpx; color: #2457e6; font-size: 23rpx; }

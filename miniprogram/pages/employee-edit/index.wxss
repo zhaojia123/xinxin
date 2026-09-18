@@ -1,1 +1,7 @@
 .card { margin-top: 28rpx; }
+.upload-doc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18rpx; margin-top: 22rpx; }
+.upload-doc-box { min-height: 180rpx; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6rpx; border: 2rpx dashed #cbd5e1; border-radius: 20rpx; color: #475467; background: #fbfcfe; text-align: center; }
+.upload-doc-box:active { background: #f0f5ff; }
+.upload-doc-box .upload-plus { color: #98a2b3; font-size: 50rpx; line-height: 1; }
+.upload-doc-box .hint { margin-top: 4rpx; }
+.upload-names { margin-top: 16rpx; color: #2457e6; font-size: 23rpx; }

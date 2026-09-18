@@ -26,7 +26,7 @@ func New(cfg config.Config, db *sql.DB, templates *template.Template, static fs.
 	mux.HandleFunc("/healthz", health(db))
 	registerAdminRoutes(mux, handlers, store, tokens)
 	registerMiniRoutes(mux, handlers, store, cfg, tokens)
-	registerUploadRoutes(mux, handlers, store, cfg)
+	registerUploadRoutes(mux, handlers, store, cfg, tokens)
 	// GET /：跳转后台入口。
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {

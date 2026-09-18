@@ -24,7 +24,7 @@ func (s *Store) AdminOptions(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT id,CONCAT(name,' · ',employee_no),COALESCE(department_id,0),COALESCE(position_id,0),employment_status,CAST(current_salary AS CHAR) FROM employees WHERE active=1 ORDER BY employment_status='left',employee_no`)
+	rows, err := s.DB.QueryContext(ctx, `SELECT id,CONCAT(name,' · ',employee_no),COALESCE(department_id,0),COALESCE(position_id,0),employment_status,COALESCE(CAST(current_salary AS CHAR),'') FROM employees WHERE active=1 ORDER BY employment_status='left',employee_no`)
 	if err != nil {
 		return nil, apperror.Wrap(err, "查询员工选项失败")
 	}
@@ -167,6 +167,13 @@ func optionalText(value string) any {
 	}
 	return value
 }
+
+func optionalMoney(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
 func (s *Store) SavePosition(ctx context.Context, id uint64, v request.PositionInput) (uint64, error) {
 	if err := s.ready(); err != nil {
 		return 0, err
@@ -254,7 +261,7 @@ func (s *Store) AttendanceRecordInput(ctx context.Context, id uint64) (Attendanc
 		return AttendanceRecordInput{}, err
 	}
 	var v AttendanceRecordInput
-	err := s.DB.QueryRowContext(ctx, `SELECT id,employee_id,category,record_type,DATE_FORMAT(occurred_on,'%Y-%m-%d'),COALESCE(DATE_FORMAT(start_time,'%H:%i'),''),COALESCE(DATE_FORMAT(end_time,'%H:%i'),''),duration_minutes,CAST(duration_days AS CHAR),reason,status FROM attendance_records WHERE id=? AND active=1`, id).Scan(&v.ID, &v.EmployeeID, &v.Category, &v.RecordType, &v.OccurredOn, &v.StartTime, &v.EndTime, &v.DurationMinutes, &v.DurationDays, &v.Reason, &v.Status)
+	err := s.DB.QueryRowContext(ctx, `SELECT id,employee_id,category,record_type,DATE_FORMAT(occurred_on,'%Y-%m-%d'),COALESCE(DATE_FORMAT(start_time,'%H:%i'),''),COALESCE(DATE_FORMAT(end_time,'%H:%i'),''),duration_minutes,CAST(duration_days AS CHAR),salary_effect,COALESCE(CAST(subsidy_amount AS CHAR),'0'),reason,status FROM attendance_records WHERE id=? AND active=1`, id).Scan(&v.ID, &v.EmployeeID, &v.Category, &v.RecordType, &v.OccurredOn, &v.StartTime, &v.EndTime, &v.DurationMinutes, &v.DurationDays, &v.SalaryEffect, &v.SubsidyAmount, &v.Reason, &v.Status)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -266,8 +273,18 @@ func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.Attenda
 	}
 	if v.Category == "leave" {
 		v.DurationMinutes = 0
-	} else {
+	} else if v.DurationDays == "" {
 		v.DurationDays = "0"
+	}
+	if v.SalaryEffect == "" {
+		if v.Category == "leave" {
+			v.SalaryEffect = "deduct"
+		} else {
+			v.SalaryEffect = "none"
+		}
+	}
+	if v.SubsidyAmount == "" {
+		v.SubsidyAmount = "0"
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -290,7 +307,7 @@ func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.Attenda
 		return 0, err
 	}
 	if id == 0 {
-		result, e := tx.ExecContext(ctx, `INSERT INTO attendance_records(employee_id,category,record_type,occurred_on,start_time,end_time,duration_minutes,duration_days,reason,source,status) VALUES(?,?,?,?,?,?,?,?,?,'manual',?)`, v.EmployeeID, v.Category, v.RecordType, v.OccurredOn, optionalText(v.StartTime), optionalText(v.EndTime), v.DurationMinutes, v.DurationDays, v.Reason, status)
+		result, e := tx.ExecContext(ctx, `INSERT INTO attendance_records(employee_id,category,record_type,occurred_on,start_time,end_time,duration_minutes,duration_days,salary_effect,subsidy_amount,reason,source,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,'manual',?)`, v.EmployeeID, v.Category, v.RecordType, v.OccurredOn, optionalText(v.StartTime), optionalText(v.EndTime), v.DurationMinutes, v.DurationDays, v.SalaryEffect, v.SubsidyAmount, v.Reason, status)
 		if e != nil {
 			return 0, e
 		}
@@ -300,7 +317,7 @@ func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.Attenda
 		}
 		id = uint64(inserted)
 	} else {
-		_, err = tx.ExecContext(ctx, `UPDATE attendance_records SET employee_id=?,category=?,record_type=?,occurred_on=?,start_time=?,end_time=?,duration_minutes=?,duration_days=?,reason=? WHERE id=? AND active=1`, v.EmployeeID, v.Category, v.RecordType, v.OccurredOn, optionalText(v.StartTime), optionalText(v.EndTime), v.DurationMinutes, v.DurationDays, v.Reason, id)
+		_, err = tx.ExecContext(ctx, `UPDATE attendance_records SET employee_id=?,category=?,record_type=?,occurred_on=?,start_time=?,end_time=?,duration_minutes=?,duration_days=?,salary_effect=?,subsidy_amount=?,reason=? WHERE id=? AND active=1`, v.EmployeeID, v.Category, v.RecordType, v.OccurredOn, optionalText(v.StartTime), optionalText(v.EndTime), v.DurationMinutes, v.DurationDays, v.SalaryEffect, v.SubsidyAmount, v.Reason, id)
 		if err != nil {
 			return 0, err
 		}

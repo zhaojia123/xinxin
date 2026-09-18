@@ -38,8 +38,13 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	mux.HandleFunc("/admin/payroll", h.PayrollPage)
 	// GET /admin/ledger：台账流水和收支统计页面。
 	mux.HandleFunc("/admin/ledger", h.LedgerPage)
+	// GET /admin/purchases：每日供货商采购清单。
+	mux.HandleFunc("/admin/purchases", h.PurchasesPage)
+	mux.HandleFunc("/admin/purchases/export", h.PurchaseExport(tokens))
 	// GET /admin/audit-logs：后台操作日志页面。
 	mux.HandleFunc("/admin/audit-logs", h.AuditPage)
+	// GET /admin/mini-users：小程序用户与模块权限管理页面。
+	mux.HandleFunc("/admin/mini-users", h.MiniUsersPage)
 
 	// GET/POST/PUT/DELETE /api/admin/employees：查询、新增、修改和安全删除员工档案。
 	mux.HandleFunc("/api/admin/employees", h.AdminEmployeesAPI(tokens))
@@ -58,13 +63,17 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	mux.HandleFunc("/api/admin/salary-adjustments", h.AdminSalaryAPI)
 	// GET /api/admin/payroll：查询月度工资；PUT：编辑一条工资明细。
 	mux.HandleFunc("/api/admin/payroll", h.PayrollAPI(payroll))
-	// POST /api/admin/payroll/generate：生成指定月份的员工工资快照。
+	// POST /api/admin/payroll/generate：生成指定月份的员工工资快照，可选 employee_id 单独生成一人。
 	mux.HandleFunc("/api/admin/payroll/generate", h.PayrollGenerateAPI(payroll))
-	// POST /api/admin/payroll/pay：发放工资并自动生成关联台账支出。
+	// POST /api/admin/payroll/pay：按批次或工资条发放，并自动生成关联台账支出。
 	mux.HandleFunc("/api/admin/payroll/pay", h.PayrollPayAPI(payroll))
 	mux.HandleFunc("/api/admin/payroll/confirm", h.PayrollConfirmAPI(payroll))
 	// GET/POST/PUT/DELETE /api/admin/ledger：查询、新增、修改和删除普通台账记录。
 	mux.HandleFunc("/api/admin/ledger", h.AdminLedgerAPI(tokens))
+	// GET/POST/PUT/DELETE /api/admin/purchases：查询、新增、修改和假删除采购明细。
+	mux.HandleFunc("/api/admin/purchases", h.AdminPurchasesAPI(tokens))
 	// GET /api/admin/audit-logs：查询操作日志。
 	mux.HandleFunc("/api/admin/audit-logs", h.AuditAPI)
+	// GET/PUT /api/admin/mini-users：查询和更新小程序用户权限。
+	mux.HandleFunc("/api/admin/mini-users", h.AdminMiniUsersAPI(tokens))
 }

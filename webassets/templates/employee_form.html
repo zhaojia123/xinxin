@@ -2,7 +2,7 @@
 <body><div class="admin-shell">{{template "sidebar" .}}<main class="admin-main narrow-main">
 <header class="admin-topbar"><div><p class="breadcrumb"><a href="/admin/employees">员工档案</a> / {{.PageTitle}}</p><h1>{{.PageTitle}}</h1><p class="page-description">保存后自动返回员工档案列表</p></div></header>
 {{if .Error}}<div class="alert" role="alert">{{.Error}}</div>{{end}}
-<form class="detail-card" method="post"><div class="form-section"><div class="section-title"><div><h2>基本信息</h2><p>带 * 的项目为必填项</p></div></div><div class="form-grid">
+<form class="detail-card" method="post" enctype="multipart/form-data" data-employee-form><div class="form-section"><div class="section-title"><div><h2>基本信息</h2><p>带 * 的项目为必填项</p></div></div><div class="form-grid">
 <label>员工编号 *<input name="employee_no" required maxlength="32" value="{{.Form.EmployeeNo}}" placeholder="例如 E006"></label>
 <label>姓名 *<input name="name" required maxlength="64" value="{{.Form.Name}}" placeholder="请输入姓名"></label>
 <label>性别<select name="gender"><option value="unknown" {{if eq .Form.Gender "unknown"}}selected{{end}}>未填写</option><option value="male" {{if eq .Form.Gender "male"}}selected{{end}}>男</option><option value="female" {{if eq .Form.Gender "female"}}selected{{end}}>女</option></select></label>
@@ -18,7 +18,22 @@
 <label>入职日期<input name="joined_on" type="date" value="{{.Form.JoinedOn}}"></label>
 <label>转正日期<input name="regularized_on" type="date" value="{{.Form.RegularizedOn}}"></label>
 <label>离职日期<input name="left_on" type="date" value="{{.Form.LeftOn}}"></label>
-<label>当前工资<input name="current_salary" type="number" min="0" max="9999999999.99" step="0.01" required value="{{.Form.CurrentSalary}}" placeholder="例如 8500.00"></label>
+<label>计薪方式<select name="pay_basis"><option value="monthly" {{if eq .Form.PayBasis "monthly"}}selected{{end}}>月薪</option><option value="daily" {{if eq .Form.PayBasis "daily"}}selected{{end}}>日薪</option><option value="hourly" {{if eq .Form.PayBasis "hourly"}}selected{{end}}>时薪</option></select></label>
+<label>入职时总工资<input name="entry_salary" type="number" min="0" max="9999999999.99" step="0.01" value="{{.Form.EntrySalary}}" placeholder="未知可留空"></label>
+<label>当前工资<input name="current_salary" type="number" min="0" max="9999999999.99" step="0.01" value="{{.Form.CurrentSalary}}" placeholder="未知可留空"></label>
 <label class="span-2">备注<textarea name="remark" maxlength="500" placeholder="选填">{{.Form.Remark}}</textarea></label></div></div>
+<div class="form-section employee-form-documents"><div class="section-title"><div><h2>证件图片</h2><p>身份证、健康证图片可在保存后上传</p></div></div>
+{{if eq .Mode "edit"}}<div class="employee-document-grid">
+<div class="employee-document-item"><div class="upload-dropzone" data-employee-form-upload data-kind="id_card_front"><input type="file" data-employee-document-file accept="image/jpeg,image/png,image/webp"><span class="upload-dropzone-plus">＋</span><strong>身份证人像面</strong><small data-employee-document-name>选择图片</small></div><button type="button" class="ghost-button" data-employee-document-submit data-employee-id="{{.ID}}" data-kind="id_card_front" disabled>上传</button></div>
+<div class="employee-document-item"><div class="upload-dropzone" data-employee-form-upload data-kind="id_card_back"><input type="file" data-employee-document-file accept="image/jpeg,image/png,image/webp"><span class="upload-dropzone-plus">＋</span><strong>身份证国徽面</strong><small data-employee-document-name>选择图片</small></div><button type="button" class="ghost-button" data-employee-document-submit data-employee-id="{{.ID}}" data-kind="id_card_back" disabled>上传</button></div>
+<div class="employee-document-item"><div class="upload-dropzone" data-employee-form-upload data-kind="health_certificate_front"><input type="file" data-employee-document-file accept="image/jpeg,image/png,image/webp"><span class="upload-dropzone-plus">＋</span><strong>健康证正面</strong><small data-employee-document-name>选择图片</small></div><button type="button" class="ghost-button" data-employee-document-submit data-employee-id="{{.ID}}" data-kind="health_certificate_front" disabled>上传</button></div>
+<div class="employee-document-item"><div class="upload-dropzone" data-employee-form-upload data-kind="health_certificate_back"><input type="file" data-employee-document-file accept="image/jpeg,image/png,image/webp"><span class="upload-dropzone-plus">＋</span><strong>健康证反面</strong><small data-employee-document-name>选择图片</small></div><button type="button" class="ghost-button" data-employee-document-submit data-employee-id="{{.ID}}" data-kind="health_certificate_back" disabled>上传</button></div>
+</div>
+{{else}}<div class="employee-document-grid">
+<div class="employee-document-item"><div class="upload-dropzone" data-employee-create-upload><input type="file" data-employee-create-file data-kind="id_card_front" accept="image/jpeg,image/png,image/webp"><span class="upload-dropzone-plus">＋</span><strong>身份证人像面</strong><small data-employee-create-name>选择图片</small></div></div>
+<div class="employee-document-item"><div class="upload-dropzone" data-employee-create-upload><input type="file" data-employee-create-file data-kind="id_card_back" accept="image/jpeg,image/png,image/webp"><span class="upload-dropzone-plus">＋</span><strong>身份证国徽面</strong><small data-employee-create-name>选择图片</small></div></div>
+<div class="employee-document-item"><div class="upload-dropzone" data-employee-create-upload><input type="file" data-employee-create-file data-kind="health_certificate_front" accept="image/jpeg,image/png,image/webp"><span class="upload-dropzone-plus">＋</span><strong>健康证正面</strong><small data-employee-create-name>选择图片</small></div></div>
+<div class="employee-document-item"><div class="upload-dropzone" data-employee-create-upload><input type="file" data-employee-create-file data-kind="health_certificate_back" accept="image/jpeg,image/png,image/webp"><span class="upload-dropzone-plus">＋</span><strong>健康证反面</strong><small data-employee-create-name>选择图片</small></div></div>
+</div><p class="employee-upload-tip">可先选择多张图片，点击“保存员工”后会一并上传。</p>{{end}}</div>
 <div class="form-actions"><a class="ghost-button link-button" href="/admin/employees">取消</a><button class="primary-button" type="submit">保存员工</button></div></form>
 </main></div><div class="demo-toast" role="status"></div></body></html>

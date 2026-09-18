@@ -15,6 +15,7 @@ type PayrollPageData struct {
 	ActiveMenu string
 	Payroll    []response.PayrollRecord
 	Summary    response.PayrollSummary
+	Employees  []mysql.AdminOption
 }
 
 func (h *Handler) PayrollPage(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +33,13 @@ func (h *Handler) PayrollPage(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "工资统计读取失败")
 		return
 	}
-	h.render(w, "payroll.html", PayrollPageData{"payroll", items, summary})
+	options, err := h.Store.AdminOptions(r.Context())
+	if err != nil {
+		fail(w, err, "员工选项读取失败")
+		return
+	}
+	people, _ := options["employees"].([]mysql.AdminOption)
+	h.render(w, "payroll.html", PayrollPageData{ActiveMenu: "payroll", Payroll: items, Summary: summary, Employees: people})
 }
 func (h *Handler) PayrollAPI(payroll service.Payroll) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -78,12 +85,19 @@ func (h *Handler) PayrollGenerateAPI(payroll service.Payroll) http.HandlerFunc {
 			return
 		}
 		var input struct {
-			Month string `json:"month"`
+			Month      string `json:"month"`
+			EmployeeID uint64 `json:"employee_id"`
 		}
 		if !decodeJSON(w, r, &input) {
 			return
 		}
-		batchID, err := payroll.Generate(r.Context(), input.Month)
+		var batchID uint64
+		var err error
+		if input.EmployeeID > 0 {
+			batchID, err = payroll.GenerateEmployee(r.Context(), input.Month, input.EmployeeID)
+		} else {
+			batchID, err = payroll.Generate(r.Context(), input.Month)
+		}
 		if err != nil {
 			fail(w, err, "生成月度工资失败")
 			return
@@ -101,7 +115,13 @@ func (h *Handler) PayrollPayAPI(payroll service.Payroll) http.HandlerFunc {
 		if !decodeJSON(w, r, &input) {
 			return
 		}
-		entryID, err := payroll.Pay(r.Context(), input)
+		var entryID uint64
+		var err error
+		if input.ItemID > 0 {
+			entryID, err = payroll.PayEmployee(r.Context(), input)
+		} else {
+			entryID, err = payroll.Pay(r.Context(), input)
+		}
 		if err != nil {
 			fail(w, err, "工资发放失败")
 			return

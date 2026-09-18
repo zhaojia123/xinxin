@@ -79,7 +79,9 @@ CREATE TABLE employees (
     joined_on DATE NULL COMMENT '入职日期',
     regularized_on DATE NULL COMMENT '转正日期',
     left_on DATE NULL COMMENT '离职日期',
-    current_salary DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '当前月基本工资',
+    entry_salary DECIMAL(12,2) NULL COMMENT '入职时工资或时薪，作为历史快照',
+    current_salary DECIMAL(12,2) NULL COMMENT '当前工资或时薪，未填写时为空',
+    pay_basis ENUM('monthly','daily','hourly') NOT NULL DEFAULT 'monthly' COMMENT '月薪、日薪或时薪',
     education VARCHAR(32) NOT NULL DEFAULT '' COMMENT '学历',
     hometown VARCHAR(128) NOT NULL DEFAULT '' COMMENT '籍贯',
     remark VARCHAR(500) NOT NULL DEFAULT '' COMMENT '备注',
@@ -124,6 +126,29 @@ CREATE TABLE employee_health_certificates (
     CONSTRAINT chk_health_cert_dates CHECK (expires_on >= issued_on)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='员工健康证及续证历史';
 
+CREATE TABLE employee_attachments (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '员工附件ID',
+    employee_id BIGINT UNSIGNED NOT NULL COMMENT '所属员工ID',
+    attachment_type VARCHAR(64) NOT NULL COMMENT '身份证正面/反面、健康证正面/反面等类型',
+    title VARCHAR(128) NOT NULL DEFAULT '' COMMENT '附件标题',
+    storage_key VARCHAR(255) NOT NULL COMMENT '服务器内的相对存储路径',
+    file_url VARCHAR(500) NOT NULL COMMENT '页面访问地址',
+    original_name VARCHAR(255) NOT NULL DEFAULT '' COMMENT '上传时原文件名',
+    mime_type VARCHAR(64) NOT NULL COMMENT '图片类型',
+    file_size BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '文件字节数',
+    uploaded_by BIGINT UNSIGNED NULL COMMENT '上传用户ID',
+    active TINYINT(1) NOT NULL DEFAULT 1 COMMENT '1正常，0已删除',
+    deleted_at DATETIME NULL COMMENT '删除时间',
+    deleted_by BIGINT UNSIGNED NULL COMMENT '执行删除的用户ID',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_employee_attachments_employee (employee_id, active, attachment_type, id),
+    KEY idx_employee_attachments_deleted_by (deleted_by),
+    CONSTRAINT fk_employee_attachments_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON DELETE CASCADE,
+    CONSTRAINT fk_employee_attachments_uploader FOREIGN KEY (uploaded_by) REFERENCES admin_users (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='员工身份证及证件附件';
+
 CREATE TABLE mini_users (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '小程序用户ID',
     employee_id BIGINT UNSIGNED NULL COMMENT '关联员工，可为空',
@@ -131,6 +156,9 @@ CREATE TABLE mini_users (
     unionid VARCHAR(128) NOT NULL DEFAULT '' COMMENT '微信UnionID',
     display_name VARCHAR(64) NOT NULL DEFAULT '' COMMENT '显示名称',
     enabled TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否启用',
+    can_ledger TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否可访问台账模块',
+    can_purchases TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否可访问采购模块',
+    can_employees TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否可访问员工模块',
     last_login_at DATETIME NULL COMMENT '最后登录时间',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -139,6 +167,23 @@ CREATE TABLE mini_users (
     UNIQUE KEY uk_mini_users_employee (employee_id),
     CONSTRAINT fk_mini_users_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='小程序用户';
+
+CREATE TABLE mini_user_permissions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '小程序权限ID',
+    mini_user_id BIGINT UNSIGNED NOT NULL COMMENT '小程序用户ID',
+    module_key VARCHAR(64) NOT NULL COMMENT '模块标识，如ledger、purchases、employees',
+    enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '权限记录是否启用',
+    can_view TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否允许查看',
+    can_create TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否允许新增',
+    can_edit TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否允许编辑',
+    can_delete TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否允许删除',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_mini_user_permission (mini_user_id, module_key),
+    KEY idx_mini_permission_module (module_key, enabled),
+    CONSTRAINT fk_mini_permission_user FOREIGN KEY (mini_user_id) REFERENCES mini_users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='小程序用户模块权限';
 
 CREATE TABLE attendance_records (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '记录ID',
@@ -150,6 +195,8 @@ CREATE TABLE attendance_records (
     end_time TIME NULL COMMENT '结束时间',
     duration_minutes INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '迟到、早退等分钟数',
     duration_days DECIMAL(6,2) NOT NULL DEFAULT 0 COMMENT '请假天数',
+    salary_effect ENUM('none','deduct','subsidy','deduct_and_subsidy') NOT NULL DEFAULT 'none' COMMENT '工资影响方式',
+    subsidy_amount DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '异常补助金额',
     reason VARCHAR(500) NOT NULL DEFAULT '' COMMENT '原因',
     source ENUM('employee','manual','mini_program','import') NOT NULL DEFAULT 'manual' COMMENT '来源',
     status ENUM('pending','approved','rejected','recorded','confirmed','cancelled') NOT NULL DEFAULT 'pending' COMMENT '状态',
@@ -244,12 +291,15 @@ CREATE TABLE payroll_items (
     tax_amount DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '个税',
     net_salary DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '实发工资',
     status ENUM('draft','confirmed','paid') NOT NULL DEFAULT 'draft',
+    ledger_entry_id BIGINT UNSIGNED NULL COMMENT '该员工工资发放关联的台账流水ID',
+    paid_at DATETIME NULL COMMENT '该员工工资发放时间',
     remark VARCHAR(500) NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uk_payroll_items_batch_employee (payroll_batch_id, employee_id),
     KEY idx_payroll_items_employee (employee_id),
+    KEY idx_payroll_items_ledger (ledger_entry_id),
     CONSTRAINT fk_payroll_items_batch FOREIGN KEY (payroll_batch_id) REFERENCES payroll_batches (id) ON DELETE CASCADE,
     CONSTRAINT fk_payroll_items_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='员工月度工资条';
@@ -263,7 +313,7 @@ CREATE TABLE payroll_adjustments (
     description VARCHAR(255) NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY uk_payroll_adjustment_attendance (payroll_item_id, attendance_record_id),
+    UNIQUE KEY uk_payroll_adjustment_attendance_type (payroll_item_id, attendance_record_id, adjustment_type),
     CONSTRAINT fk_payroll_adjustments_item FOREIGN KEY (payroll_item_id) REFERENCES payroll_items (id) ON DELETE CASCADE,
     CONSTRAINT fk_payroll_adjustments_attendance FOREIGN KEY (attendance_record_id) REFERENCES attendance_records (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工资奖金扣款明细';
@@ -327,7 +377,58 @@ CREATE TABLE ledger_entries (
     CONSTRAINT chk_ledger_entries_amount CHECK (amount > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='出纳台账流水';
 
+CREATE TABLE ledger_attachments (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '台账附件ID',
+    ledger_entry_id BIGINT UNSIGNED NOT NULL COMMENT '所属台账流水ID',
+    storage_key VARCHAR(255) NOT NULL COMMENT '服务器内的相对存储路径',
+    file_url VARCHAR(500) NOT NULL COMMENT '页面访问地址',
+    original_name VARCHAR(255) NOT NULL DEFAULT '' COMMENT '上传时原文件名',
+    mime_type VARCHAR(64) NOT NULL COMMENT '图片类型',
+    file_size BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '文件字节数',
+    uploaded_by BIGINT UNSIGNED NULL COMMENT '上传用户ID',
+    active TINYINT(1) NOT NULL DEFAULT 1 COMMENT '1正常，0已删除',
+    deleted_at DATETIME NULL COMMENT '删除时间',
+    deleted_by BIGINT UNSIGNED NULL COMMENT '执行删除的用户ID',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_ledger_attachments_entry (ledger_entry_id, active, id),
+    KEY idx_ledger_attachments_deleted_by (deleted_by),
+    CONSTRAINT fk_ledger_attachments_entry FOREIGN KEY (ledger_entry_id) REFERENCES ledger_entries (id) ON DELETE CASCADE,
+    CONSTRAINT fk_ledger_attachments_uploader FOREIGN KEY (uploaded_by) REFERENCES admin_users (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='台账转账凭证附件';
+
+CREATE TABLE purchase_items (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '采购明细ID',
+    purchase_date DATE NOT NULL COMMENT '采购日期',
+    supplier_name VARCHAR(64) NOT NULL COMMENT '供货商名称',
+    category VARCHAR(32) NOT NULL COMMENT '采购品类，如蔬菜、调料、肉类',
+    product_name VARCHAR(128) NOT NULL COMMENT '菜品或物料名称',
+    quantity DECIMAL(12,3) NOT NULL DEFAULT 1 COMMENT '采购数量',
+    unit VARCHAR(16) NOT NULL COMMENT '采购单位',
+    unit_price DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '单价（元）',
+    total_price DECIMAL(14,2) NOT NULL DEFAULT 0 COMMENT '本行总价（元）',
+    remark VARCHAR(500) NOT NULL DEFAULT '' COMMENT '特殊需求或备注',
+    last_change_detail TEXT NULL COMMENT '最近一次编辑的前后值',
+    last_changed_at DATETIME NULL COMMENT '最近一次编辑时间',
+    operator_id BIGINT UNSIGNED NULL COMMENT '最后操作用户ID',
+    active TINYINT(1) NOT NULL DEFAULT 1 COMMENT '1正常，0已删除',
+    deleted_at DATETIME NULL COMMENT '删除时间',
+    deleted_by BIGINT UNSIGNED NULL COMMENT '执行删除的用户ID',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_purchase_items_date (purchase_date, active, id),
+    KEY idx_purchase_items_category (category, purchase_date, active),
+    KEY idx_purchase_items_deleted_by (deleted_by),
+    CONSTRAINT chk_purchase_items_quantity CHECK (quantity > 0),
+    CONSTRAINT chk_purchase_items_price CHECK (unit_price >= 0 AND total_price >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='每日供货商采购明细';
+
 ALTER TABLE payroll_batches ADD CONSTRAINT fk_payroll_batches_ledger
+    FOREIGN KEY (ledger_entry_id) REFERENCES ledger_entries (id) ON DELETE SET NULL;
+
+ALTER TABLE payroll_items ADD CONSTRAINT fk_payroll_items_ledger
     FOREIGN KEY (ledger_entry_id) REFERENCES ledger_entries (id) ON DELETE SET NULL;
 
 CREATE TABLE audit_logs (

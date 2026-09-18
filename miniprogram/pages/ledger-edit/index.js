@@ -2,10 +2,14 @@ const api = require('../../utils/api')
 const formUtil = require('../../utils/form')
 const fields = ['occurred_on', 'account_id', 'category_id', 'department_id', 'direction', 'amount', 'summary', 'counterparty', 'voucher_no', 'remark']
 Page({
-  data: { id: 0, ready: false, saving: false, error: '', locked: false, form: { occurred_on: '', account_id: 0, category_id: 0, department_id: 0, direction: 'expense', amount: '', summary: '', counterparty: '', voucher_no: '', remark: '' }, accounts: [], categories: [], departments: [] },
+  data: { id: 0, ready: false, saving: false, uploading: false, error: '', locked: false, pendingProofs: [], form: { occurred_on: '', account_id: 0, category_id: 0, department_id: 0, direction: 'expense', amount: '', summary: '', counterparty: '', voucher_no: '', remark: '' }, accounts: [], categories: [], departments: [] },
   onLoad(query) {
     if (!api.guard()) return
     this.setData({ id: Number(query.id) || 0, 'form.occurred_on': formUtil.today() })
+    if (!api.hasPermission('ledger', this.data.id ? 'edit' : 'create')) {
+      wx.showModal({ title: '无操作权限', content: '当前账号只有查看权限，不能编辑或新增台账。', showCancel: false, success: () => wx.navigateBack() })
+      return
+    }
     wx.setNavigationBarTitle({ title: this.data.id ? '编辑收支' : '记一笔' })
     this.load()
   },
@@ -49,6 +53,19 @@ Page({
     const kind = e.currentTarget.dataset.kind
     formUtil.createOption(this, kind, { accounts: '新建资金账户', categories: '新建收支分类', departments: '新建部门' }[kind], { direction: this.data.form.direction })
   },
+  chooseProof() {
+    const options = {
+      count: 9,
+      sourceType: ['album', 'camera'],
+      success: result => {
+        const paths = (result.tempFiles || result.tempFilePaths || []).map(item => typeof item === 'string' ? item : item.tempFilePath).filter(Boolean)
+        this.setData({ pendingProofs: this.data.pendingProofs.concat(paths) })
+      },
+      fail: error => { if (!error.errMsg || !error.errMsg.includes('cancel')) this.setData({ error: '打开相册失败，请重试' }) }
+    }
+    if (wx.chooseMedia) wx.chooseMedia({ ...options, mediaType: ['image'] })
+    else wx.chooseImage(options)
+  },
   async save() {
     if (!this.data.ready || this.data.saving || this.data.locked) return
     const form = { ...this.data.form, summary: this.data.form.summary.trim(), amount: this.data.form.amount.trim() }
@@ -59,10 +76,20 @@ Page({
     if (message) { api.errorModal(new Error(message)); return }
     this.setData({ saving: true })
     try {
-      await api.request('/ledger' + (this.data.id ? '?id=' + this.data.id : ''), { method: this.data.id ? 'PUT' : 'POST', data: form })
+      const saved = await api.request('/ledger' + (this.data.id ? '?id=' + this.data.id : ''), { method: this.data.id ? 'PUT' : 'POST', data: form })
+      const recordID = saved.id || this.data.id
+      if (this.data.pendingProofs.length) {
+        this.setData({ uploading: true })
+        try {
+          await Promise.all(this.data.pendingProofs.map(path => api.uploadFile('/ledger-proof', path, { ledger_id: String(recordID) })))
+        } catch (error) {
+          wx.showModal({ title: '台账已保存', content: '凭证图片上传失败，请进入详情页重新上传。', showCancel: false, success: () => wx.redirectTo({ url: '/pages/ledger-detail/index?id=' + recordID }) })
+          return
+        }
+      }
       formUtil.finished(this, '/pages/ledger/index')
     } catch (error) { api.errorModal(error) }
-    finally { this.setData({ saving: false }) }
+    finally { this.setData({ saving: false, uploading: false }) }
   },
   back() { formUtil.back('/pages/ledger/index') }
 })

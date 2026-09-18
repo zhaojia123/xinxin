@@ -1,0 +1,20 @@
+# 复制为 config.toml 后填写真实配置；config.toml 不提交 Git。
+
+[app]
+env = "production"
+addr = ":8999"
+token_secret = "请填写至少32位随机字符串"
+
+[mysql]
+dsn = "用户名:密码@tcp(127.0.0.1:3306)/数据库名?charset=utf8mb4&parseTime=true&loc=Local"
+
+[upload]
+dir = "/data/friends-records/uploads"
+max_size_mb = 5
+
+[wechat]
+app_id = "wx61a14738b3d98047"
+app_secret = "请填写微信公众平台的小程序密钥"
+mock_login = false
+# 新用户默认停用，需管理员手动启用后才能使用小程序
+auto_register = false

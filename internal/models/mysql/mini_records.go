@@ -29,6 +29,162 @@ func (s *Store) MiniEnabled(ctx context.Context, id uint64) (bool, error) {
 	return enabled, err
 }
 
+// MiniPermission 查询小程序用户是否拥有指定模块权限。
+func (s *Store) MiniPermission(ctx context.Context, id uint64, module string) (bool, error) {
+	return s.MiniPermissionAction(ctx, id, module, "view")
+}
+
+// MiniPermissionAction 查询用户对模块的具体操作权限。
+func (s *Store) MiniPermissionAction(ctx context.Context, id uint64, module, action string) (bool, error) {
+	if err := s.ready(); err != nil {
+		return false, err
+	}
+	column := map[string]string{"view": "can_view", "create": "can_create", "edit": "can_edit", "delete": "can_delete"}[action]
+	if column == "" {
+		return false, nil
+	}
+	var allowed, moduleEnabled bool
+	err := s.DB.QueryRowContext(ctx, `SELECT p.enabled,p.`+column+` FROM mini_user_permissions p JOIN mini_users u ON u.id=p.mini_user_id WHERE p.mini_user_id=? AND p.module_key=? AND u.enabled=1 LIMIT 1`, id, module).Scan(&moduleEnabled, &allowed)
+	if err == nil {
+		return moduleEnabled && allowed, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	// 兼容未执行权限表迁移的旧数据库，迁移完成后新模块直接使用权限表。
+	if action != "view" {
+		return false, nil
+	}
+	switch module {
+	case "ledger":
+		err = s.DB.QueryRowContext(ctx, `SELECT can_ledger FROM mini_users WHERE id=? AND enabled=1`, id).Scan(&allowed)
+	case "purchases":
+		err = s.DB.QueryRowContext(ctx, `SELECT can_purchases FROM mini_users WHERE id=? AND enabled=1`, id).Scan(&allowed)
+	case "employees":
+		err = s.DB.QueryRowContext(ctx, `SELECT can_employees FROM mini_users WHERE id=? AND enabled=1`, id).Scan(&allowed)
+	default:
+		return false, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return allowed, err
+}
+
+// MiniPermissions 返回用户当前启用的模块标识，供小程序动态生成导航。
+func (s *Store) MiniPermissions(ctx context.Context, id uint64) ([]string, error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT module_key,enabled,can_view FROM mini_user_permissions WHERE mini_user_id=? ORDER BY id`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	permissions := []string{}
+	hasRows := false
+	for rows.Next() {
+		var key string
+		var enabled, canView bool
+		if err := rows.Scan(&key, &enabled, &canView); err != nil {
+			return nil, err
+		}
+		hasRows = true
+		if enabled && canView {
+			permissions = append(permissions, key)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if hasRows {
+		return permissions, nil
+	}
+	// 兼容旧表数据，未生成权限记录时从三个旧字段读取。
+	var ledger, purchases, employees bool
+	if err := s.DB.QueryRowContext(ctx, `SELECT can_ledger,can_purchases,can_employees FROM mini_users WHERE id=?`, id).Scan(&ledger, &purchases, &employees); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+	if ledger {
+		permissions = append(permissions, "ledger")
+	}
+	if purchases {
+		permissions = append(permissions, "purchases")
+	}
+	if employees {
+		permissions = append(permissions, "employees")
+	}
+	return permissions, nil
+}
+
+// MiniActionPermissions 返回小程序页面隐藏新增、编辑、删除按钮所需的操作权限。
+func (s *Store) MiniActionPermissions(ctx context.Context, id uint64) (map[string]MiniActionAccess, error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT module_key,enabled,can_view,can_create,can_edit,can_delete FROM mini_user_permissions WHERE mini_user_id=? ORDER BY id`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := map[string]MiniActionAccess{}
+	hasRows := false
+	for rows.Next() {
+		var key string
+		var enabled bool
+		var access MiniActionAccess
+		if err := rows.Scan(&key, &enabled, &access.View, &access.Create, &access.Edit, &access.Delete); err != nil {
+			return nil, err
+		}
+		hasRows = true
+		if !enabled {
+			access = MiniActionAccess{}
+		}
+		result[key] = access
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if hasRows {
+		return result, nil
+	}
+	var ledger, purchases, employees bool
+	if err := s.DB.QueryRowContext(ctx, `SELECT can_ledger,can_purchases,can_employees FROM mini_users WHERE id=?`, id).Scan(&ledger, &purchases, &employees); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return result, nil
+		}
+		return nil, err
+	}
+	for key, allowed := range map[string]bool{"ledger": ledger, "purchases": purchases, "employees": employees} {
+		result[key] = MiniActionAccess{View: allowed, Create: allowed, Edit: allowed, Delete: allowed}
+	}
+	return result, nil
+}
+
+// MiniAnyPermission 用于选项接口，确保至少拥有一个业务模块权限。
+func (s *Store) MiniAnyPermission(ctx context.Context, id uint64) (bool, error) {
+	if err := s.ready(); err != nil {
+		return false, err
+	}
+	var total, active int
+	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(enabled=1 AND can_view=1),0) FROM mini_user_permissions WHERE mini_user_id=?`, id).Scan(&total, &active)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if total > 0 {
+		return active > 0, nil
+	}
+	var ledger, purchases, employees bool
+	err = s.DB.QueryRowContext(ctx, `SELECT can_ledger,can_purchases,can_employees FROM mini_users WHERE id=? AND enabled=1`, id).Scan(&ledger, &purchases, &employees)
+	return ledger || purchases || employees, err
+}
+
 type MiniOption struct {
 	ID           uint64 `json:"id"`
 	Name         string `json:"name"`
@@ -74,13 +230,14 @@ func (s *Store) MiniOptions(ctx context.Context) (map[string][]MiniOption, error
 type MiniLedger struct {
 	ID uint64 `json:"id"`
 	request.LedgerInput
-	Account        string `json:"account"`
-	Category       string `json:"category"`
-	Department     string `json:"department"`
-	PayrollBatchID uint64 `json:"payroll_batch_id"`
+	Account        string             `json:"account"`
+	Category       string             `json:"category"`
+	Department     string             `json:"department"`
+	PayrollBatchID uint64             `json:"payroll_batch_id"`
+	Attachments    []LedgerAttachment `json:"attachments"`
 }
 
-const miniLedgerSelect = `SELECT l.id,DATE_FORMAT(l.occurred_on,'%Y-%m-%d'),l.account_id,COALESCE(l.category_id,0),COALESCE(l.department_id,0),l.direction,CAST(l.amount AS CHAR),l.summary,l.counterparty,l.voucher_no,l.remark,a.name,COALESCE(c.name,''),COALESCE(d.name,''),COALESCE(pb.id,0) FROM ledger_entries l JOIN ledger_accounts a ON a.id=l.account_id LEFT JOIN ledger_categories c ON c.id=l.category_id LEFT JOIN departments d ON d.id=l.department_id LEFT JOIN payroll_batches pb ON pb.ledger_entry_id=l.id`
+const miniLedgerSelect = `SELECT l.id,DATE_FORMAT(l.occurred_on,'%Y-%m-%d'),l.account_id,COALESCE(l.category_id,0),COALESCE(l.department_id,0),l.direction,CAST(l.amount AS CHAR),l.summary,l.counterparty,l.voucher_no,l.remark,a.name,COALESCE(c.name,''),COALESCE(d.name,''),COALESCE(pb.id,COALESCE((SELECT pi.payroll_batch_id FROM payroll_items pi WHERE pi.ledger_entry_id=l.id LIMIT 1),0)) FROM ledger_entries l JOIN ledger_accounts a ON a.id=l.account_id LEFT JOIN ledger_categories c ON c.id=l.category_id LEFT JOIN departments d ON d.id=l.department_id LEFT JOIN payroll_batches pb ON pb.ledger_entry_id=l.id`
 
 func scanMiniLedger(row scanner) (MiniLedger, error) {
 	var v MiniLedger
@@ -96,14 +253,17 @@ func (s *Store) MiniLedger(ctx context.Context, id uint64) (MiniLedger, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
+	if err == nil {
+		v.Attachments, err = s.LedgerAttachments(ctx, id)
+	}
 	return v, err
 }
 
-func (s *Store) MiniLedgerList(ctx context.Context, month, direction, search string, offset int) ([]MiniLedger, bool, error) {
+func (s *Store) MiniLedgerList(ctx context.Context, start, end, direction, search string, offset int) ([]MiniLedger, bool, error) {
 	if err := s.ready(); err != nil {
 		return nil, false, err
 	}
-	rows, err := s.DB.QueryContext(ctx, miniLedgerSelect+` WHERE l.active=1 AND l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 MONTH) AND (?='' OR l.direction=?) AND (?='' OR LOCATE(?,l.summary)>0 OR LOCATE(?,l.counterparty)>0) ORDER BY l.occurred_on DESC,l.id DESC LIMIT 31 OFFSET ?`, month+"-01", month+"-01", direction, direction, search, search, search, offset)
+	rows, err := s.DB.QueryContext(ctx, miniLedgerSelect+` WHERE l.active=1 AND l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND (?='' OR l.direction=?) AND (?='' OR LOCATE(?,l.summary)>0 OR LOCATE(?,l.counterparty)>0) ORDER BY l.occurred_on DESC,l.id DESC LIMIT 31 OFFSET ?`, start, end, direction, direction, search, search, search, offset)
 	if err != nil {
 		return nil, false, err
 	}
@@ -182,6 +342,14 @@ func (s *Store) SaveMiniLedger(ctx context.Context, id, actor uint64, v request.
 		if !errors.Is(err, sql.ErrNoRows) {
 			return 0, err
 		}
+		var payrollItem uint64
+		err = tx.QueryRowContext(ctx, `SELECT id FROM payroll_items WHERE ledger_entry_id=? LIMIT 1 FOR UPDATE`, id).Scan(&payrollItem)
+		if err == nil {
+			return 0, MiniInputError{"工资发放产生的流水请在工资模块处理，不能直接修改"}
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return 0, err
+		}
 	}
 	if err := requireReference(ctx, tx, `SELECT id FROM ledger_accounts WHERE id=? AND enabled=1 FOR SHARE`, "账户不存在或已停用", v.AccountID); err != nil {
 		return 0, err
@@ -239,7 +407,11 @@ func (s *Store) DeleteLedger(ctx context.Context, id, actor uint64) error {
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM payroll_batches WHERE ledger_entry_id=?`, id).Scan(&payrollCount); err != nil {
 		return err
 	}
-	if payrollCount > 0 {
+	var payrollItemCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM payroll_items WHERE ledger_entry_id=?`, id).Scan(&payrollItemCount); err != nil {
+		return err
+	}
+	if payrollCount > 0 || payrollItemCount > 0 {
 		return MiniInputError{"工资发放产生的流水不能删除"}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE ledger_entries SET active=0,deleted_at=NOW(),deleted_by=? WHERE id=? AND active=1`, actor, id); err != nil {
@@ -254,6 +426,16 @@ func (s *Store) DeleteLedger(ctx context.Context, id, actor uint64) error {
 type MiniEmployee struct {
 	ID uint64 `json:"id"`
 	request.EmployeeInput
+	Department                     string                        `json:"department"`
+	Position                       string                        `json:"position"`
+	HealthCertificateID            uint64                        `json:"health_certificate_id"`
+	HealthCertificateURL           string                        `json:"health_certificate_url"`
+	HealthCertificateIssuedOn      string                        `json:"health_certificate_issued_on"`
+	HealthCertificateExpiresOn     string                        `json:"health_certificate_expires_on"`
+	HealthCertificateStatus        string                        `json:"health_certificate_status"`
+	HealthCertificateStatusClass   string                        `json:"health_certificate_status_class"`
+	HealthCertificateDaysRemaining int                           `json:"health_certificate_days_remaining"`
+	Attachments                    []response.EmployeeAttachment `json:"attachments"`
 }
 
 func (s *Store) MiniEmployee(ctx context.Context, id uint64) (MiniEmployee, error) {
@@ -261,9 +443,15 @@ func (s *Store) MiniEmployee(ctx context.Context, id uint64) (MiniEmployee, erro
 		return MiniEmployee{}, err
 	}
 	var v MiniEmployee
-	err := s.DB.QueryRowContext(ctx, `SELECT id,employee_no,name,gender,id_card,mobile,COALESCE(department_id,0),COALESCE(position_id,0),employment_status,employment_type,COALESCE(DATE_FORMAT(joined_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(regularized_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(left_on,'%Y-%m-%d'),''),CAST(current_salary AS CHAR),education,hometown,remark FROM employees WHERE id=? AND active=1`, id).Scan(&v.ID, &v.EmployeeNo, &v.Name, &v.Gender, &v.IDCard, &v.Mobile, &v.DepartmentID, &v.PositionID, &v.EmploymentStatus, &v.EmploymentType, &v.JoinedOn, &v.RegularizedOn, &v.LeftOn, &v.CurrentSalary, &v.Education, &v.Hometown, &v.Remark)
+	var days int
+	err := s.DB.QueryRowContext(ctx, `SELECT e.id,e.employee_no,e.name,e.gender,e.id_card,e.mobile,COALESCE(e.department_id,0),COALESCE(e.position_id,0),e.employment_status,e.employment_type,COALESCE(e.pay_basis,'monthly'),COALESCE(DATE_FORMAT(e.joined_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.regularized_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.left_on,'%Y-%m-%d'),''),COALESCE(CAST(e.entry_salary AS CHAR),''),COALESCE(CAST(e.current_salary AS CHAR),''),e.education,e.hometown,e.remark,COALESCE(d.name,''),COALESCE(p.name,''),COALESCE(hc.id,0),COALESCE(hc.file_url,''),COALESCE(DATE_FORMAT(hc.issued_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(hc.expires_on,'%Y-%m-%d'),''),COALESCE(DATEDIFF(hc.expires_on,CURDATE()),0) FROM employees e LEFT JOIN departments d ON d.id=e.department_id LEFT JOIN positions p ON p.id=e.position_id LEFT JOIN employee_health_certificates hc ON hc.id=(SELECT current_hc.id FROM employee_health_certificates current_hc WHERE current_hc.employee_id=e.id AND current_hc.is_current=1 ORDER BY current_hc.expires_on DESC,current_hc.id DESC LIMIT 1) WHERE e.id=? AND e.active=1`, id).Scan(&v.ID, &v.EmployeeNo, &v.Name, &v.Gender, &v.IDCard, &v.Mobile, &v.DepartmentID, &v.PositionID, &v.EmploymentStatus, &v.EmploymentType, &v.PayBasis, &v.JoinedOn, &v.RegularizedOn, &v.LeftOn, &v.EntrySalary, &v.CurrentSalary, &v.Education, &v.Hometown, &v.Remark, &v.Department, &v.Position, &v.HealthCertificateID, &v.HealthCertificateURL, &v.HealthCertificateIssuedOn, &v.HealthCertificateExpiresOn, &days)
+	v.HealthCertificateDaysRemaining = days
+	v.HealthCertificateStatus, v.HealthCertificateStatusClass = healthCertificateStatus(v.HealthCertificateID, days)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
+	}
+	if err == nil {
+		v.Attachments, err = s.EmployeeAttachments(ctx, id)
 	}
 	return v, err
 }
@@ -323,9 +511,13 @@ func (s *Store) SaveEmployee(ctx context.Context, id, actor uint64, v request.Em
 			return 0, err
 		}
 	}
-	args := []any{v.EmployeeNo, v.Name, v.Gender, v.IDCard, v.Mobile, optionalID(v.DepartmentID), optionalID(v.PositionID), v.EmploymentStatus, v.EmploymentType, optionalDate(v.JoinedOn), optionalDate(v.RegularizedOn), optionalDate(v.LeftOn), v.CurrentSalary, v.Education, v.Hometown, v.Remark}
+	entrySalary := v.EntrySalary
+	if entrySalary == "" {
+		entrySalary = v.CurrentSalary
+	}
+	args := []any{v.EmployeeNo, v.Name, v.Gender, v.IDCard, v.Mobile, optionalID(v.DepartmentID), optionalID(v.PositionID), v.EmploymentStatus, v.EmploymentType, optionalDate(v.JoinedOn), optionalDate(v.RegularizedOn), optionalDate(v.LeftOn), optionalMoney(entrySalary), optionalMoney(v.CurrentSalary), v.PayBasis, v.Education, v.Hometown, v.Remark}
 	if id == 0 {
-		result, e := tx.ExecContext(ctx, `INSERT INTO employees(employee_no,name,gender,id_card,mobile,department_id,position_id,employment_status,employment_type,joined_on,regularized_on,left_on,current_salary,education,hometown,remark) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args...)
+		result, e := tx.ExecContext(ctx, `INSERT INTO employees(employee_no,name,gender,id_card,mobile,department_id,position_id,employment_status,employment_type,joined_on,regularized_on,left_on,entry_salary,current_salary,pay_basis,education,hometown,remark) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args...)
 		if e != nil {
 			return 0, e
 		}
@@ -336,7 +528,7 @@ func (s *Store) SaveEmployee(ctx context.Context, id, actor uint64, v request.Em
 		id = uint64(inserted)
 	} else {
 		args = append(args, id)
-		if _, err := tx.ExecContext(ctx, `UPDATE employees SET employee_no=?,name=?,gender=?,id_card=?,mobile=?,department_id=?,position_id=?,employment_status=?,employment_type=?,joined_on=?,regularized_on=?,left_on=?,current_salary=?,education=?,hometown=?,remark=? WHERE id=? AND active=1`, args...); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE employees SET employee_no=?,name=?,gender=?,id_card=?,mobile=?,department_id=?,position_id=?,employment_status=?,employment_type=?,joined_on=?,regularized_on=?,left_on=?,entry_salary=?,current_salary=?,pay_basis=?,education=?,hometown=?,remark=? WHERE id=? AND active=1`, args...); err != nil {
 			return 0, err
 		}
 	}

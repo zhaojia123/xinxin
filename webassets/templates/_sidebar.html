@@ -25,7 +25,9 @@
       <span class="nav-icon">账</span>
       <span>台账流水</span>
     </a>
+    <a class="nav-item {{if eq .ActiveMenu "purchases"}}active{{end}}" href="/admin/purchases"><span class="nav-icon">采</span><span>供货采购</span></a>
     <a class="nav-item {{if eq .ActiveMenu "audit"}}active{{end}}" href="/admin/audit-logs"><span class="nav-icon">志</span><span>操作日志</span></a>
+    <a class="nav-item {{if eq .ActiveMenu "mini-users"}}active{{end}}" href="/admin/mini-users"><span class="nav-icon">权</span><span>小程序权限</span></a>
   </nav>
 
   <div class="sidebar-footer">

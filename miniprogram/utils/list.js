@@ -1,13 +1,17 @@
 const api = require('./api')
 
 // 切换筛选时仅接收最新请求，避免旧响应覆盖新结果。
-function listPage({ endpoint, tab, initial, params, decorate = v => v }) {
+function listPage({ endpoint, tab, module, initial, params, decorate = v => v }) {
   return {
     data: { records: [], loading: false, error: '', more: false, page: 1, q: '', loaded: false, ...initial },
     onShow() {
       if (!api.guard()) return
       const bar = this.getTabBar && this.getTabBar()
-      if (bar) bar.setData({ selected: tab })
+      if (module) this.setData({ canCreate: api.hasPermission(module, 'create'), canEdit: api.hasPermission(module, 'edit'), canDelete: api.hasPermission(module, 'delete') })
+      if (bar) {
+        const selected = typeof tab === 'string' && bar.data.tabs ? bar.data.tabs.findIndex(item => item.key === tab) : tab
+        bar.setData({ selected: selected < 0 ? 0 : selected })
+      }
       this.load(true)
     },
     onHide() { clearTimeout(this.searchTimer); this.serial = (this.serial || 0) + 1; this.setData({ loading: false }) },
@@ -24,7 +28,7 @@ function listPage({ endpoint, tab, initial, params, decorate = v => v }) {
         const result = await api.request(endpoint + '?' + api.query({ ...params(this.data), page }))
         if (serial !== this.serial) return
         const records = (result.records || []).map(decorate)
-        this.setData({ records: reset ? records : this.data.records.concat(records), summary: result.summary, more: result.has_more, page, loaded: true })
+        this.setData({ records: reset ? records : this.data.records.concat(records), summary: result.summary, totals: result.totals || this.data.totals || [], reminders: result.reminders || this.data.reminders || [], more: result.has_more, page, loaded: true })
       } catch (error) { if (serial === this.serial) this.setData({ error: error.message }) }
       finally { if (serial === this.serial) this.setData({ loading: false }) }
     },

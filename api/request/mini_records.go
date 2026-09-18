@@ -101,9 +101,11 @@ type EmployeeInput struct {
 	PositionID       uint64 `json:"position_id"`
 	EmploymentStatus string `json:"employment_status"`
 	EmploymentType   string `json:"employment_type"`
+	PayBasis         string `json:"pay_basis"`
 	JoinedOn         string `json:"joined_on"`
 	RegularizedOn    string `json:"regularized_on"`
 	LeftOn           string `json:"left_on"`
+	EntrySalary      string `json:"entry_salary"`
 	CurrentSalary    string `json:"current_salary"`
 	Education        string `json:"education"`
 	Hometown         string `json:"hometown"`
@@ -123,6 +125,12 @@ func (v *EmployeeInput) Validate() error {
 	}
 	if v.EmploymentType != "full_time" && v.EmploymentType != "part_time" && v.EmploymentType != "intern" {
 		return fmt.Errorf("用工类型不正确")
+	}
+	if v.PayBasis == "" {
+		v.PayBasis = "monthly"
+	}
+	if v.PayBasis != "monthly" && v.PayBasis != "daily" && v.PayBasis != "hourly" {
+		return fmt.Errorf("计薪方式不正确")
 	}
 	for _, date := range []string{v.JoinedOn, v.RegularizedOn, v.LeftOn} {
 		if !validDate(date, true) {
@@ -144,5 +152,12 @@ func (v *EmployeeInput) Validate() error {
 	if !textLength(v.Mobile, 32) || !textLength(v.IDCard, 32) || !textLength(v.Education, 32) || !textLength(v.Hometown, 128) || !textLength(v.Remark, 500) {
 		return fmt.Errorf("员工资料内容过长")
 	}
-	return ValidateMoney(v.CurrentSalary, false, 10)
+	for _, salary := range []string{v.EntrySalary, v.CurrentSalary} {
+		if salary != "" {
+			if err := ValidateMoney(salary, false, 10); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

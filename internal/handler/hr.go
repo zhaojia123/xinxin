@@ -16,11 +16,13 @@ type EmployeesPageData struct {
 	ActiveMenu      string
 	Employees       []response.Employee
 	Departments     []response.Department
+	Positions       []response.Position
 	Summary         response.EmployeeSummary
 	HealthReminders []response.HealthCertificateReminder
 }
 type EmployeePageData struct {
 	ActiveMenu, Mode, PageTitle string
+	ID                          uint64
 	Employee                    response.Employee
 	Form                        request.EmployeeInput
 	Error                       string
@@ -29,14 +31,78 @@ type EmployeePageData struct {
 	Positions                   []response.Position
 }
 type RecordsPageData struct {
-	ActiveMenu    string
-	Exceptions    []response.AttendanceRecord
-	Statistics    response.AttendanceStatistics
-	Changes       []response.EmploymentChange
-	ChangeSummary response.ChangeSummary
-	Adjustments   []response.SalaryAdjustment
-	SalarySummary response.SalarySummary
-	AuditLogs     []response.AuditLog
+	ActiveMenu      string
+	Exceptions      []response.AttendanceRecord
+	Statistics      response.AttendanceStatistics
+	Changes         []response.EmploymentChange
+	ChangeSummary   response.ChangeSummary
+	Adjustments     []response.SalaryAdjustment
+	SalarySummary   response.SalarySummary
+	AuditLogs       []response.AuditLog
+	AttendancePager Pager
+	ChangesPager    Pager
+}
+
+type Pager struct {
+	Page, PerPage, Total, PageCount int
+	PrevPage, NextPage              int
+	HasPrev, HasNext                bool
+}
+
+func pageNumber(r *http.Request) int {
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	return page
+}
+
+func makePager(total, page, perPage int) Pager {
+	if perPage < 1 {
+		perPage = 20
+	}
+	pageCount := (total + perPage - 1) / perPage
+	if pageCount == 0 {
+		pageCount = 1
+	}
+	if page > pageCount {
+		page = pageCount
+	}
+	return Pager{Page: page, PerPage: perPage, Total: total, PageCount: pageCount, PrevPage: page - 1, NextPage: page + 1, HasPrev: page > 1, HasNext: page < pageCount}
+}
+
+func pageAttendance(items []response.AttendanceRecord, page int) ([]response.AttendanceRecord, Pager) {
+	pager := makePager(len(items), page, 20)
+	start := (pager.Page - 1) * pager.PerPage
+	if start > len(items) {
+		start = len(items)
+	}
+	end := start + pager.PerPage
+	if end > len(items) {
+		end = len(items)
+	}
+	result := items[start:end]
+	for i := range result {
+		result[i].Seq = start + i + 1
+	}
+	return result, pager
+}
+
+func pageChanges(items []response.EmploymentChange, page int) ([]response.EmploymentChange, Pager) {
+	pager := makePager(len(items), page, 20)
+	start := (pager.Page - 1) * pager.PerPage
+	if start > len(items) {
+		start = len(items)
+	}
+	end := start + pager.PerPage
+	if end > len(items) {
+		end = len(items)
+	}
+	result := items[start:end]
+	for i := range result {
+		result[i].Seq = start + i + 1
+	}
+	return result, pager
 }
 
 func (h *Handler) EmployeesPage(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +129,12 @@ func (h *Handler) EmployeesPage(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "部门筛选项读取失败")
 		return
 	}
-	h.render(w, "employees.html", EmployeesPageData{ActiveMenu: "employees", Employees: items, Departments: departments, Summary: summary, HealthReminders: reminders})
+	positions, err := h.Store.Positions(r.Context())
+	if err != nil {
+		fail(w, err, "岗位筛选项读取失败")
+		return
+	}
+	h.render(w, "employees.html", EmployeesPageData{ActiveMenu: "employees", Employees: items, Departments: departments, Positions: positions, Summary: summary, HealthReminders: reminders})
 }
 func (h *Handler) EmployeeDetail(w http.ResponseWriter, r *http.Request) {
 	if !getOnly(w, r) {
@@ -102,10 +173,11 @@ func (h *Handler) EmployeeForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := EmployeePageData{ActiveMenu: "employees", Mode: "new", PageTitle: "新增员工", Departments: departments, Positions: positions}
-	data.Form.Gender, data.Form.EmploymentStatus, data.Form.EmploymentType, data.Form.CurrentSalary = "unknown", "probation", "full_time", "0.00"
+	data.Form.Gender, data.Form.EmploymentStatus, data.Form.EmploymentType, data.Form.PayBasis, data.Form.CurrentSalary = "unknown", "probation", "full_time", "monthly", ""
 	var id uint64
 	if r.URL.Path == "/admin/employees/edit" {
 		id, _ = strconv.ParseUint(r.URL.Query().Get("id"), 10, 64)
+		data.ID = id
 		item, err := h.Store.MiniEmployee(r.Context(), id)
 		if err != nil {
 			fail(w, err, "员工数据读取失败")
@@ -126,7 +198,7 @@ func (h *Handler) EmployeeForm(w http.ResponseWriter, r *http.Request) {
 		EmployeeNo: r.FormValue("employee_no"), Name: r.FormValue("name"), Gender: r.FormValue("gender"),
 		IDCard: r.FormValue("id_card"), Mobile: r.FormValue("mobile"), EmploymentStatus: r.FormValue("employment_status"),
 		EmploymentType: r.FormValue("employment_type"), JoinedOn: r.FormValue("joined_on"), RegularizedOn: r.FormValue("regularized_on"),
-		LeftOn: r.FormValue("left_on"), CurrentSalary: r.FormValue("current_salary"), Education: r.FormValue("education"),
+		LeftOn: r.FormValue("left_on"), EntrySalary: r.FormValue("entry_salary"), CurrentSalary: r.FormValue("current_salary"), PayBasis: r.FormValue("pay_basis"), Education: r.FormValue("education"),
 		Hometown: r.FormValue("hometown"), Remark: r.FormValue("remark"),
 	}
 	data.Form.DepartmentID, _ = strconv.ParseUint(r.FormValue("department_id"), 10, 64)
@@ -166,7 +238,8 @@ func (h *Handler) LeavesPage(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "员工出勤统计读取失败")
 		return
 	}
-	h.render(w, "leaves.html", RecordsPageData{ActiveMenu: "leaves", Exceptions: items, Statistics: statistics})
+	items, pager := pageAttendance(items, pageNumber(r))
+	h.render(w, "leaves.html", RecordsPageData{ActiveMenu: "leaves", Exceptions: items, Statistics: statistics, AttendancePager: pager})
 }
 func (h *Handler) ChangesPage(w http.ResponseWriter, r *http.Request) {
 	if !getOnly(w, r) {
@@ -182,7 +255,8 @@ func (h *Handler) ChangesPage(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "人事异动统计读取失败")
 		return
 	}
-	h.render(w, "changes.html", RecordsPageData{ActiveMenu: "changes", Changes: items, ChangeSummary: summary})
+	items, pager := pageChanges(items, pageNumber(r))
+	h.render(w, "changes.html", RecordsPageData{ActiveMenu: "changes", Changes: items, ChangeSummary: summary, ChangesPager: pager})
 }
 func (h *Handler) SalaryPage(w http.ResponseWriter, r *http.Request) {
 	if !getOnly(w, r) {

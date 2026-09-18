@@ -13,15 +13,61 @@ document.addEventListener("DOMContentLoaded", () => {
     button.addEventListener("click", () => showMessage(`${button.dataset.demoAction}：该文件功能暂未启用。`));
   });
 
-  const today = () => new Date().toLocaleDateString("sv-SE");
   const escapeHTML = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[char]);
+  const miniUsersRoot = document.querySelector("[data-mini-users]");
+  if (miniUsersRoot) {
+    const miniUsersBody = miniUsersRoot.querySelector("[data-mini-body]");
+    const miniUsersHead = miniUsersRoot.querySelector("[data-mini-head]");
+    const miniUsersError = miniUsersRoot.querySelector("[data-mini-error]");
+    const miniUsersCount = miniUsersRoot.querySelector("[data-mini-count]");
+    const hasPermission = (user, key, action) => Boolean(user.permissions?.[key]?.[action]);
+    const renderMiniUsers = ({users, modules}) => {
+      miniUsersHead.innerHTML = `<th>用户</th><th>状态</th>${modules.map(module => `<th>${escapeHTML(module.name)}<small class="table-subtext">查看 · 新增 · 编辑 · 删除</small></th>`).join("")}<th>操作</th>`;
+      miniUsersCount.textContent = `${users.length} 位`;
+      miniUsersBody.innerHTML = users.length ? users.map(user => `<tr data-mini-user="${user.id}"><td><input class="mini-user-name" data-mini-name maxlength="64" value="${escapeHTML(user.display_name || "")}" placeholder="填写备注名称"><small class="table-subtext">${escapeHTML(user.openid)}</small></td><td><label class="record-check"><input type="checkbox" data-mini-enabled ${user.enabled ? "checked" : ""}>启用</label></td>${modules.map(module => `<td><div class="mini-actions">${["view","create","edit","delete"].map(action => `<label title="${action === "view" ? "查看" : action === "create" ? "新增" : action === "edit" ? "编辑" : "删除"}"><input type="checkbox" data-mini-module="${escapeHTML(module.key)}" data-mini-action="${action}" ${hasPermission(user, module.key, action) ? "checked" : ""}></label>`).join("")}</div></td>`).join("")}<td><button class="primary-button compact" data-mini-save>保存</button></td></tr>`).join("") : `<tr><td colspan="${modules.length + 3}" class="empty-cell">暂无小程序用户</td></tr>`;
+    };
+    const loadMiniUsers = async () => {
+      miniUsersError.textContent = "";
+      try {
+        const response = await fetch("/api/admin/mini-users");
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "小程序用户读取失败");
+        renderMiniUsers(data);
+      } catch (error) { miniUsersError.textContent = error.message; }
+    };
+    miniUsersRoot.querySelector("[data-mini-refresh]")?.addEventListener("click", loadMiniUsers);
+    miniUsersBody.addEventListener("click", async event => {
+      const button = event.target.closest("[data-mini-save]");
+      if (!button) return;
+      const row = button.closest("[data-mini-user]");
+      const permissions = {};
+      row.querySelectorAll("[data-mini-module]").forEach(input => {
+        const key = input.dataset.miniModule;
+        if (!permissions[key]) permissions[key] = {};
+        permissions[key][input.dataset.miniAction] = input.checked;
+      });
+      button.disabled = true;
+      try {
+        const response = await fetch(`/api/admin/mini-users?id=${row.dataset.miniUser}`, {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({display_name: row.querySelector("[data-mini-name]").value, enabled: row.querySelector("[data-mini-enabled]").checked, permissions})});
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "权限保存失败");
+        showMessage("小程序权限已保存，请让用户重新登录。");
+      } catch (error) { miniUsersError.textContent = error.message; }
+      finally { button.disabled = false; }
+    });
+    loadMiniUsers();
+  }
+
+  const today = () => new Date().toLocaleDateString("sv-SE");
   const recordEndpoints = {
     department: "/api/admin/departments", position: "/api/admin/positions", attendance: "/api/admin/attendance",
-    change: "/api/admin/employment-changes", salary: "/api/admin/salary-adjustments", ledger: "/api/admin/ledger"
+    change: "/api/admin/employment-changes", salary: "/api/admin/salary-adjustments", ledger: "/api/admin/ledger", purchase: "/api/admin/purchases"
   };
   const choices = {
     direction: [{id:"income",name:"收入"},{id:"expense",name:"支出"}],
     category: [{id:"leave",name:"请假"},{id:"exception",name:"迟到或早退等异常"}],
+    salary_effect: [{id:"none",name:"不影响工资"},{id:"deduct",name:"按天扣款"},{id:"subsidy",name:"发放补助"},{id:"deduct_and_subsidy",name:"扣款并发补助"}],
+    purchase_category: [{id:"蔬菜",name:"蔬菜"},{id:"调料",name:"调料"},{id:"肉类",name:"肉类"},{id:"水产",name:"水产"},{id:"水果",name:"水果"},{id:"粮油",name:"粮油"},{id:"其他",name:"其他"}],
     status: [{id:"probation",name:"试用期"},{id:"active",name:"在职"},{id:"left",name:"已离职"}],
     change_type: [{id:"hire",name:"入职"},{id:"regularize",name:"转正"},{id:"transfer",name:"调岗"},{id:"promotion",name:"晋升"},{id:"demotion",name:"降职"},{id:"leave",name:"离职"}]
   };
@@ -36,7 +82,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ]},
     attendance: { title: "请假与异常", fields: [
       ["employee_id","员工","employees",true],["category","记录类别","category",true],["record_type","具体类型","text",true],["occurred_on","发生日期","date",true],
-      ["start_time","开始或发生时间","time"],["end_time","结束时间","time"],["duration_days","请假天数","number"],["duration_minutes","异常分钟数","number"],["reason","原因","textarea"]
+      ["start_time","开始或发生时间","time"],["end_time","结束时间","time"],["duration_days","请假/异常天数","number"],["duration_minutes","异常分钟数","number"],["salary_effect","工资影响","salary_effect",true],["subsidy_amount","补助金额","number"],["reason","原因","textarea"]
     ]},
     change: { title: "人事异动", fields: [
       ["employee_id","员工","employees",true],["change_type","异动类型","change_type",true],["after_department_id","异动后部门","departments"],["after_position_id","异动后岗位","positions"],
@@ -48,6 +94,10 @@ document.addEventListener("DOMContentLoaded", () => {
     ledger: { title: "台账收支", fields: [
       ["direction","收支方向","direction",true],["amount","金额","number",true],["occurred_on","发生日期","date",true],["account_id","资金账户","accounts",true],
       ["category_id","收支分类","categories"],["department_id","归属部门","departments"],["summary","摘要","text",true],["counterparty","对方名称","text"],["voucher_no","凭证号","text"],["remark","备注","textarea"]
+    ]},
+    purchase: { title: "供货采购", fields: [
+      ["date","采购日期","date",true],["supplier_name","供货商","text",true],["category","采购品类","purchase_category",true],["product_name","菜品或物料","text",true],
+      ["quantity","数量","number",true],["unit","单位","text",true],["unit_price","单价（元）","number",true],["remark","特殊需求/备注","textarea"]
     ]}
   };
   let adminOptions;
@@ -125,12 +175,16 @@ document.addEventListener("DOMContentLoaded", () => {
       const leave = overlay.querySelector('[name="category"]')?.value === "leave";
       const daysField = overlay.querySelector('[data-record-field="duration_days"]');
       const minutesField = overlay.querySelector('[data-record-field="duration_minutes"]');
-      if (daysField) daysField.hidden = !leave;
-      if (minutesField) minutesField.hidden = leave;
+      const effect = overlay.querySelector('[name="salary_effect"]')?.value || "none";
+      const dayBased = leave || effect === "deduct_and_subsidy";
+      const subsidyField = overlay.querySelector('[data-record-field="subsidy_amount"]');
+      if (daysField) daysField.hidden = !dayBased;
+      if (minutesField) minutesField.hidden = leave || dayBased;
+      if (subsidyField) subsidyField.hidden = effect !== "subsidy" && effect !== "deduct_and_subsidy";
       const days = daysField?.querySelector("input");
       const minutes = minutesField?.querySelector("input");
-      if (days) days.required = leave;
-      if (minutes) minutes.required = !leave;
+      if (days) days.required = dayBased;
+      if (minutes) minutes.required = !leave && !dayBased;
     }
     if (kind === "change") {
       const changeType = overlay.querySelector('[name="change_type"]')?.value;
@@ -144,6 +198,16 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
   const closeRecordDialog = () => document.querySelector(".record-dialog")?.remove();
+  const uploadLedgerProofFiles = async (ledgerID, files) => {
+    for (const file of files) {
+      const form = new FormData();
+      form.append("ledger_id", String(ledgerID));
+      form.append("proof", file);
+      const response = await fetch("/api/admin/upload/ledger-proof", {method: "POST", body: form});
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "上传转账凭证失败");
+    }
+  };
   const openRecordDialog = async (kind, id = 0, defaults = {}, readonly = false) => {
     try {
       await loadAdminOptions();
@@ -152,13 +216,31 @@ document.addEventListener("DOMContentLoaded", () => {
       if (id) data = await fetchJSON(`${recordEndpoints[kind]}?id=${id}`);
       if (kind === "ledger" && data.payroll_batch_id) readonly = true;
       if (data.enabled === undefined) data.enabled = true;
+      const ledgerProofs = kind === "ledger" ? `<section class="ledger-proof-panel"><div class="record-label-row"><strong>转账凭证</strong><small>支持 JPG、PNG、WebP，单张大小以服务端配置为准</small></div>${data.attachments?.length ? `<div class="ledger-proof-list">${data.attachments.map(item => `<a href="${escapeHTML(item.file_url)}" target="_blank" rel="noopener"><img src="${escapeHTML(item.file_url)}" alt="${escapeHTML(item.original_name || "转账凭证")}"><span>${escapeHTML(item.original_name || "查看图片")}</span></a>`).join("")}</div>` : `<p class="ledger-proof-empty">暂无转账凭证</p>`}<div class="upload-dropzone" data-ledger-proof-upload><input type="file" data-ledger-proof-files accept="image/jpeg,image/png,image/webp" multiple><span class="upload-dropzone-plus">＋</span><strong>拖入或选择转账凭证</strong><small>可上传银行回单、转账截图，支持多张图片</small><em data-ledger-proof-names>尚未选择文件</em></div><button type="button" class="ghost-button ledger-proof-upload-button" data-ledger-proof-submit ${id ? "" : "disabled"}>上传凭证图片</button>${id ? "" : `<p class="ledger-proof-empty">保存台账后会自动上传已选择的图片</p>`}</section>` : "";
       closeRecordDialog();
       const overlay = document.createElement("div");
       overlay.className = "record-dialog";
-      overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>${readonly ? "记录详情" : id ? "修改记录" : "新增记录"}</small><h2>${escapeHTML(schema.title)}</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="record-form-grid">${schema.fields.map(field => fieldHTML(field,data,readonly || (kind === "salary" && field[0] === "before_salary"))).join("")}</div><div class="record-dialog-error" role="alert"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>${readonly ? "关闭" : "取消"}</button>${readonly ? "" : `<button type="submit" class="primary-button">保存${escapeHTML(schema.title)}</button>`}</div></form></div>`;
+      overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>${readonly ? "记录详情" : id ? "修改记录" : "新增记录"}</small><h2>${escapeHTML(schema.title)}</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="record-form-grid">${schema.fields.map(field => fieldHTML(field,data,readonly || (kind === "salary" && field[0] === "before_salary"))).join("")}</div>${ledgerProofs}<div class="record-dialog-error" role="alert"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>${readonly ? "关闭" : "取消"}</button>${readonly ? "" : `<button type="submit" class="primary-button">保存${escapeHTML(schema.title)}</button>`}</div></form></div>`;
       document.body.appendChild(overlay);
       overlay.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", closeRecordDialog));
       overlay.addEventListener("click", event => { if (event.target === overlay) closeRecordDialog(); });
+      const proofDropzone = overlay.querySelector("[data-ledger-proof-upload]");
+      const proofInput = overlay.querySelector("[data-ledger-proof-files]");
+      const proofButton = overlay.querySelector("[data-ledger-proof-submit]");
+      proofDropzone?.addEventListener("click", event => { if (event.target !== proofInput) proofInput?.click(); });
+      proofInput?.addEventListener("change", () => { overlay.querySelector("[data-ledger-proof-names]").textContent = proofInput.files.length ? Array.from(proofInput.files).map(file => file.name).join("、") : "尚未选择文件"; if (proofButton && id) proofButton.disabled = !proofInput.files.length; });
+      proofButton?.addEventListener("click", async () => {
+        if (!id || !proofInput?.files.length) return;
+        proofButton.disabled = true;
+        try {
+          await uploadLedgerProofFiles(id, Array.from(proofInput.files));
+          showMessage("转账凭证上传成功。");
+          await openRecordDialog("ledger", id, {}, true);
+        } catch (error) {
+          showMessage(`转账凭证上传失败：${error.message}`);
+          proofButton.disabled = false;
+        }
+      });
       overlay.querySelectorAll("[data-create-option]").forEach(button => button.addEventListener("click", async event => {
         event.preventDefault();
         const kind = button.dataset.createOption;
@@ -187,6 +269,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }));
       syncDialogDependencies(overlay, kind);
       overlay.querySelector('[name="category"]')?.addEventListener("change", () => syncDialogDependencies(overlay, kind));
+      overlay.querySelector('[name="salary_effect"]')?.addEventListener("change", () => syncDialogDependencies(overlay, kind));
       overlay.querySelector('[name="change_type"]')?.addEventListener("change", () => syncDialogDependencies(overlay, kind));
       overlay.querySelector('[name="after_department_id"]')?.addEventListener("change", () => syncDialogDependencies(overlay, kind));
       overlay.querySelector('[name="direction"]')?.addEventListener("change", () => syncDialogDependencies(overlay, kind));
@@ -210,14 +293,17 @@ document.addEventListener("DOMContentLoaded", () => {
         event.preventDefault();
         const form = event.currentTarget;
         const button = form.querySelector("button[type=submit]");
+        const pendingProofs = Array.from(form.querySelector("[data-ledger-proof-files]")?.files || []);
         const values = Object.fromEntries(new FormData(form).entries());
+        delete values.proof;
         schema.fields.forEach(([name,,type]) => {
           if (type === "checkbox") values[name] = form.elements[name].checked;
           if (["departments","employees","positions","accounts","categories"].includes(type) || name.endsWith("_id") || name === "sort_order" || name === "duration_minutes") values[name] = Number(values[name] || 0);
         });
         button.disabled = true;
         try {
-          await fetchJSON(recordEndpoints[kind] + (id ? `?id=${id}` : ""), {method:id ? "PUT" : "POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(values)});
+          const saved = await fetchJSON(recordEndpoints[kind] + (id ? `?id=${id}` : ""), {method:id ? "PUT" : "POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(values)});
+          if (kind === "ledger" && pendingProofs.length) await uploadLedgerProofFiles(saved.id || id, pendingProofs);
           window.location.href = window.location.pathname + window.location.search;
         } catch (error) { form.querySelector(".record-dialog-error").textContent = error.message; button.disabled = false; }
       });
@@ -226,17 +312,18 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-record-form]").forEach(button => button.addEventListener("click", () => {
     const kind = button.dataset.recordForm;
     const defaults = {};
-    if (kind === "attendance") Object.assign(defaults,{category:button.dataset.category || "leave",occurred_on:today(),duration_days:"1.00",duration_minutes:0});
+    if (kind === "attendance") { const category = button.dataset.category || "leave"; Object.assign(defaults,{category,occurred_on:today(),duration_days:"1.00",duration_minutes:0,salary_effect:category === "leave" ? "deduct" : "none",subsidy_amount:"0"}); }
     if (kind === "ledger") Object.assign(defaults,{direction:"expense",occurred_on:today(),amount:""});
     if (kind === "change") Object.assign(defaults,{change_type:"transfer",after_status:"active",effective_on:today()});
     if (kind === "salary") Object.assign(defaults,{after_salary:"",effective_on:today()});
+    if (kind === "purchase") Object.assign(defaults,{date:today(),supplier_name:"默认供货商",category:"蔬菜",quantity:"1",unit:"斤",unit_price:"0.00"});
     openRecordDialog(kind,Number(button.dataset.id || 0),defaults);
   }));
   document.querySelectorAll("[data-record-view]").forEach(button => button.addEventListener("click", () => openRecordDialog(button.dataset.recordView,Number(button.dataset.id),{},true)));
   document.querySelectorAll("[data-record-delete]").forEach(button => button.addEventListener("click", async () => {
     const kind = button.dataset.recordDelete;
     const endpoint = kind === "employee" ? "/api/admin/employees" : recordEndpoints[kind];
-    const labels = {employee:"员工",department:"部门",position:"岗位",attendance:"请假或异常记录",ledger:"台账记录"};
+    const labels = {employee:"员工",department:"部门",position:"岗位",attendance:"请假或异常记录",ledger:"台账记录",purchase:"采购明细"};
     const confirmed = await askConfirm({title:`删除${labels[kind] || "记录"}`,message:`确定删除“${button.dataset.name || "这条记录"}”吗？有关联业务数据时，系统会阻止删除并说明原因。`});
     if (!confirmed) return;
     button.disabled = true;
@@ -281,6 +368,35 @@ document.addEventListener("DOMContentLoaded", () => {
       overlay.querySelector("form").addEventListener("submit",async submitEvent=>{submitEvent.preventDefault();const form=submitEvent.currentTarget;const submit=form.querySelector("button[type=submit]");submit.disabled=true;const values=Object.fromEntries(new FormData(form).entries());values.batch_id=Number(button.dataset.batchId);values.account_id=Number(values.account_id);try{await fetchJSON("/api/admin/payroll/pay",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(values)});window.location.reload()}catch(error){form.querySelector(".record-dialog-error").textContent=error.message;submit.disabled=false}});
     } catch(error){showMessage(error.message)}
   });
+  document.querySelectorAll("[data-pay-payroll-item]").forEach(button => button.addEventListener("click", async () => {
+    try {
+      await loadAdminOptions();
+      if (!adminOptions.accounts.length) throw new Error("请先在台账新增一个资金账户");
+      const overlay = document.createElement("div");
+      overlay.className = "record-dialog";
+      overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>工资管理</small><h2>单独发放：${escapeHTML(button.dataset.employeeName || "员工")}</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="notice-card"><span>核</span><div><strong>只发放当前员工</strong><p>已发放的其他员工不会重复入账；当前员工发放后将锁定。</p></div></div><div class="record-form-grid"><label>付款账户 *<select name="account_id" required><option value="">请选择</option>${adminOptions.accounts.map(v => `<option value="${v.id}">${escapeHTML(v.name)}</option>`).join("")}</select></label><label>发放日期 *<input name="occurred_on" type="date" value="${today()}" required></label></div><div class="record-dialog-error"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">确认发放</button></div></form></div>`;
+      document.body.appendChild(overlay);
+      overlay.querySelectorAll("[data-close-dialog]").forEach(v => v.addEventListener("click", closeRecordDialog));
+      overlay.querySelector("form").addEventListener("submit", async submitEvent => {
+        submitEvent.preventDefault();
+        const form = submitEvent.currentTarget;
+        const submit = form.querySelector("button[type=submit]");
+        submit.disabled = true;
+        const values = Object.fromEntries(new FormData(form).entries());
+        values.item_id = Number(button.dataset.itemId);
+        values.account_id = Number(values.account_id);
+        try {
+          await fetchJSON("/api/admin/payroll/pay", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(values)});
+          window.location.reload();
+        } catch (error) {
+          form.querySelector(".record-dialog-error").textContent = error.message;
+          submit.disabled = false;
+        }
+      });
+    } catch (error) {
+      showMessage(error.message);
+    }
+  }));
 
   const departmentSelect = document.querySelector("[data-department-select]");
   const positionSelect = document.querySelector("[data-position-select]");
@@ -297,20 +413,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const employeeSearch = document.querySelector("[data-employee-search]");
   const employeeDepartment = document.querySelector("[data-employee-department]");
+  const employeePosition = document.querySelector("[data-employee-position]");
   const employeeStatus = document.querySelector("[data-employee-status]");
   const filterEmployees = () => {
     const keyword = employeeSearch?.value.trim().toLowerCase() || "";
     const departmentID = employeeDepartment?.value || "";
+    const positionID = employeePosition?.value || "";
     const status = employeeStatus?.value || "";
     document.querySelectorAll("[data-employee-row]").forEach((row) => {
       const matchesKeyword = !keyword || row.dataset.search.toLowerCase().includes(keyword);
       const matchesDepartment = !departmentID || row.dataset.departmentId === departmentID;
+      const matchesPosition = !positionID || row.dataset.positionId === positionID;
       const matchesStatus = !status || row.dataset.status === status;
-      row.hidden = !(matchesKeyword && matchesDepartment && matchesStatus);
+      row.hidden = !(matchesKeyword && matchesDepartment && matchesPosition && matchesStatus);
     });
   };
   employeeSearch?.addEventListener("input", filterEmployees);
   employeeDepartment?.addEventListener("change", filterEmployees);
+  employeePosition?.addEventListener("change", filterEmployees);
   employeeStatus?.addEventListener("change", filterEmployees);
 
   const numberValue = (row, name) => Number(row.querySelector(`[data-field="${name}"]`)?.value || 0);
@@ -351,6 +471,29 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (error) { showMessage(`生成工资失败：${error.message}`); button.disabled = false; }
   });
 
+  document.querySelector("[data-generate-payroll-employee]")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const employeeID = document.querySelector("#generate-payroll-employee")?.value;
+    if (!employeeID) {
+      showMessage("请先选择员工");
+      return;
+    }
+    button.disabled = true;
+    try {
+      const response = await fetch("/api/admin/payroll/generate", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({month: button.dataset.month, employee_id: Number(employeeID)})
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "生成失败");
+      window.location.reload();
+    } catch (error) {
+      showMessage(`单独生成工资失败：${error.message}`);
+      button.disabled = false;
+    }
+  });
+
   document.querySelector("[data-health-upload]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -367,4 +510,97 @@ document.addEventListener("DOMContentLoaded", () => {
       button.disabled = false;
     }
   });
+
+  document.querySelector("[data-employee-document-upload]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
+    try {
+      const response = await fetch("/api/admin/upload/employee-document", {method: "POST", body: new FormData(form)});
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "上传失败");
+      showMessage("员工证件图片上传成功。");
+      setTimeout(() => { window.location.reload(); }, 500);
+    } catch (error) {
+      showMessage(`员工证件上传失败：${error.message}`);
+      button.disabled = false;
+    }
+  });
+
+  document.querySelectorAll("[data-employee-form-upload]").forEach(dropzone => {
+    const input = dropzone.querySelector("[data-employee-document-file]");
+    const button = dropzone.parentElement.querySelector("[data-employee-document-submit]");
+    const name = dropzone.querySelector("[data-employee-document-name]");
+    input?.addEventListener("change", () => {
+      name.textContent = input.files.length ? input.files[0].name : "选择图片";
+      if (button) button.disabled = !input.files.length;
+    });
+    dropzone.addEventListener("click", event => { if (event.target !== input) input?.click(); });
+    button?.addEventListener("click", async () => {
+      if (!input.files.length) return;
+      button.disabled = true;
+      const form = new FormData();
+      form.append("employee_id", button.dataset.employeeId);
+      form.append("attachment_type", button.dataset.kind);
+      form.append("document", input.files[0]);
+      try {
+        const response = await fetch("/api/admin/upload/employee-document", {method: "POST", body: form});
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "上传失败");
+        showMessage("员工证件图片上传成功。");
+        input.value = "";
+        name.textContent = "选择图片";
+      } catch (error) {
+        showMessage(`员工证件上传失败：${error.message}`);
+        button.disabled = false;
+      }
+    });
+  });
+
+  const employeeCreateForm = document.querySelector("[data-employee-form]");
+  const employeeCreateUploads = document.querySelectorAll("[data-employee-create-upload]");
+  if (employeeCreateForm && employeeCreateUploads.length) {
+    employeeCreateUploads.forEach(dropzone => {
+      const input = dropzone.querySelector("[data-employee-create-file]");
+      const name = dropzone.querySelector("[data-employee-create-name]");
+      input?.addEventListener("change", () => { name.textContent = input.files.length ? input.files[0].name : "选择图片"; });
+      dropzone.addEventListener("click", event => { if (event.target !== input) input?.click(); });
+    });
+    employeeCreateForm.addEventListener("submit", async event => {
+      const files = Array.from(employeeCreateForm.querySelectorAll("[data-employee-create-file]"))
+        .filter(input => input.files.length)
+        .map(input => ({kind: input.dataset.kind, file: input.files[0]}));
+      if (!files.length) return;
+      event.preventDefault();
+      const button = employeeCreateForm.querySelector("button[type=submit]");
+      button.disabled = true;
+      const values = Object.fromEntries(new FormData(employeeCreateForm).entries());
+      delete values.document;
+      delete values.attachment_type;
+      ["department_id", "position_id"].forEach(key => { values[key] = Number(values[key] || 0); });
+      let saved;
+      try {
+        saved = await fetchJSON("/api/admin/employees", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(values)});
+        for (const item of files) {
+          const form = new FormData();
+          form.append("employee_id", String(saved.id));
+          form.append("attachment_type", item.kind);
+          form.append("document", item.file);
+          const response = await fetch("/api/admin/upload/employee-document", {method: "POST", body: form});
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || "证件图片上传失败");
+        }
+        window.location.href = "/admin/employees";
+      } catch (error) {
+        if (saved?.id) {
+          showMessage(`员工已保存，但证件图片上传失败：${error.message}`);
+          setTimeout(() => { window.location.href = `/admin/employees/edit?id=${saved.id}`; }, 700);
+        } else {
+          showMessage(`保存员工失败：${error.message}`);
+          button.disabled = false;
+        }
+      }
+    });
+  }
 });

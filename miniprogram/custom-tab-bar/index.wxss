@@ -1,5 +1,5 @@
-.bar { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: #fff; border-top: 1rpx solid #e6eaf0; padding: 16rpx 60rpx calc(12rpx + env(safe-area-inset-bottom)); z-index: 10; }
-.tab { width: 50%; display: flex; flex-direction: column; align-items: center; color: #8691a3; font-size: 23rpx; line-height: 1.5; }
+.bar { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: #fff; border-top: 1rpx solid #e6eaf0; padding: 16rpx 34rpx calc(12rpx + env(safe-area-inset-bottom)); z-index: 10; }
+.tab { flex: 1; display: flex; flex-direction: column; align-items: center; color: #8691a3; font-size: 23rpx; line-height: 1.5; }
 .selected { color: #2457e6; font-weight: 600; }
 .icon { position: relative; width: 42rpx; height: 42rpx; margin: 2rpx 0 9rpx; box-sizing: border-box; }
 .book { border: 3rpx solid currentColor; border-radius: 8rpx; }
@@ -7,3 +7,4 @@
 .book text { position: absolute; left: 17rpx; top: 12rpx; width: 13rpx; height: 8rpx; border-top: 3rpx solid currentColor; border-bottom: 3rpx solid currentColor; }
 .people view { position: absolute; left: 13rpx; top: 0; width: 16rpx; height: 16rpx; border: 3rpx solid currentColor; border-radius: 50%; box-sizing: border-box; }
 .people text { position: absolute; left: 5rpx; bottom: 0; width: 32rpx; height: 21rpx; border: 3rpx solid currentColor; border-radius: 18rpx 18rpx 5rpx 5rpx; box-sizing: border-box; }
+.cart { border: 3rpx solid currentColor; border-top: 0; border-radius: 0 0 8rpx 8rpx; top: 9rpx; height: 27rpx; }.cart::before { content: ''; position: absolute; left: -8rpx; top: -10rpx; width: 14rpx; border-top: 3rpx solid currentColor; transform: rotate(35deg); }.cart::after { content: '••'; position: absolute; left: 8rpx; bottom: -17rpx; letter-spacing: 8rpx; font-size: 19rpx; }

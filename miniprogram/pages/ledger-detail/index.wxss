@@ -1,0 +1,7 @@
+.detail-hero { text-align: center; padding: 42rpx 30rpx; }
+.detail-direction { display: inline-block; padding: 8rpx 18rpx; border-radius: 14rpx; font-size: 23rpx; }
+.detail-direction.income { color: #16825d; background: #eaf7f1; }.detail-direction.expense { color: #dc5c50; background: #fff0eb; }
+.detail-amount { font-size: 57rpx; font-weight: 700; margin-top: 18rpx; word-break: break-all; }.detail-summary { font-size: 31rpx; font-weight: 600; margin-top: 16rpx; }
+.detail-row { display: flex; justify-content: space-between; gap: 26rpx; padding: 24rpx 0; border-bottom: 1rpx solid #f0f2f7; color: #475467; }.detail-row:last-child { border-bottom: 0; padding-bottom: 0; }.detail-row text:last-child { color: #162033; text-align: right; word-break: break-all; }
+.detail-remark { margin-top: 22rpx; color: #475467; line-height: 1.8; white-space: pre-wrap; }
+.proof-list { display: flex; flex-wrap: wrap; gap: 18rpx; margin-top: 22rpx; }.proof-item { width: 190rpx; }.proof-image { width: 190rpx; height: 190rpx; border-radius: 16rpx; background: #f2f5fa; }.proof-name { margin-top: 8rpx; color: #718096; font-size: 21rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.proof-empty { margin-top: 22rpx; font-size: 24rpx; }

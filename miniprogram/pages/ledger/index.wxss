@@ -1,6 +1,8 @@
 .overview { margin-top: 30rpx; background: linear-gradient(135deg,#2e62ed,#1942bc); padding: 32rpx; border-radius: 30rpx; color: #fff; box-shadow: 0 18rpx 36rpx rgba(36,87,230,.18); }
 .overview-label { color: #d6e1ff; font-size: 24rpx; }
-.month-picker { padding: 12rpx 18rpx; background: rgba(255,255,255,.14); border-radius: 14rpx; font-size: 24rpx; }
+.month-reset { padding: 7rpx 16rpx; color: #d6e1ff; background: rgba(255,255,255,.14); border: 0; border-radius: 14rpx; font-size: 23rpx; }
+.date-range { display: flex; align-items: center; gap: 14rpx; margin-top: 20rpx; color: #d6e1ff; font-size: 24rpx; }
+.date-picker { padding: 12rpx 15rpx; min-width: 208rpx; background: rgba(255,255,255,.14); border-radius: 14rpx; font-size: 24rpx; text-align: center; }
 .net { font-size: 57rpx; font-weight: 700; margin: 28rpx 0; word-break: break-all; }
 .overview-bottom { display: flex; justify-content: space-between; align-items: center; border-top: 1rpx solid rgba(255,255,255,.2); padding-top: 24rpx; }
 .balance { font-size: 30rpx; margin-top: 8rpx; }
@@ -21,3 +23,7 @@
 .entry-bottom { display: flex; justify-content: space-between; gap: 16rpx; border-top: 1rpx solid #f0f2f7; padding-top: 20rpx; margin-top: 22rpx; color: #98a2b3; font-size: 22rpx; }
 .entry-bottom > text:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .edit-label { color: #718096; flex-shrink: 0; }
+.detail-label { color: #2457e6; flex-shrink: 0; }
+.entry-actions { flex-shrink: 0; }
+.mini-danger { margin: 0; padding: 0; border: 0; background: transparent; color: #d64545; font-size: 22rpx; line-height: 1.5; }
+.mini-danger::after { border: 0; }

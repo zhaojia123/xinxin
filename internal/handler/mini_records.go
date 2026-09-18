@@ -45,6 +45,43 @@ func RequireMini(tokens *token.Manager, enabled func(context.Context, uint64) (b
 	}
 }
 
+// RequireMiniPermission 在登录校验后继续校验具体模块权限。
+func RequireMiniPermission(tokens *token.Manager, enabled func(context.Context, uint64) (bool, error), allowed func(context.Context, uint64) (bool, error), next http.HandlerFunc) http.HandlerFunc {
+	return RequireMini(tokens, enabled, func(w http.ResponseWriter, r *http.Request) {
+		ok, err := allowed(r.Context(), miniActor(r))
+		if err != nil {
+			miniFail(w, err)
+			return
+		}
+		if !ok {
+			httpx.Error(w, http.StatusForbidden, "当前账号没有此模块权限")
+			return
+		}
+		next(w, r)
+	})
+}
+
+// RequireMiniCRUD 按 HTTP 方法校验查看、新增、编辑和删除权限。
+func RequireMiniCRUD(tokens *token.Manager, enabled func(context.Context, uint64) (bool, error), allowed func(context.Context, uint64, string) (bool, error), next http.HandlerFunc) http.HandlerFunc {
+	return RequireMini(tokens, enabled, func(w http.ResponseWriter, r *http.Request) {
+		action := map[string]string{http.MethodGet: "view", http.MethodPost: "create", http.MethodPut: "edit", http.MethodDelete: "delete"}[r.Method]
+		if action == "" {
+			httpx.MethodNotAllowed(w, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete)
+			return
+		}
+		ok, err := allowed(r.Context(), miniActor(r), action)
+		if err != nil {
+			miniFail(w, err)
+			return
+		}
+		if !ok {
+			httpx.Error(w, http.StatusForbidden, "当前账号没有此操作权限")
+			return
+		}
+		next(w, r)
+	})
+}
+
 func miniActor(r *http.Request) uint64 {
 	id, _ := r.Context().Value(miniActorKey{}).(uint64)
 	return id
@@ -61,8 +98,15 @@ func miniFail(w http.ResponseWriter, err error) {
 		httpx.Error(w, 404, "记录不存在，请刷新后重试")
 	case errors.Is(err, mysql.ErrNotConfigured):
 		httpx.Error(w, 503, "数据库尚未配置，请先配置服务端 MySQL")
+	case errors.As(err, &dbErr) && dbErr.Number == 1146:
+		httpx.Error(w, 503, "数据库缺少必要表，请执行最新的 sql/migrations 迁移脚本")
+	case errors.As(err, &dbErr) && dbErr.Number == 1054:
+		httpx.Error(w, 503, "数据库缺少必要字段，请执行最新的 sql/migrations 迁移脚本")
 	case errors.As(err, &dbErr) && dbErr.Number == 1062:
 		httpx.Error(w, 409, "编号或名称已存在，请修改后保存")
+	case errors.As(err, &dbErr):
+		// 本地调试时返回数据库错误摘要，便于定位字段或表结构未同步；不返回连接信息。
+		httpx.Error(w, 500, "数据库查询失败："+dbErr.Message)
 	default:
 		httpx.Error(w, 500, "服务暂时不可用，请稍后重试或联系管理员")
 	}
@@ -94,6 +138,25 @@ func miniPage(w http.ResponseWriter, r *http.Request) (int, bool) {
 	return (page - 1) * 30, true
 }
 
+func miniLedgerDateRange(w http.ResponseWriter, r *http.Request) (string, string, bool) {
+	query := r.URL.Query()
+	start, end := query.Get("start_date"), query.Get("end_date")
+	if start == "" && end == "" && query.Get("month") != "" {
+		month := query.Get("month")
+		if _, err := time.Parse("2006-01", month); err != nil {
+			httpx.Error(w, 400, "月份格式应为YYYY-MM")
+			return "", "", false
+		}
+		start, end = mysql.MonthDateRange(month)
+	}
+	start, end, err := mysql.NormalizeDateRange(start, end)
+	if err != nil {
+		httpx.Error(w, 400, err.Error())
+		return "", "", false
+	}
+	return start, end, true
+}
+
 func (h *Handler) MiniLedgerAPI(w http.ResponseWriter, r *http.Request) {
 	id, ok := miniID(w, r)
 	if !ok {
@@ -114,13 +177,8 @@ func (h *Handler) MiniLedgerAPI(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		month := r.URL.Query().Get("month")
-		if month == "" {
-			month = time.Now().Format("2006-01")
-		}
-		date, err := time.Parse("2006-01", month)
-		if err != nil || date.Year() < 1000 || date.Year() > 9998 {
-			httpx.Error(w, 400, "月份格式应为YYYY-MM")
+		start, end, ok := miniLedgerDateRange(w, r)
+		if !ok {
 			return
 		}
 		direction := r.URL.Query().Get("direction")
@@ -128,17 +186,22 @@ func (h *Handler) MiniLedgerAPI(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, 400, "收支方向不正确")
 			return
 		}
-		records, more, err := h.Store.MiniLedgerList(r.Context(), month, direction, r.URL.Query().Get("q"), offset)
+		records, more, err := h.Store.MiniLedgerList(r.Context(), start, end, direction, r.URL.Query().Get("q"), offset)
 		if err != nil {
 			miniFail(w, err)
 			return
 		}
-		summary, err := h.Store.LedgerSummary(r.Context(), month)
+		summary, err := h.Store.LedgerSummaryRange(r.Context(), start, end)
 		if err != nil {
 			miniFail(w, err)
 			return
 		}
-		httpx.JSON(w, 200, map[string]any{"records": records, "has_more": more, "summary": summary})
+		reminders, err := h.Store.HealthCertificateReminders(r.Context())
+		if err != nil {
+			miniFail(w, err)
+			return
+		}
+		httpx.JSON(w, 200, map[string]any{"records": records, "has_more": more, "summary": summary, "reminders": reminders})
 	case http.MethodPost, http.MethodPut:
 		if r.Method == http.MethodPost && id != 0 {
 			httpx.Error(w, 400, "新增记录不能携带ID")
@@ -162,8 +225,18 @@ func (h *Handler) MiniLedgerAPI(w http.ResponseWriter, r *http.Request) {
 			status = 201
 		}
 		httpx.JSON(w, status, map[string]any{"id": id})
+	case http.MethodDelete:
+		if id == 0 {
+			httpx.Error(w, 400, "删除记录必须提供ID")
+			return
+		}
+		if err := h.Store.DeleteLedger(r.Context(), id, miniActor(r)); err != nil {
+			miniFail(w, err)
+			return
+		}
+		httpx.JSON(w, 200, map[string]any{"id": id})
 	default:
-		httpx.MethodNotAllowed(w, "GET", "POST", "PUT")
+		httpx.MethodNotAllowed(w, "GET", "POST", "PUT", "DELETE")
 	}
 }
 
@@ -202,7 +275,12 @@ func (h *Handler) MiniEmployeesAPI(w http.ResponseWriter, r *http.Request) {
 			miniFail(w, err)
 			return
 		}
-		httpx.JSON(w, 200, map[string]any{"records": records, "has_more": more, "summary": summary})
+		reminders, err := h.Store.HealthCertificateReminders(r.Context())
+		if err != nil {
+			miniFail(w, err)
+			return
+		}
+		httpx.JSON(w, 200, map[string]any{"records": records, "has_more": more, "summary": summary, "reminders": reminders})
 	case http.MethodPost, http.MethodPut:
 		if r.Method == http.MethodPost && id != 0 {
 			httpx.Error(w, 400, "新增记录不能携带ID")
@@ -226,8 +304,18 @@ func (h *Handler) MiniEmployeesAPI(w http.ResponseWriter, r *http.Request) {
 			status = 201
 		}
 		httpx.JSON(w, status, map[string]any{"id": id})
+	case http.MethodDelete:
+		if id == 0 {
+			httpx.Error(w, 400, "删除员工必须提供ID")
+			return
+		}
+		if err := h.Store.DeleteEmployee(r.Context(), id, miniActor(r)); err != nil {
+			miniFail(w, err)
+			return
+		}
+		httpx.JSON(w, 200, map[string]any{"id": id})
 	default:
-		httpx.MethodNotAllowed(w, "GET", "POST", "PUT")
+		httpx.MethodNotAllowed(w, "GET", "POST", "PUT", "DELETE")
 	}
 }
 
@@ -247,6 +335,19 @@ func (h *Handler) MiniOptionsAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := input.Validate(); err != nil {
 			httpx.Error(w, 400, err.Error())
+			return
+		}
+		module := "ledger"
+		if input.Kind == "departments" || input.Kind == "positions" {
+			module = "employees"
+		}
+		allowed, err := h.Store.MiniPermissionAction(r.Context(), miniActor(r), module, "create")
+		if err != nil {
+			miniFail(w, err)
+			return
+		}
+		if !allowed {
+			httpx.Error(w, http.StatusForbidden, "当前账号没有新增选项权限")
 			return
 		}
 		id, err := h.Store.CreateMiniOption(r.Context(), input.Kind, input.Name, input.Direction, input.DepartmentID, miniActor(r))

@@ -1,5 +1,6 @@
 const config = require('../config')
 const TOKEN_KEY = 'xinxin_token'
+const USER_KEY = 'xinxin_mini_user'
 const HOST_KEY = 'xinxin_develop_host'
 let redirecting = false
 
@@ -19,7 +20,14 @@ function setDevelopHost(value) {
 }
 function token() { return wx.getStorageSync(TOKEN_KEY) || '' }
 function saveToken(value) { wx.setStorageSync(TOKEN_KEY, value) }
-function clearToken() { wx.removeStorageSync(TOKEN_KEY) }
+function saveMiniUser(value) { wx.setStorageSync(USER_KEY, value || {}) }
+function hasPermission(module, action = 'view') {
+  const user = wx.getStorageSync(USER_KEY) || {}
+  if (user.actions && user.actions[module] && user.actions[module][action] !== undefined) return user.actions[module][action] === true
+  if (action === 'view' && Array.isArray(user.permissions)) return user.permissions.indexOf(module) >= 0
+  return user['can_' + module] !== false
+}
+function clearToken() { wx.removeStorageSync(TOKEN_KEY); wx.removeStorageSync(USER_KEY) }
 function toLogin() {
   clearToken()
   if (redirecting) return
@@ -48,17 +56,48 @@ function request(path, { method = 'GET', data, auth = true } = {}) {
     })
   })
 }
+function uploadFile(path, filePath, formData = {}, name = 'proof') {
+  const host = baseURL()
+  if (!host) return Promise.reject(new Error('尚未配置此版本的服务器地址，请先设置 config.js'))
+  if (!token()) { toLogin(); return Promise.reject(new Error('请先登录')) }
+  return new Promise((resolve, reject) => wx.uploadFile({
+    url: host + '/api/mini' + path, filePath, name, formData,
+    header: { Authorization: 'Bearer ' + token() }, timeout: 30000,
+    success(res) {
+      let data = {}
+      try { data = JSON.parse(res.data || '{}') } catch (_) {}
+      if (res.statusCode >= 200 && res.statusCode < 300) { resolve(data); return }
+      if (res.statusCode === 401 || res.statusCode === 403) toLogin()
+      reject(new Error(data.error || '图片上传失败，请稍后重试'))
+    },
+    fail() { reject(new Error('图片上传失败，请检查网络连接')) }
+  }))
+}
+function downloadFile(path) {
+  const host = baseURL()
+  if (!host) return Promise.reject(new Error('尚未配置此版本的服务器地址，请先设置 config.js'))
+  if (!token()) { toLogin(); return Promise.reject(new Error('请先登录')) }
+  return new Promise((resolve, reject) => wx.downloadFile({
+    url: host + '/api/mini' + path,
+    header: { Authorization: 'Bearer ' + token() }, timeout: 30000,
+    success(res) {
+      if (res.statusCode >= 200 && res.statusCode < 300) { resolve(res.tempFilePath); return }
+      reject(new Error('采购清单下载失败，请稍后重试'))
+    },
+    fail() { reject(new Error('采购清单下载失败，请检查网络连接')) }
+  }))
+}
 function login() {
   return new Promise((resolve, reject) => wx.login({
     timeout: 10000,
     success: res => res.code ? resolve(res.code) : reject(new Error('微信未返回登录凭证，请重试')),
     fail: () => reject(new Error('微信登录失败，请确认开发者工具已登录且 AppID 正确'))
   })).then(code => request('/login', { method: 'POST', auth: false, data: { code } }))
-    .then(result => { if (!result.token) throw new Error('服务端未返回登录令牌'); saveToken(result.token); return result })
+    .then(result => { if (!result.token) throw new Error('服务端未返回登录令牌'); saveToken(result.token); saveMiniUser(result.user); return result })
 }
 function query(values) {
   return Object.keys(values).filter(k => values[k] !== '' && values[k] != null)
     .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(values[k])).join('&')
 }
 function errorModal(error) { wx.showModal({ title: '未能完成', content: error.message || '请稍后重试', showCancel: false }) }
-module.exports = { environment, baseURL, setDevelopHost, token, saveToken, clearToken, toLogin, guard, request, login, query, errorModal }
+module.exports = { environment, baseURL, setDevelopHost, token, saveToken, saveMiniUser, hasPermission, clearToken, toLogin, guard, request, uploadFile, downloadFile, login, query, errorModal }
