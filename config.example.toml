@@ -4,6 +4,11 @@
 env = "production"
 addr = ":8999"
 token_secret = "请填写至少32位随机字符串"
+filing_number = "陇ICP备2026008700号-2"
+# 公安备案审核期间临时展示静态首页；审核通过后改为 false。
+filing_landing = false
+# 每月公休天数，例如3；应出勤天数=当月自然日数-公休天数。
+monthly_rest_days = 3
 
 [mysql]
 dsn = "用户名:密码@tcp(127.0.0.1:3306)/数据库名?charset=utf8mb4&parseTime=true&loc=Local"

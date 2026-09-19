@@ -43,7 +43,16 @@ function createOption(page, kind, title, extra = {}) {
       const name = (result.content || '').trim()
       if (!name) { wx.showToast({ title: '名称不能为空', icon: 'none' }); return }
       try {
-        const created = await api.request('/options', { method: 'POST', data: { kind, name, ...extra } })
+        let accountType = ''
+        let remark = ''
+        if (kind === 'accounts') {
+          const typeResult = await new Promise(resolve => wx.showActionSheet({ itemList: ['银行卡', '微信', '支付宝', 'QQ', '现金', '其他'], success: r => resolve(r.tapIndex), fail: () => resolve(-1) }))
+          if (typeResult < 0) return
+          accountType = ['bank', 'wechat', 'alipay', 'qq', 'cash', 'other'][typeResult]
+          const remarkResult = await new Promise(resolve => wx.showModal({ title: '账户备注（选填）', editable: true, placeholderText: '例如QQ号、微信号或银行卡后四位', success: r => resolve(r.confirm ? (r.content || '').trim() : '') }))
+          remark = remarkResult
+        }
+        const created = await api.request('/options', { method: 'POST', data: { kind, name, ...extra, account_type: accountType, remark } })
         const options = await api.request('/options')
         page.options = options
         const field = { accounts: 'account_id', categories: 'category_id', departments: 'department_id', positions: 'position_id' }[kind]

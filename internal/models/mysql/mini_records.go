@@ -190,6 +190,9 @@ type MiniOption struct {
 	Name         string `json:"name"`
 	Direction    string `json:"direction"`
 	DepartmentID uint64 `json:"department_id"`
+	AccountType  string `json:"account_type,omitempty"`
+	Remark       string `json:"remark,omitempty"`
+	DisplayName  string `json:"display_name"`
 }
 
 func (s *Store) MiniOptions(ctx context.Context) (map[string][]MiniOption, error) {
@@ -198,10 +201,10 @@ func (s *Store) MiniOptions(ctx context.Context) (map[string][]MiniOption, error
 	}
 	result := map[string][]MiniOption{}
 	queries := map[string]string{
-		"accounts":    `SELECT id,name,'',0 FROM ledger_accounts WHERE enabled=1 ORDER BY id`,
-		"categories":  `SELECT id,name,direction,0 FROM ledger_categories WHERE enabled=1 ORDER BY sort_order,id`,
-		"departments": `SELECT id,name,'',0 FROM departments WHERE enabled=1 AND active=1 ORDER BY sort_order,id`,
-		"positions":   `SELECT p.id,p.name,'',p.department_id FROM positions p JOIN departments d ON d.id=p.department_id WHERE p.enabled=1 AND d.enabled=1 AND p.active=1 AND d.active=1 ORDER BY p.sort_order,p.id`,
+		"accounts":    `SELECT id,name,'',0,account_type,remark FROM ledger_accounts WHERE enabled=1 ORDER BY id`,
+		"categories":  `SELECT id,name,direction,0,'','' FROM ledger_categories WHERE enabled=1 ORDER BY sort_order,id`,
+		"departments": `SELECT id,name,'',0,'','' FROM departments WHERE enabled=1 AND active=1 ORDER BY sort_order,id`,
+		"positions":   `SELECT p.id,p.name,'',p.department_id,'','' FROM positions p JOIN departments d ON d.id=p.department_id WHERE p.enabled=1 AND d.enabled=1 AND p.active=1 AND d.active=1 ORDER BY p.sort_order,p.id`,
 	}
 	for key, query := range queries {
 		rows, err := s.DB.QueryContext(ctx, query)
@@ -211,9 +214,19 @@ func (s *Store) MiniOptions(ctx context.Context) (map[string][]MiniOption, error
 		items := []MiniOption{}
 		for rows.Next() {
 			var item MiniOption
-			if err := rows.Scan(&item.ID, &item.Name, &item.Direction, &item.DepartmentID); err != nil {
+			if err := rows.Scan(&item.ID, &item.Name, &item.Direction, &item.DepartmentID, &item.AccountType, &item.Remark); err != nil {
 				rows.Close()
 				return nil, err
+			}
+			item.DisplayName = item.Name
+			if key == "accounts" {
+				labels := map[string]string{"bank": "银行卡", "wechat": "微信", "alipay": "支付宝", "qq": "QQ", "cash": "现金", "other": "其他"}
+				if label := labels[item.AccountType]; label != "" {
+					item.DisplayName += " · " + label
+				}
+				if item.Remark != "" {
+					item.DisplayName += " · " + item.Remark
+				}
 			}
 			items = append(items, item)
 		}
@@ -444,7 +457,7 @@ func (s *Store) MiniEmployee(ctx context.Context, id uint64) (MiniEmployee, erro
 	}
 	var v MiniEmployee
 	var days int
-	err := s.DB.QueryRowContext(ctx, `SELECT e.id,e.employee_no,e.name,e.gender,e.id_card,e.mobile,COALESCE(e.department_id,0),COALESCE(e.position_id,0),e.employment_status,e.employment_type,COALESCE(e.pay_basis,'monthly'),COALESCE(DATE_FORMAT(e.joined_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.regularized_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.left_on,'%Y-%m-%d'),''),COALESCE(CAST(e.entry_salary AS CHAR),''),COALESCE(CAST(e.current_salary AS CHAR),''),e.education,e.hometown,e.remark,COALESCE(d.name,''),COALESCE(p.name,''),COALESCE(hc.id,0),COALESCE(hc.file_url,''),COALESCE(DATE_FORMAT(hc.issued_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(hc.expires_on,'%Y-%m-%d'),''),COALESCE(DATEDIFF(hc.expires_on,CURDATE()),0) FROM employees e LEFT JOIN departments d ON d.id=e.department_id LEFT JOIN positions p ON p.id=e.position_id LEFT JOIN employee_health_certificates hc ON hc.id=(SELECT current_hc.id FROM employee_health_certificates current_hc WHERE current_hc.employee_id=e.id AND current_hc.is_current=1 ORDER BY current_hc.expires_on DESC,current_hc.id DESC LIMIT 1) WHERE e.id=? AND e.active=1`, id).Scan(&v.ID, &v.EmployeeNo, &v.Name, &v.Gender, &v.IDCard, &v.Mobile, &v.DepartmentID, &v.PositionID, &v.EmploymentStatus, &v.EmploymentType, &v.PayBasis, &v.JoinedOn, &v.RegularizedOn, &v.LeftOn, &v.EntrySalary, &v.CurrentSalary, &v.Education, &v.Hometown, &v.Remark, &v.Department, &v.Position, &v.HealthCertificateID, &v.HealthCertificateURL, &v.HealthCertificateIssuedOn, &v.HealthCertificateExpiresOn, &days)
+	err := s.DB.QueryRowContext(ctx, `SELECT e.id,e.employee_no,e.name,e.gender,e.id_card,e.mobile,COALESCE(e.department_id,0),COALESCE(e.position_id,0),e.employment_status,e.employment_type,COALESCE(e.pay_basis,'monthly'),COALESCE(e.monthly_rest_days,0),COALESCE(DATE_FORMAT(e.joined_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.regularized_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.left_on,'%Y-%m-%d'),''),COALESCE(CAST(e.entry_salary AS CHAR),''),COALESCE(CAST(e.current_salary AS CHAR),''),e.education,e.hometown,e.remark,COALESCE(d.name,''),COALESCE(p.name,''),COALESCE(hc.id,0),COALESCE(hc.file_url,''),COALESCE(DATE_FORMAT(hc.issued_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(hc.expires_on,'%Y-%m-%d'),''),COALESCE(DATEDIFF(hc.expires_on,CURDATE()),0) FROM employees e LEFT JOIN departments d ON d.id=e.department_id LEFT JOIN positions p ON p.id=e.position_id LEFT JOIN employee_health_certificates hc ON hc.id=(SELECT current_hc.id FROM employee_health_certificates current_hc WHERE current_hc.employee_id=e.id AND current_hc.is_current=1 ORDER BY current_hc.expires_on DESC,current_hc.id DESC LIMIT 1) WHERE e.id=? AND e.active=1`, id).Scan(&v.ID, &v.EmployeeNo, &v.Name, &v.Gender, &v.IDCard, &v.Mobile, &v.DepartmentID, &v.PositionID, &v.EmploymentStatus, &v.EmploymentType, &v.PayBasis, &v.MonthlyRestDays, &v.JoinedOn, &v.RegularizedOn, &v.LeftOn, &v.EntrySalary, &v.CurrentSalary, &v.Education, &v.Hometown, &v.Remark, &v.Department, &v.Position, &v.HealthCertificateID, &v.HealthCertificateURL, &v.HealthCertificateIssuedOn, &v.HealthCertificateExpiresOn, &days)
 	v.HealthCertificateDaysRemaining = days
 	v.HealthCertificateStatus, v.HealthCertificateStatusClass = healthCertificateStatus(v.HealthCertificateID, days)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -515,9 +528,13 @@ func (s *Store) SaveEmployee(ctx context.Context, id, actor uint64, v request.Em
 	if entrySalary == "" {
 		entrySalary = v.CurrentSalary
 	}
-	args := []any{v.EmployeeNo, v.Name, v.Gender, v.IDCard, v.Mobile, optionalID(v.DepartmentID), optionalID(v.PositionID), v.EmploymentStatus, v.EmploymentType, optionalDate(v.JoinedOn), optionalDate(v.RegularizedOn), optionalDate(v.LeftOn), optionalMoney(entrySalary), optionalMoney(v.CurrentSalary), v.PayBasis, v.Education, v.Hometown, v.Remark}
+	var restDays any
+	if v.MonthlyRestDays > 0 {
+		restDays = v.MonthlyRestDays
+	}
+	args := []any{v.EmployeeNo, v.Name, v.Gender, v.IDCard, v.Mobile, optionalID(v.DepartmentID), optionalID(v.PositionID), v.EmploymentStatus, v.EmploymentType, optionalDate(v.JoinedOn), optionalDate(v.RegularizedOn), optionalDate(v.LeftOn), optionalMoney(entrySalary), optionalMoney(v.CurrentSalary), v.PayBasis, restDays, v.Education, v.Hometown, v.Remark}
 	if id == 0 {
-		result, e := tx.ExecContext(ctx, `INSERT INTO employees(employee_no,name,gender,id_card,mobile,department_id,position_id,employment_status,employment_type,joined_on,regularized_on,left_on,entry_salary,current_salary,pay_basis,education,hometown,remark) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args...)
+		result, e := tx.ExecContext(ctx, `INSERT INTO employees(employee_no,name,gender,id_card,mobile,department_id,position_id,employment_status,employment_type,joined_on,regularized_on,left_on,entry_salary,current_salary,pay_basis,monthly_rest_days,education,hometown,remark) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args...)
 		if e != nil {
 			return 0, e
 		}
@@ -528,7 +545,7 @@ func (s *Store) SaveEmployee(ctx context.Context, id, actor uint64, v request.Em
 		id = uint64(inserted)
 	} else {
 		args = append(args, id)
-		if _, err := tx.ExecContext(ctx, `UPDATE employees SET employee_no=?,name=?,gender=?,id_card=?,mobile=?,department_id=?,position_id=?,employment_status=?,employment_type=?,joined_on=?,regularized_on=?,left_on=?,entry_salary=?,current_salary=?,pay_basis=?,education=?,hometown=?,remark=? WHERE id=? AND active=1`, args...); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE employees SET employee_no=?,name=?,gender=?,id_card=?,mobile=?,department_id=?,position_id=?,employment_status=?,employment_type=?,joined_on=?,regularized_on=?,left_on=?,entry_salary=?,current_salary=?,pay_basis=?,monthly_rest_days=?,education=?,hometown=?,remark=? WHERE id=? AND active=1`, args...); err != nil {
 			return 0, err
 		}
 	}
@@ -567,7 +584,7 @@ func (s *Store) DeleteEmployee(ctx context.Context, id, actor uint64) error {
 }
 
 // CreateMiniOption 支持空数据库首次建账，不自动插入业务数据。
-func (s *Store) CreateMiniOption(ctx context.Context, kind, name, direction string, departmentID, actor uint64) (uint64, error) {
+func (s *Store) CreateMiniOption(ctx context.Context, kind, name, direction, accountType, remark string, departmentID, actor uint64) (uint64, error) {
 	if err := s.ready(); err != nil {
 		return 0, err
 	}
@@ -584,7 +601,7 @@ func (s *Store) CreateMiniOption(ctx context.Context, kind, name, direction stri
 	var result sql.Result
 	switch kind {
 	case "accounts":
-		result, err = tx.ExecContext(ctx, `INSERT INTO ledger_accounts(account_no,name,account_type) VALUES(?,?,'other')`, no, name)
+		result, err = tx.ExecContext(ctx, `INSERT INTO ledger_accounts(account_no,name,account_type,remark) VALUES(?,?,?,?)`, no, name, accountType, remark)
 	case "categories":
 		result, err = tx.ExecContext(ctx, `INSERT INTO ledger_categories(name,direction) VALUES(?,?)`, name, direction)
 	case "departments":

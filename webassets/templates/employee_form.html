@@ -21,6 +21,7 @@
 <label>计薪方式<select name="pay_basis"><option value="monthly" {{if eq .Form.PayBasis "monthly"}}selected{{end}}>月薪</option><option value="daily" {{if eq .Form.PayBasis "daily"}}selected{{end}}>日薪</option><option value="hourly" {{if eq .Form.PayBasis "hourly"}}selected{{end}}>时薪</option></select></label>
 <label>入职时总工资<input name="entry_salary" type="number" min="0" max="9999999999.99" step="0.01" value="{{.Form.EntrySalary}}" placeholder="未知可留空"></label>
 <label>当前工资<input name="current_salary" type="number" min="0" max="9999999999.99" step="0.01" value="{{.Form.CurrentSalary}}" placeholder="未知可留空"></label>
+<label>每月公休天数（单休可填4/5，双休可填8/9）<input name="monthly_rest_days" type="number" min="0" max="30" step="1" value="{{if gt .Form.MonthlyRestDays 0}}{{.Form.MonthlyRestDays}}{{end}}" placeholder="留空跟随全局设置"></label>
 <label class="span-2">备注<textarea name="remark" maxlength="500" placeholder="选填">{{.Form.Remark}}</textarea></label></div></div>
 <div class="form-section employee-form-documents"><div class="section-title"><div><h2>证件图片</h2><p>身份证、健康证图片可在保存后上传</p></div></div>
 {{if eq .Mode "edit"}}<div class="employee-document-grid">

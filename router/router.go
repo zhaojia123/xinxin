@@ -18,6 +18,9 @@ import (
 func New(cfg config.Config, db *sql.DB, templates *template.Template, static fs.FS, tokens *token.Manager) http.Handler {
 	mux := http.NewServeMux()
 	store := modelmysql.New(db)
+	if cfg.App.MonthlyRestDays > 0 {
+		store.MonthlyRestDays = cfg.App.MonthlyRestDays
+	}
 	handlers := handler.New(store, templates)
 
 	// GET /assets/*：后台页面内嵌的 CSS 和 JavaScript。
@@ -31,6 +34,10 @@ func New(cfg config.Config, db *sql.DB, templates *template.Template, static fs.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
+			return
+		}
+		if cfg.App.FilingLanding {
+			handlers.FilingLanding(w, r, cfg.App.FilingNumber)
 			return
 		}
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)

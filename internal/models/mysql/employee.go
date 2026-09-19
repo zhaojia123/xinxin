@@ -10,7 +10,7 @@ import (
 	"friends-records/internal/apperror"
 )
 
-const employeeSelect = `SELECT e.id,e.employee_no,e.name,e.gender,e.id_card,e.mobile,COALESCE(e.department_id,0),COALESCE(d.name,''),COALESCE(e.position_id,0),COALESCE(p.name,''),e.employment_status,COALESCE(DATE_FORMAT(e.joined_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.regularized_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.left_on,'%Y-%m-%d'),''),e.employment_type,COALESCE(e.pay_basis,'monthly'),e.entry_salary,e.current_salary,e.education,e.hometown,COALESCE(hc.id,0),COALESCE(hc.file_url,''),COALESCE(DATE_FORMAT(hc.issued_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(hc.expires_on,'%Y-%m-%d'),''),COALESCE(DATEDIFF(hc.expires_on,CURDATE()),0) FROM employees e LEFT JOIN departments d ON d.id=e.department_id LEFT JOIN positions p ON p.id=e.position_id LEFT JOIN employee_health_certificates hc ON hc.id=(SELECT current_hc.id FROM employee_health_certificates current_hc WHERE current_hc.employee_id=e.id AND current_hc.is_current=1 ORDER BY current_hc.expires_on DESC,current_hc.id DESC LIMIT 1)`
+const employeeSelect = `SELECT e.id,e.employee_no,e.name,e.gender,e.id_card,e.mobile,COALESCE(e.department_id,0),COALESCE(d.name,''),COALESCE(e.position_id,0),COALESCE(p.name,''),e.employment_status,COALESCE(DATE_FORMAT(e.joined_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.regularized_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.left_on,'%Y-%m-%d'),''),e.employment_type,COALESCE(e.pay_basis,'monthly'),COALESCE(e.monthly_rest_days,0),e.entry_salary,e.current_salary,e.education,e.hometown,COALESCE(hc.id,0),COALESCE(hc.file_url,''),COALESCE(DATE_FORMAT(hc.issued_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(hc.expires_on,'%Y-%m-%d'),''),COALESCE(DATEDIFF(hc.expires_on,CURDATE()),0) FROM employees e LEFT JOIN departments d ON d.id=e.department_id LEFT JOIN positions p ON p.id=e.position_id LEFT JOIN employee_health_certificates hc ON hc.id=(SELECT current_hc.id FROM employee_health_certificates current_hc WHERE current_hc.employee_id=e.id AND current_hc.is_current=1 ORDER BY current_hc.expires_on DESC,current_hc.id DESC LIMIT 1)`
 
 type scanner interface{ Scan(...any) error }
 
@@ -18,7 +18,7 @@ func scanEmployee(row scanner) (response.Employee, error) {
 	var item response.Employee
 	var gender, status, employmentType, idCard, mobile string
 	var entrySalary, salary sql.NullFloat64
-	err := row.Scan(&item.ID, &item.EmployeeNo, &item.Name, &gender, &idCard, &mobile, &item.DepartmentID, &item.Department, &item.PositionID, &item.Position, &status, &item.JoinedOn, &item.RegularizedOn, &item.LeftOn, &employmentType, &item.PayBasis, &entrySalary, &salary, &item.Education, &item.Hometown, &item.HealthCertificateID, &item.HealthCertificateURL, &item.HealthCertificateIssuedOn, &item.HealthCertificateExpiresOn, &item.HealthCertificateDaysRemaining)
+	err := row.Scan(&item.ID, &item.EmployeeNo, &item.Name, &gender, &idCard, &mobile, &item.DepartmentID, &item.Department, &item.PositionID, &item.Position, &status, &item.JoinedOn, &item.RegularizedOn, &item.LeftOn, &employmentType, &item.PayBasis, &item.MonthlyRestDays, &entrySalary, &salary, &item.Education, &item.Hometown, &item.HealthCertificateID, &item.HealthCertificateURL, &item.HealthCertificateIssuedOn, &item.HealthCertificateExpiresOn, &item.HealthCertificateDaysRemaining)
 	if err != nil {
 		return response.Employee{}, err
 	}

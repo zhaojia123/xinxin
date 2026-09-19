@@ -39,7 +39,7 @@ func run() error {
 	if db != nil {
 		defer db.Close()
 	}
-	templates, err := webassets.Templates()
+	templates, err := webassets.Templates(cfg.App.FilingNumber)
 	if err != nil {
 		return apperror.Wrap(err, "加载后台HTML模板失败")
 	}

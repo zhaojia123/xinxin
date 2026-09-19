@@ -78,12 +78,12 @@ func (h *Handler) AdminOptionsAPI(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		id, err := h.Store.CreateMiniOption(r.Context(), v.Kind, v.Name, v.Direction, v.DepartmentID, 0)
+		id, err := h.Store.CreateMiniOption(r.Context(), v.Kind, v.Name, v.Direction, v.AccountType, v.Remark, v.DepartmentID, 0)
 		if err != nil {
 			adminWriteError(w, err)
 			return
 		}
-		httpx.JSON(w, http.StatusCreated, map[string]any{"id": id, "name": v.Name, "direction": v.Direction, "department_id": v.DepartmentID})
+		httpx.JSON(w, http.StatusCreated, map[string]any{"id": id, "name": v.Name, "direction": v.Direction, "department_id": v.DepartmentID, "account_type": v.AccountType, "remark": v.Remark, "display_name": v.Name})
 	default:
 		httpx.MethodNotAllowed(w, http.MethodGet, http.MethodPost)
 	}

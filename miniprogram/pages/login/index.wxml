@@ -10,6 +10,7 @@
   </view>
   <button class="primary login-button" bindtap="login" loading="{{loading}}" disabled="{{loading}}">{{loading ? '正在登录…' : '微信登录，开始记录'}}</button>
   <view class="login-note">仅用于识别登录身份，不读取微信聊天记录</view>
+  <view class="filing-info">备案号：{{filingNumber}}</view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
   <button wx:if="{{dev}}" class="link settings-link" bindtap="toggleSettings">开发连接设置</button>
   <view wx:if="{{dev && settings}}" class="card">

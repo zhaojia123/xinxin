@@ -11,8 +11,14 @@ import (
 //go:embed templates/*.html static/*
 var FS embed.FS
 
-func Templates() (*template.Template, error) {
-	return template.ParseFS(FS, "templates/*.html")
+func Templates(filingNumbers ...string) (*template.Template, error) {
+	filingNumber := ""
+	if len(filingNumbers) > 0 {
+		filingNumber = filingNumbers[0]
+	}
+	return template.New("templates").Funcs(template.FuncMap{
+		"filingNumber": func() string { return filingNumber },
+	}).ParseFS(FS, "templates/*.html")
 }
 
 func Static() (fs.FS, error) {

@@ -14,5 +14,6 @@ page { background: #f5f7fb; }
 .preview-copy .muted { font-size: 22rpx; margin-top: 10rpx; }
 .login-button { padding: 28rpx; box-shadow: 0 12rpx 30rpx rgba(36,87,230,.18); }
 .login-note { font-size: 22rpx; color: #98a2b3; text-align: center; margin-top: 24rpx; }
+.filing-info { color: #98a2b3; font-size: 21rpx; line-height: 1.6; text-align: center; margin-top: 22rpx; }
 .settings-link { margin: 30rpx auto 0; font-size: 23rpx; color: #718096; }
 .secondary { margin-top: 20rpx; }

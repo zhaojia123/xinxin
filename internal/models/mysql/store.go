@@ -11,9 +11,12 @@ import (
 var ErrNotConfigured = apperror.New("数据库尚未配置")
 var ErrNotFound = apperror.New("数据不存在")
 
-type Store struct{ DB *sql.DB }
+type Store struct {
+	DB              *sql.DB
+	MonthlyRestDays int
+}
 
-func New(db *sql.DB) *Store { return &Store{DB: db} }
+func New(db *sql.DB) *Store { return &Store{DB: db, MonthlyRestDays: 3} }
 
 func (s *Store) ready() error {
 	if s.DB == nil {

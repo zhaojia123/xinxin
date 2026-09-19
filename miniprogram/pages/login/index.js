@@ -1,10 +1,11 @@
 const api = require('../../utils/api')
+const config = require('../../config')
 function hasPermission(user, key) {
   if (Array.isArray(user.permissions)) return user.permissions.indexOf(key) >= 0
   return user['can_' + key] !== false
 }
 Page({
-  data: { loading: false, error: '', dev: false, settings: false, host: '' },
+  data: { loading: false, error: '', dev: false, settings: false, host: '', filingNumber: config.filingNumber },
   onLoad() { this.setData({ dev: api.environment() === 'develop', host: api.baseURL() }) },
   onShow() { if (api.token()) this.openHome(wx.getStorageSync('xinxin_mini_user') || {}) },
   toggleSettings() { this.setData({ settings: !this.data.settings }) },

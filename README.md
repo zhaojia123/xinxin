@@ -56,10 +56,12 @@ friends-records/
 
 1. 自行创建 MySQL 数据库。
 2. 在数据库中手动执行 `sql/schema.sql`。
-   已有数据库升级时，另外执行 `sql/migrations/ledger_attachments.sql`、`sql/migrations/employee_attachments.sql`、`sql/migrations/purchase_items.sql`、`sql/migrations/mini_user_permissions.sql` 和 `sql/migrations/employee_payroll_rules.sql`。
+   已有数据库升级时，另外执行 `sql/migrations/ledger_attachments.sql`、`sql/migrations/employee_attachments.sql`、`sql/migrations/purchase_items.sql`、`sql/migrations/mini_user_permissions.sql`、`sql/migrations/employee_payroll_rules.sql` 和 `sql/migrations/20260918_payroll_accounts.sql`。
 3. 如需导入员工资料，执行 `sql/import/employee_import_202609.sql`。该文件只导入主表人员，当前全部按月薪处理；空工资和空日期会保留为空，不会导入“钟点工”工作表。
    生成 2026-09 工资后，如需录入表格里的两笔已结算金额，再执行 `sql/import/payroll_settlements_202609.sql`。
 4. 修改根目录 `config.toml` 中的 `mysql.dsn`。
+   月薪按当月自然日减公休天数计算应出勤天数，公休天数默认由 `app.monthly_rest_days` 配置；员工档案可单独填写公休天数覆盖默认值（单休可填4/5，双休可填8/9），修改配置后重启服务即可生效。
+   公安备案审核期间可将 `app.filing_landing` 设为 `true`，根地址会展示公开说明页，后台登录仍使用 `/admin/login`；审核通过后改回 `false`。
 5. 启动：
 
 ```bash

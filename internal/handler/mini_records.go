@@ -350,12 +350,12 @@ func (h *Handler) MiniOptionsAPI(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusForbidden, "当前账号没有新增选项权限")
 			return
 		}
-		id, err := h.Store.CreateMiniOption(r.Context(), input.Kind, input.Name, input.Direction, input.DepartmentID, miniActor(r))
+		id, err := h.Store.CreateMiniOption(r.Context(), input.Kind, input.Name, input.Direction, input.AccountType, input.Remark, input.DepartmentID, miniActor(r))
 		if err != nil {
 			miniFail(w, err)
 			return
 		}
-		httpx.JSON(w, 201, map[string]any{"id": id})
+		httpx.JSON(w, 201, map[string]any{"id": id, "name": input.Name, "account_type": input.AccountType, "remark": input.Remark, "display_name": input.Name})
 	default:
 		httpx.MethodNotAllowed(w, "GET", "POST")
 	}

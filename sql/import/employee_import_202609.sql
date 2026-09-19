@@ -100,10 +100,10 @@ DROP TEMPORARY TABLE _import_special_rest;
 
 COMMIT;
 
--- 华丕合、邢爱莲的实际结算金额（1236、748）建议在生成 2026-09 工资后人工核对，再执行下面示例：
+-- 华丞合、邢爱莲的实际结算金额（1236、748）请在生成 2026-09 工资后执行 sql/import/payroll_settlements_202609.sql。
 -- UPDATE payroll_items i JOIN payroll_batches b ON b.id=i.payroll_batch_id JOIN employees e ON e.id=i.employee_id
--- SET i.net_salary=1236.00,i.remark='Excel导入：已结算1236元'
--- WHERE b.payroll_month='2026-09-01' AND e.employee_no='IMPORT-202609-021' AND i.status='draft';
+-- SET i.manual_net_salary=1236.00,i.net_salary=1236.00,i.status='paid',i.paid_at=COALESCE(i.paid_at,NOW()),i.remark='线下已发放1236元（固定实发）'
+-- WHERE b.payroll_month='2026-09-01' AND e.employee_no='IMPORT-202609-021';
 -- UPDATE payroll_items i JOIN payroll_batches b ON b.id=i.payroll_batch_id JOIN employees e ON e.id=i.employee_id
--- SET i.net_salary=748.00,i.remark='Excel导入：已结算748元'
--- WHERE b.payroll_month='2026-09-01' AND e.employee_no='IMPORT-202609-022' AND i.status='draft';
+-- SET i.manual_net_salary=748.00,i.net_salary=748.00,i.status='paid',i.paid_at=COALESCE(i.paid_at,NOW()),i.remark='线下已发放748元（固定实发）'
+-- WHERE b.payroll_month='2026-09-01' AND e.employee_no='IMPORT-202609-022';

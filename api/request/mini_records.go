@@ -36,15 +36,29 @@ type OptionInput struct {
 	Name         string `json:"name"`
 	Direction    string `json:"direction"`
 	DepartmentID uint64 `json:"department_id"`
+	AccountType  string `json:"account_type"`
+	Remark       string `json:"remark"`
 }
 
 func (v *OptionInput) Validate() error {
 	v.Name = strings.TrimSpace(v.Name)
+	v.Remark = strings.TrimSpace(v.Remark)
 	if !map[string]bool{"accounts": true, "categories": true, "departments": true, "positions": true}[v.Kind] {
 		return fmt.Errorf("不支持的选项类型")
 	}
 	if v.Name == "" || !textLength(v.Name, 64) {
 		return fmt.Errorf("名称必填且不能超过64字")
+	}
+	if !textLength(v.Remark, 255) {
+		return fmt.Errorf("备注不能超过255字")
+	}
+	if v.Kind == "accounts" {
+		if v.AccountType == "" {
+			v.AccountType = "other"
+		}
+		if !map[string]bool{"bank": true, "wechat": true, "alipay": true, "qq": true, "cash": true, "other": true}[v.AccountType] {
+			return fmt.Errorf("付款账户类型不正确")
+		}
 	}
 	if v.Kind == "categories" && v.Direction != "income" && v.Direction != "expense" {
 		return fmt.Errorf("请选择分类的收支方向")
@@ -102,6 +116,7 @@ type EmployeeInput struct {
 	EmploymentStatus string `json:"employment_status"`
 	EmploymentType   string `json:"employment_type"`
 	PayBasis         string `json:"pay_basis"`
+	MonthlyRestDays  int    `json:"monthly_rest_days"`
 	JoinedOn         string `json:"joined_on"`
 	RegularizedOn    string `json:"regularized_on"`
 	LeftOn           string `json:"left_on"`
@@ -131,6 +146,9 @@ func (v *EmployeeInput) Validate() error {
 	}
 	if v.PayBasis != "monthly" && v.PayBasis != "daily" && v.PayBasis != "hourly" {
 		return fmt.Errorf("计薪方式不正确")
+	}
+	if v.MonthlyRestDays < 0 || v.MonthlyRestDays >= 31 {
+		return fmt.Errorf("员工公休天数必须是0到30之间的整数，填0表示跟随全局设置")
 	}
 	for _, date := range []string{v.JoinedOn, v.RegularizedOn, v.LeftOn} {
 		if !validDate(date, true) {

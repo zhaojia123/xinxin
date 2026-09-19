@@ -27,3 +27,6 @@ func (s Payroll) PayEmployee(ctx context.Context, input request.PayrollPay) (uin
 func (s Payroll) Confirm(ctx context.Context, batchID uint64) error {
 	return s.Store.ConfirmPayroll(ctx, batchID)
 }
+func (s Payroll) ConfirmEmployee(ctx context.Context, itemID uint64) error {
+	return s.Store.ConfirmPayrollItem(ctx, itemID)
+}

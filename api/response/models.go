@@ -18,6 +18,7 @@ type Employee struct {
 	LeftOn                         string               `json:"left_on"`
 	EmploymentType                 string               `json:"employment_type"`
 	PayBasis                       string               `json:"pay_basis"`
+	MonthlyRestDays                int                  `json:"monthly_rest_days"`
 	EntrySalary                    string               `json:"entry_salary"`
 	Salary                         string               `json:"salary"`
 	SalaryValue                    string               `json:"salary_value"`
@@ -163,6 +164,7 @@ type PayrollRecord struct {
 	SocialSecurity           string `json:"social_security"`
 	Tax                      string `json:"tax"`
 	NetSalary                string `json:"net_salary"`
+	ManualNetSalary          string `json:"manual_net_salary"`
 	Status                   string `json:"status"`
 	StatusClass              string `json:"status_class"`
 	BaseSalaryValue          string `json:"base_salary_value"`
@@ -171,6 +173,7 @@ type PayrollRecord struct {
 	OtherDeductionValue      string `json:"other_deduction_value"`
 	SocialSecurityValue      string `json:"social_security_value"`
 	TaxValue                 string `json:"tax_value"`
+	ManualNetSalaryValue     string `json:"manual_net_salary_value"`
 }
 type PayrollSummary struct {
 	BatchID         uint64 `json:"batch_id"`

@@ -128,6 +128,18 @@ document.addEventListener("DOMContentLoaded", () => {
       finish(event.currentTarget.elements.value.value.trim());
     });
   });
+  const askAccount = () => new Promise(resolve => {
+    const overlay = document.createElement("div");
+    overlay.className = "record-prompt";
+    overlay.innerHTML = `<form class="record-prompt-card"><h3>新建资金账户</h3><label>账户名称<input name="name" maxlength="64" required autofocus placeholder="例如：建设银行工资卡"></label><label>账户类型<select name="account_type"><option value="bank">银行卡</option><option value="wechat">微信</option><option value="alipay">支付宝</option><option value="qq">QQ</option><option value="cash">现金</option><option value="other">其他</option></select></label><label>备注（选填）<input name="remark" maxlength="255" placeholder="例如：QQ号、微信号、卡号后四位"></label><div class="form-actions"><button type="button" class="ghost-button" data-prompt-cancel>取消</button><button type="submit" class="primary-button">确定</button></div></form>`;
+    let finished = false;
+    const finish = result => { if (finished) return; finished = true; overlay.remove(); resolve(result); };
+    document.body.appendChild(overlay);
+    overlay.querySelector("input[name=name]").focus();
+    overlay.querySelector("[data-prompt-cancel]").addEventListener("click", () => finish(null));
+    overlay.addEventListener("click", event => { if (event.target === overlay) finish(null); });
+    overlay.querySelector("form").addEventListener("submit", event => { event.preventDefault(); const form = event.currentTarget; finish({name: form.elements.name.value.trim(), account_type: form.elements.account_type.value, remark: form.elements.remark.value.trim()}); });
+  });
   const askConfirm = ({ title, message, confirmText = "确认删除" }) => new Promise(resolve => {
     const overlay = document.createElement("div");
     overlay.className = "record-prompt";
@@ -154,7 +166,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (options.length || ["departments","employees","positions","accounts","categories"].includes(type)) {
       const empty = required ? "请选择" : "不指定";
       const create = !readonly && ["accounts","categories"].includes(type) ? `<button type="button" class="record-inline-add" data-create-option="${type}">＋ 新建</button>` : "";
-      return `<label data-record-field="${name}"><span class="record-label-row"><span>${escapeHTML(label)}${required ? " *" : ""}</span>${create}</span><select name="${name}" ${required ? "required" : ""} ${readonly ? "disabled" : ""}><option value="">${empty}</option>${options.map(item => `<option value="${escapeHTML(item.id)}" data-department-id="${escapeHTML(item.department_id || "")}" data-direction="${escapeHTML(item.direction || "")}" ${String(item.id) === String(value) ? "selected" : ""}>${escapeHTML(item.name)}${item.direction ? ` · ${item.direction === "income" ? "收入" : "支出"}` : ""}</option>`).join("")}</select></label>`;
+      return `<label data-record-field="${name}"><span class="record-label-row"><span>${escapeHTML(label)}${required ? " *" : ""}</span>${create}</span><select name="${name}" ${required ? "required" : ""} ${readonly ? "disabled" : ""}><option value="">${empty}</option>${options.map(item => `<option value="${escapeHTML(item.id)}" data-department-id="${escapeHTML(item.department_id || "")}" data-direction="${escapeHTML(item.direction || "")}" ${String(item.id) === String(value) ? "selected" : ""}>${escapeHTML(item.display_name || item.name)}${item.direction ? ` · ${item.direction === "income" ? "收入" : "支出"}` : ""}</option>`).join("")}</select></label>`;
     }
     const inputType = ["number","date","time"].includes(type) ? type : "text";
     const step = type === "number" ? ' step="0.01"' : "";
@@ -245,16 +257,17 @@ document.addEventListener("DOMContentLoaded", () => {
         event.preventDefault();
         const kind = button.dataset.createOption;
         const label = kind === "accounts" ? "资金账户" : "收支分类";
-        const name = await askValue({title:`新建${label}`,label:`${label}名称`});
+        const account = kind === "accounts" ? await askAccount() : null;
+        const name = account?.name || (kind === "accounts" ? "" : await askValue({title:`新建${label}`,label:`${label}名称`}));
         if (!name) return;
         button.disabled = true;
         try {
           const direction = kind === "categories" ? overlay.querySelector('[name="direction"]')?.value || "" : "";
-          const created = await fetchJSON("/api/admin/options", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind,name,direction})});
+          const created = await fetchJSON("/api/admin/options", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind,name,direction,account_type:account?.account_type || "",remark:account?.remark || ""})});
           const select = button.closest("label").querySelector("select");
           const option = document.createElement("option");
           option.value = String(created.id);
-          option.textContent = created.name;
+          option.textContent = created.display_name || created.name;
           option.dataset.direction = created.direction || "";
           select.appendChild(option);
           select.value = option.value;
@@ -356,6 +369,17 @@ document.addEventListener("DOMContentLoaded", () => {
     try { await fetchJSON("/api/admin/payroll/confirm",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({batch_id:Number(button.dataset.batchId)})}); window.location.reload(); }
     catch(error){showMessage(error.message);button.disabled=false;}
   });
+  document.querySelectorAll("[data-confirm-payroll-item]").forEach(button => button.addEventListener("click", async () => {
+    if (!window.confirm(`确定确认${button.dataset.employeeName || "该员工"}的工资吗？确认后仍可在发放前修改金额。`)) return;
+    button.disabled = true;
+    try {
+      await fetchJSON("/api/admin/payroll/confirm", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({item_id:Number(button.dataset.itemId)})});
+      window.location.reload();
+    } catch (error) {
+      showMessage(error.message);
+      button.disabled = false;
+    }
+  }));
   document.querySelector("[data-pay-payroll]")?.addEventListener("click", async event => {
     const button = event.currentTarget;
     try {
@@ -363,7 +387,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!adminOptions.accounts.length) throw new Error("请先在台账新增一个资金账户");
       closeRecordDialog();
       const overlay=document.createElement("div");overlay.className="record-dialog";
-      overlay.innerHTML=`<div class="record-dialog-card"><div class="record-dialog-head"><div><small>工资管理</small><h2>发放本月工资</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="notice-card"><span>核</span><div><strong>发放后工资将锁定</strong><p>系统会同时在台账生成工资支出，请确认工资明细已经核对完成。</p></div></div><div class="record-form-grid"><label>付款账户 *<select name="account_id" required><option value="">请选择</option>${adminOptions.accounts.map(v=>`<option value="${v.id}">${escapeHTML(v.name)}</option>`).join("")}</select></label><label>发放日期 *<input name="occurred_on" type="date" value="${today()}" required></label></div><div class="record-dialog-error"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">确认发放</button></div></form></div>`;
+      overlay.innerHTML=`<div class="record-dialog-card"><div class="record-dialog-head"><div><small>工资管理</small><h2>发放本月工资</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="notice-card"><span>核</span><div><strong>发放后工资将锁定</strong><p>系统会同时在台账生成工资支出，请确认工资明细已经核对完成。</p></div></div><div class="record-form-grid"><label>付款账户 *<select name="account_id" required><option value="">请选择</option>${adminOptions.accounts.map(v=>`<option value="${v.id}">${escapeHTML(v.display_name || v.name)}</option>`).join("")}</select></label><label>发放日期 *<input name="occurred_on" type="date" value="${today()}" required></label></div><div class="record-dialog-error"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">确认发放</button></div></form></div>`;
       document.body.appendChild(overlay);overlay.querySelectorAll("[data-close-dialog]").forEach(v=>v.addEventListener("click",closeRecordDialog));
       overlay.querySelector("form").addEventListener("submit",async submitEvent=>{submitEvent.preventDefault();const form=submitEvent.currentTarget;const submit=form.querySelector("button[type=submit]");submit.disabled=true;const values=Object.fromEntries(new FormData(form).entries());values.batch_id=Number(button.dataset.batchId);values.account_id=Number(values.account_id);try{await fetchJSON("/api/admin/payroll/pay",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(values)});window.location.reload()}catch(error){form.querySelector(".record-dialog-error").textContent=error.message;submit.disabled=false}});
     } catch(error){showMessage(error.message)}
@@ -374,7 +398,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!adminOptions.accounts.length) throw new Error("请先在台账新增一个资金账户");
       const overlay = document.createElement("div");
       overlay.className = "record-dialog";
-      overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>工资管理</small><h2>单独发放：${escapeHTML(button.dataset.employeeName || "员工")}</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="notice-card"><span>核</span><div><strong>只发放当前员工</strong><p>已发放的其他员工不会重复入账；当前员工发放后将锁定。</p></div></div><div class="record-form-grid"><label>付款账户 *<select name="account_id" required><option value="">请选择</option>${adminOptions.accounts.map(v => `<option value="${v.id}">${escapeHTML(v.name)}</option>`).join("")}</select></label><label>发放日期 *<input name="occurred_on" type="date" value="${today()}" required></label></div><div class="record-dialog-error"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">确认发放</button></div></form></div>`;
+      overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>工资管理</small><h2>单独发放：${escapeHTML(button.dataset.employeeName || "员工")}</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="notice-card"><span>核</span><div><strong>只发放当前员工</strong><p>已发放的其他员工不会重复入账；当前员工发放后将锁定。</p></div></div><div class="record-form-grid"><label>付款账户 *<select name="account_id" required><option value="">请选择</option>${adminOptions.accounts.map(v => `<option value="${v.id}">${escapeHTML(v.display_name || v.name)}</option>`).join("")}</select></label><label>发放日期 *<input name="occurred_on" type="date" value="${today()}" required></label></div><div class="record-dialog-error"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">确认发放</button></div></form></div>`;
       document.body.appendChild(overlay);
       overlay.querySelectorAll("[data-close-dialog]").forEach(v => v.addEventListener("click", closeRecordDialog));
       overlay.querySelector("form").addEventListener("submit", async submitEvent => {
@@ -434,9 +458,13 @@ document.addEventListener("DOMContentLoaded", () => {
   employeeStatus?.addEventListener("change", filterEmployees);
 
   const numberValue = (row, name) => Number(row.querySelector(`[data-field="${name}"]`)?.value || 0);
-  const calculateNet = (row) => numberValue(row, "base_salary") + numberValue(row, "bonus")
+  const calculateNet = (row) => {
+    const manual = row.querySelector('[data-field="manual_net_salary"]')?.value.trim();
+    if (manual !== undefined && manual !== "") return Number(manual || 0);
+    return numberValue(row, "base_salary") + numberValue(row, "bonus")
     - numberValue(row, "attendance_deduction") - numberValue(row, "other_deduction")
     - numberValue(row, "social_security") - numberValue(row, "tax");
+  };
   const renderNet = (row) => {
     const target = row.querySelector("[data-net-salary]");
     if (target) target.textContent = `¥${calculateNet(row).toFixed(2)}`;
@@ -450,6 +478,8 @@ document.addEventListener("DOMContentLoaded", () => {
         attendance_deduction: numberValue(row, "attendance_deduction"), other_deduction: numberValue(row, "other_deduction"),
         social_security: numberValue(row, "social_security"), tax: numberValue(row, "tax")
       };
+      const manual = row.querySelector('[data-field="manual_net_salary"]')?.value.trim();
+      if (manual !== undefined && manual !== "") payload.manual_net_salary = Number(manual);
       try {
         const response = await fetch(`/api/admin/payroll?id=${row.dataset.id}`, {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
         const data = await response.json();
@@ -471,10 +501,33 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (error) { showMessage(`生成工资失败：${error.message}`); button.disabled = false; }
   });
 
+  const payrollPicker = document.querySelector("[data-payroll-picker]");
+  const payrollPickerToggle = payrollPicker?.querySelector("[data-payroll-picker-toggle]");
+  const payrollPickerPanel = payrollPicker?.querySelector("[data-payroll-picker-panel]");
+  const payrollEmployeeSearch = payrollPicker?.querySelector("[data-payroll-employee-search]");
+  const payrollEmployeeOptions = payrollPicker ? Array.from(payrollPicker.querySelectorAll("[data-payroll-employee]")) : [];
+  const refreshPayrollPicker = () => {
+    const keyword = payrollEmployeeSearch?.value.trim().toLowerCase() || "";
+    payrollEmployeeOptions.forEach(input => {
+      const option = input.closest(".employee-picker-option");
+      option.hidden = Boolean(keyword) && !option.textContent.toLowerCase().includes(keyword);
+    });
+    const selected = payrollEmployeeOptions.filter(input => input.checked);
+    if (payrollPickerToggle) payrollPickerToggle.textContent = selected.length ? `已选 ${selected.length} 名员工` : "选择员工（可选）";
+  };
+  payrollPickerToggle?.addEventListener("click", () => {
+    payrollPickerPanel.hidden = !payrollPickerPanel.hidden;
+    if (!payrollPickerPanel.hidden) payrollEmployeeSearch?.focus();
+  });
+  payrollEmployeeSearch?.addEventListener("input", refreshPayrollPicker);
+  payrollEmployeeOptions.forEach(input => input.addEventListener("change", refreshPayrollPicker));
+  document.addEventListener("click", event => {
+    if (payrollPicker && !payrollPicker.contains(event.target)) payrollPickerPanel.hidden = true;
+  });
   document.querySelector("[data-generate-payroll-employee]")?.addEventListener("click", async (event) => {
     const button = event.currentTarget;
-    const employeeID = document.querySelector("#generate-payroll-employee")?.value;
-    if (!employeeID) {
+    const employeeIDs = payrollEmployeeOptions.filter(input => input.checked).map(input => Number(input.value));
+    if (!employeeIDs.length) {
       showMessage("请先选择员工");
       return;
     }
@@ -483,7 +536,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const response = await fetch("/api/admin/payroll/generate", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({month: button.dataset.month, employee_id: Number(employeeID)})
+        body: JSON.stringify({month: button.dataset.month, employee_ids: employeeIDs})
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "生成失败");

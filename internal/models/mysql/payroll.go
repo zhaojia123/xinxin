@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"math"
+	"strconv"
 	"time"
 
 	"friends-records/api/request"
@@ -24,7 +25,7 @@ func (s *Store) Payroll(ctx context.Context, month string) ([]response.PayrollRe
 		return nil, err
 	}
 	month = NormalizeMonth(month)
-	rows, err := s.DB.QueryContext(ctx, `SELECT i.id,b.id,DATE_FORMAT(b.payroll_month,'%Y-%m'),e.employee_no,e.name,e.pay_basis,COALESCE(e.entry_salary,e.current_salary),i.base_salary,i.bonus_amount,i.attendance_deduction,i.other_deduction,i.social_security,i.tax_amount,i.net_salary,i.status FROM payroll_items i JOIN payroll_batches b ON b.id=i.payroll_batch_id JOIN employees e ON e.id=i.employee_id WHERE b.payroll_month=? ORDER BY e.employee_no`, month+"-01")
+	rows, err := s.DB.QueryContext(ctx, `SELECT i.id,b.id,DATE_FORMAT(b.payroll_month,'%Y-%m'),e.employee_no,e.name,e.pay_basis,COALESCE(e.entry_salary,e.current_salary),i.base_salary,i.bonus_amount,i.attendance_deduction,i.other_deduction,i.social_security,i.tax_amount,i.net_salary,i.manual_net_salary,i.status FROM payroll_items i JOIN payroll_batches b ON b.id=i.payroll_batch_id JOIN employees e ON e.id=i.employee_id WHERE b.payroll_month=? ORDER BY e.employee_no`, month+"-01")
 	if err != nil {
 		return nil, apperror.Wrap(err, "查询月度工资失败")
 	}
@@ -34,8 +35,9 @@ func (s *Store) Payroll(ctx context.Context, month string) ([]response.PayrollRe
 		var v response.PayrollRecord
 		var entrySalary sql.NullFloat64
 		var base, bonus, attendance, other, social, tax, net float64
+		var manual sql.NullFloat64
 		var state string
-		if err := rows.Scan(&v.ID, &v.BatchID, &v.Month, &v.EmployeeNo, &v.Name, &v.PayBasis, &entrySalary, &base, &bonus, &attendance, &other, &social, &tax, &net, &state); err != nil {
+		if err := rows.Scan(&v.ID, &v.BatchID, &v.Month, &v.EmployeeNo, &v.Name, &v.PayBasis, &entrySalary, &base, &bonus, &attendance, &other, &social, &tax, &net, &manual, &state); err != nil {
 			return nil, apperror.Wrap(err, "读取月度工资失败")
 		}
 		if entrySalary.Valid {
@@ -43,6 +45,9 @@ func (s *Store) Payroll(ctx context.Context, month string) ([]response.PayrollRe
 		}
 		v.BaseSalary, v.Bonus, v.AttendanceDeduction, v.OtherDeduction, v.Deduction = Money(base), Money(bonus), Money(attendance), Money(other), Money(attendance+other)
 		v.SocialSecurity, v.Tax, v.NetSalary = Money(social), Money(tax), Money(net)
+		if manual.Valid {
+			v.ManualNetSalary, v.ManualNetSalaryValue = Money(manual.Float64), Decimal(manual.Float64)
+		}
 		v.BaseSalaryValue, v.BonusValue, v.AttendanceDeductionValue, v.OtherDeductionValue, v.SocialSecurityValue, v.TaxValue = Decimal(base), Decimal(bonus), Decimal(attendance), Decimal(other), Decimal(social), Decimal(tax)
 		v.Status, v.StatusClass = PayrollStatus(state)
 		result = append(result, v)
@@ -102,11 +107,54 @@ func (s *Store) ConfirmPayroll(ctx context.Context, batchID uint64) error {
 	return tx.Commit()
 }
 
+// ConfirmPayrollItem 只确认一条工资明细；同批次全部确认后自动确认批次。
+func (s *Store) ConfirmPayrollItem(ctx context.Context, itemID uint64) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return apperror.Wrap(err, "开始单独确认工资事务失败")
+	}
+	defer tx.Rollback()
+	var batchID uint64
+	var itemStatus, batchStatus string
+	err = tx.QueryRowContext(ctx, `SELECT i.payroll_batch_id,i.status,b.status FROM payroll_items i JOIN payroll_batches b ON b.id=i.payroll_batch_id WHERE i.id=? FOR UPDATE`, itemID).Scan(&batchID, &itemStatus, &batchStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return apperror.Wrap(err, "读取工资明细状态失败")
+	}
+	if itemStatus == "paid" || batchStatus == "paid" {
+		return apperror.New("工资已经发放，不能重复确认")
+	}
+	if batchStatus == "cancelled" {
+		return apperror.New("工资批次已取消，不能确认")
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE payroll_items SET status='confirmed' WHERE id=? AND status<>'paid'`, itemID); err != nil {
+		return apperror.Wrap(err, "确认工资明细失败")
+	}
+	var pending int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM payroll_items WHERE payroll_batch_id=? AND status NOT IN ('confirmed','paid')`, batchID).Scan(&pending); err != nil {
+		return apperror.Wrap(err, "读取待确认工资数量失败")
+	}
+	if pending == 0 {
+		if _, err := tx.ExecContext(ctx, `UPDATE payroll_batches SET status='confirmed',confirmed_at=NOW() WHERE id=? AND status<>'paid'`, batchID); err != nil {
+			return apperror.Wrap(err, "确认工资批次失败")
+		}
+	}
+	return tx.Commit()
+}
+
 func validatePayroll(v request.PayrollUpdate) error {
 	for _, n := range []float64{v.BaseSalary, v.Bonus, v.AttendanceDeduction, v.OtherDeduction, v.SocialSecurity, v.Tax} {
 		if n < 0 || math.IsNaN(n) || math.IsInf(n, 0) {
 			return apperror.New("工资金额必须是大于等于0的有效数字")
 		}
+	}
+	if !v.ValidManualNetSalary() {
+		return apperror.New("手动实发工资必须是大于等于0的有效数字")
 	}
 	return nil
 }
@@ -119,12 +167,22 @@ func (s *Store) UpdatePayroll(ctx context.Context, id uint64, v request.PayrollU
 		return 0, err
 	}
 	net := v.BaseSalary + v.Bonus - v.AttendanceDeduction - v.OtherDeduction - v.SocialSecurity - v.Tax
+	if v.ManualNetSalary != nil {
+		net = math.Round(*v.ManualNetSalary*100) / 100
+	} else {
+		net = math.Round(net*100) / 100
+	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, apperror.Wrap(err, "开始保存工资事务失败")
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `UPDATE payroll_items SET base_salary=?,bonus_amount=?,attendance_deduction=?,other_deduction=?,social_security=?,tax_amount=?,net_salary=? WHERE id=? AND status<>'paid'`, v.BaseSalary, v.Bonus, v.AttendanceDeduction, v.OtherDeduction, v.SocialSecurity, v.Tax, net, id)
+	var result sql.Result
+	if v.ManualNetSalary == nil {
+		result, err = tx.ExecContext(ctx, `UPDATE payroll_items SET base_salary=?,bonus_amount=?,attendance_deduction=?,other_deduction=?,social_security=?,tax_amount=?,net_salary=?,manual_net_salary=NULL WHERE id=? AND status<>'paid'`, v.BaseSalary, v.Bonus, v.AttendanceDeduction, v.OtherDeduction, v.SocialSecurity, v.Tax, net, id)
+	} else {
+		result, err = tx.ExecContext(ctx, `UPDATE payroll_items SET base_salary=?,bonus_amount=?,attendance_deduction=?,other_deduction=?,social_security=?,tax_amount=?,net_salary=?,manual_net_salary=? WHERE id=? AND status<>'paid'`, v.BaseSalary, v.Bonus, v.AttendanceDeduction, v.OtherDeduction, v.SocialSecurity, v.Tax, net, net, id)
+	}
 	if err != nil {
 		return 0, apperror.Wrap(err, "保存工资明细失败")
 	}
@@ -133,7 +191,14 @@ func (s *Store) UpdatePayroll(ctx context.Context, id uint64, v request.PayrollU
 		return 0, apperror.Wrap(err, "读取工资保存结果失败")
 	}
 	if affected == 0 {
-		return 0, ErrNotFound
+		// MySQL默认只返回“实际发生变化”的行数；金额与原值相同时仍然是有效保存。
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM payroll_items WHERE id=? AND status<>'paid'`, id).Scan(&exists); err != nil {
+			return 0, apperror.Wrap(err, "读取工资明细状态失败")
+		}
+		if exists == 0 {
+			return 0, ErrNotFound
+		}
 	}
 	if err := refreshBatch(ctx, tx, id); err != nil {
 		return 0, err
@@ -192,22 +257,36 @@ func (s *Store) generatePayroll(ctx context.Context, month string, employeeID ui
 		return 0, apperror.Wrap(err, "读取工资批次状态失败")
 	}
 	if batchStatus == "paid" {
+		if employeeID > 0 {
+			var itemStatus string
+			if err := tx.QueryRowContext(ctx, `SELECT status FROM payroll_items WHERE payroll_batch_id=? AND employee_id=?`, batchID, employeeID).Scan(&itemStatus); err == nil {
+				// 单独生成同一员工是幂等操作，已发放后不再重复创建或覆盖。
+				return uint64(batchID), nil
+			}
+		}
 		return 0, apperror.New("本月工资已经发放，不能再次生成")
 	}
 	if batchStatus == "cancelled" {
 		return 0, apperror.New("本月工资批次已取消，不能生成")
 	}
-	// 月薪员工按21.75个计薪日折算；入离职跨越部分月份时，先按实际在岗日数折算。
-	monthlyDaysExpr := `DATEDIFF(LEAST(COALESCE(DATE_SUB(left_on,INTERVAL 1 DAY),DATE_SUB(?,INTERVAL 1 DAY)),DATE_SUB(?,INTERVAL 1 DAY)),GREATEST(COALESCE(joined_on,?),?))+1`
-	// 满整月时直接取月薪，避免 5500/21.75 的中间舍入导致显示 5499.92；不满整月才按日薪舍入。
-	monthlyBaseExpr := `CASE WHEN pay_basis='monthly' THEN CASE WHEN (` + monthlyDaysExpr + `)>=21.75 THEN ROUND(COALESCE(current_salary,0),2) ELSE ROUND(ROUND(COALESCE(current_salary,0)/21.75,2)*(` + monthlyDaysExpr + `),2) END ELSE 0 END`
+	restDays := s.MonthlyRestDays
+	if restDays <= 0 {
+		restDays = 3
+	}
+	calendarDays := int(end.Sub(start).Hours() / 24)
+	calendarDaysSQL := strconv.Itoa(calendarDays)
+	employeeRequiredDaysExpr := `GREATEST(` + calendarDaysSQL + `-COALESCE(e.monthly_rest_days,` + strconv.Itoa(restDays) + `),1)`
+	// 月薪按“当月自然日-公休天数”作为应出勤天数；入离职跨越部分月份时按实际在岗日数折算。
+	monthlyDaysExpr := `DATEDIFF(LEAST(COALESCE(DATE_SUB(e.left_on,INTERVAL 1 DAY),DATE_SUB(?,INTERVAL 1 DAY)),DATE_SUB(?,INTERVAL 1 DAY)),GREATEST(COALESCE(e.joined_on,?),?))+1`
+	// 达到应出勤天数直接发整月工资，否则按月薪/应出勤天数*实际在岗天数。
+	monthlyBaseExpr := `CASE WHEN e.pay_basis='monthly' THEN CASE WHEN (` + monthlyDaysExpr + `)>=` + employeeRequiredDaysExpr + ` THEN ROUND(COALESCE(e.current_salary,0),2) ELSE ROUND(COALESCE(e.current_salary,0)/` + employeeRequiredDaysExpr + `*(` + monthlyDaysExpr + `),2) END ELSE 0 END`
 	itemArgs := []any{batchID, end, end, start, start, end, end, start, start, start, end, start}
 	itemFilter := ""
 	if employeeID > 0 {
 		itemFilter = " AND id=?"
 		itemArgs = append(itemArgs, employeeID)
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO payroll_items(payroll_batch_id,employee_id,base_salary) SELECT ?,id,`+monthlyBaseExpr+` FROM employees WHERE active=1 AND (employment_status IN ('active','probation') OR (employment_status='left' AND left_on>=?)) AND (joined_on IS NULL OR joined_on<?) AND (left_on IS NULL OR left_on>=?)`+itemFilter+` ON DUPLICATE KEY UPDATE base_salary=VALUES(base_salary)`, itemArgs...)
+	_, err = tx.ExecContext(ctx, `INSERT INTO payroll_items(payroll_batch_id,employee_id,base_salary) SELECT ?,e.id,`+monthlyBaseExpr+` FROM employees e WHERE e.active=1 AND (e.employment_status IN ('active','probation') OR (e.employment_status='left' AND e.left_on>=?)) AND (e.joined_on IS NULL OR e.joined_on<?) AND (e.left_on IS NULL OR e.left_on>=?)`+itemFilter+` ON DUPLICATE KEY UPDATE base_salary=VALUES(base_salary)`, itemArgs...)
 	if err != nil {
 		return 0, apperror.Wrap(err, "生成员工工资明细失败")
 	}
@@ -231,7 +310,7 @@ func (s *Store) generatePayroll(ctx context.Context, month string, employeeID ui
 	if err != nil {
 		return 0, apperror.Wrap(err, "清理原工资关联明细失败")
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO payroll_adjustments(payroll_item_id,attendance_record_id,adjustment_type,amount,description) SELECT i.id,a.id,'deduction',CASE WHEN e.pay_basis='monthly' AND (a.salary_effect IN ('deduct','deduct_and_subsidy') OR a.record_type='特殊休息') THEN ROUND((CASE WHEN a.duration_days>0 THEN a.duration_days ELSE a.duration_minutes/480 END)*ROUND(COALESCE(e.current_salary,0)/21.75,2),2) ELSE 0 END,CONCAT('考勤扣款：',a.record_type,' ',IF(a.duration_days>0,CONCAT(a.duration_days,'天'),CONCAT(a.duration_minutes,'分钟'))) FROM payroll_items i JOIN employees e ON e.id=i.employee_id JOIN attendance_records a ON a.employee_id=i.employee_id AND a.occurred_on>=? AND a.occurred_on<? AND (e.joined_on IS NULL OR a.occurred_on>=e.joined_on) AND (e.left_on IS NULL OR a.occurred_on<e.left_on) AND a.status IN ('approved','recorded','confirmed') AND a.active=1 WHERE i.payroll_batch_id=? AND (?=0 OR i.employee_id=?) ON DUPLICATE KEY UPDATE amount=VALUES(amount),description=VALUES(description)`, start, end, batchID, employeeID, employeeID)
+	_, err = tx.ExecContext(ctx, `INSERT INTO payroll_adjustments(payroll_item_id,attendance_record_id,adjustment_type,amount,description) SELECT i.id,a.id,'deduction',CASE WHEN e.pay_basis='monthly' AND (a.salary_effect IN ('deduct','deduct_and_subsidy') OR a.record_type='特殊休息') THEN ROUND((CASE WHEN a.duration_days>0 THEN a.duration_days ELSE a.duration_minutes/480 END)*COALESCE(e.current_salary,0)/`+employeeRequiredDaysExpr+`,2) ELSE 0 END,CONCAT('考勤扣款：',a.record_type,' ',IF(a.duration_days>0,CONCAT(a.duration_days,'天'),CONCAT(a.duration_minutes,'分钟'))) FROM payroll_items i JOIN employees e ON e.id=i.employee_id JOIN attendance_records a ON a.employee_id=i.employee_id AND a.occurred_on>=? AND a.occurred_on<? AND (e.joined_on IS NULL OR a.occurred_on>=e.joined_on) AND (e.left_on IS NULL OR a.occurred_on<e.left_on) AND a.status IN ('approved','recorded','confirmed') AND a.active=1 WHERE i.payroll_batch_id=? AND (?=0 OR i.employee_id=?) ON DUPLICATE KEY UPDATE amount=VALUES(amount),description=VALUES(description)`, start, end, batchID, employeeID, employeeID)
 	if err != nil {
 		return 0, apperror.Wrap(err, "关联请假与异常记录失败")
 	}
@@ -239,7 +318,7 @@ func (s *Store) generatePayroll(ctx context.Context, month string, employeeID ui
 	if err != nil {
 		return 0, apperror.Wrap(err, "关联异常补助失败")
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE payroll_items i SET i.bonus_amount=COALESCE((SELECT SUM(a.amount) FROM payroll_adjustments a WHERE a.payroll_item_id=i.id AND a.adjustment_type='bonus'),0),i.attendance_deduction=COALESCE((SELECT SUM(a.amount) FROM payroll_adjustments a WHERE a.payroll_item_id=i.id AND a.adjustment_type='deduction'),0),i.net_salary=i.base_salary+i.bonus_amount-i.attendance_deduction-i.other_deduction-i.social_security-i.tax_amount WHERE i.payroll_batch_id=? AND i.status<>'paid' AND (?=0 OR i.employee_id=?)`, batchID, employeeID, employeeID)
+	_, err = tx.ExecContext(ctx, `UPDATE payroll_items i SET i.bonus_amount=COALESCE((SELECT SUM(a.amount) FROM payroll_adjustments a WHERE a.payroll_item_id=i.id AND a.adjustment_type='bonus'),0),i.attendance_deduction=COALESCE((SELECT SUM(a.amount) FROM payroll_adjustments a WHERE a.payroll_item_id=i.id AND a.adjustment_type='deduction'),0),i.net_salary=CASE WHEN i.manual_net_salary IS NOT NULL THEN i.manual_net_salary ELSE i.base_salary+i.bonus_amount-i.attendance_deduction-i.other_deduction-i.social_security-i.tax_amount END WHERE i.payroll_batch_id=? AND i.status<>'paid' AND (?=0 OR i.employee_id=?)`, batchID, employeeID, employeeID)
 	if err != nil {
 		return 0, apperror.Wrap(err, "计算考勤工资影响失败")
 	}

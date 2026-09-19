@@ -2,6 +2,7 @@ const config = require('../config')
 const TOKEN_KEY = 'xinxin_token'
 const USER_KEY = 'xinxin_mini_user'
 const HOST_KEY = 'xinxin_develop_host'
+const HOST_VERSION_KEY = 'xinxin_develop_host_version'
 let redirecting = false
 
 function environment() {
@@ -9,13 +10,17 @@ function environment() {
 }
 function baseURL() {
   const env = environment()
-  return (env === 'develop' ? (wx.getStorageSync(HOST_KEY) || config.develop) : config[env] || '').replace(/\/+$/, '')
+  const savedHost = wx.getStorageSync(HOST_KEY)
+  const savedVersion = wx.getStorageSync(HOST_VERSION_KEY)
+  const host = env === 'develop' && savedVersion === config.develop && savedHost ? savedHost : config[env] || ''
+  return host.replace(/\/+$/, '')
 }
 function setDevelopHost(value) {
   if (environment() !== 'develop') throw new Error('仅开发版本可修改连接地址')
   const host = value.trim().replace(/\/+$/, '')
   if (!/^https?:\/\/[a-zA-Z0-9.-]+(?::\d+)?$/.test(host)) throw new Error('请填写服务器地址，例如 http://192.168.1.8:8999，不包含路径')
   wx.setStorageSync(HOST_KEY, host)
+  wx.setStorageSync(HOST_VERSION_KEY, config.develop)
   wx.removeStorageSync(TOKEN_KEY)
 }
 function token() { return wx.getStorageSync(TOKEN_KEY) || '' }

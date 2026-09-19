@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"friends-records/api/request"
 	"friends-records/api/response"
@@ -16,6 +17,8 @@ type PayrollPageData struct {
 	Payroll    []response.PayrollRecord
 	Summary    response.PayrollSummary
 	Employees  []mysql.AdminOption
+	RestDays   int
+	WorkDays   int
 }
 
 func (h *Handler) PayrollPage(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +42,13 @@ func (h *Handler) PayrollPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	people, _ := options["employees"].([]mysql.AdminOption)
-	h.render(w, "payroll.html", PayrollPageData{ActiveMenu: "payroll", Payroll: items, Summary: summary, Employees: people})
+	start, _ := time.Parse("2006-01", month)
+	calendarDays := start.AddDate(0, 1, 0).Add(-24 * time.Hour).Day()
+	workDays := calendarDays - h.Store.MonthlyRestDays
+	if workDays < 1 {
+		workDays = 1
+	}
+	h.render(w, "payroll.html", PayrollPageData{ActiveMenu: "payroll", Payroll: items, Summary: summary, Employees: people, RestDays: h.Store.MonthlyRestDays, WorkDays: workDays})
 }
 func (h *Handler) PayrollAPI(payroll service.Payroll) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -85,16 +94,34 @@ func (h *Handler) PayrollGenerateAPI(payroll service.Payroll) http.HandlerFunc {
 			return
 		}
 		var input struct {
-			Month      string `json:"month"`
-			EmployeeID uint64 `json:"employee_id"`
+			Month       string   `json:"month"`
+			EmployeeID  uint64   `json:"employee_id"`
+			EmployeeIDs []uint64 `json:"employee_ids"`
 		}
 		if !decodeJSON(w, r, &input) {
 			return
 		}
 		var batchID uint64
 		var err error
-		if input.EmployeeID > 0 {
-			batchID, err = payroll.GenerateEmployee(r.Context(), input.Month, input.EmployeeID)
+		if len(input.EmployeeIDs) > 0 || input.EmployeeID > 0 {
+			ids := input.EmployeeIDs
+			if input.EmployeeID > 0 {
+				ids = append(ids, input.EmployeeID)
+			}
+			seen := make(map[uint64]struct{}, len(ids))
+			for _, employeeID := range ids {
+				if employeeID == 0 {
+					continue
+				}
+				if _, ok := seen[employeeID]; ok {
+					continue
+				}
+				seen[employeeID] = struct{}{}
+				batchID, err = payroll.GenerateEmployee(r.Context(), input.Month, employeeID)
+				if err != nil {
+					break
+				}
+			}
 		} else {
 			batchID, err = payroll.Generate(r.Context(), input.Month)
 		}
@@ -137,18 +164,25 @@ func (h *Handler) PayrollConfirmAPI(payroll service.Payroll) http.HandlerFunc {
 		}
 		var input struct {
 			BatchID uint64 `json:"batch_id"`
+			ItemID  uint64 `json:"item_id"`
 		}
 		if !decodeJSON(w, r, &input) {
 			return
 		}
-		if input.BatchID == 0 {
+		if input.ItemID == 0 && input.BatchID == 0 {
 			httpx.Error(w, http.StatusBadRequest, "工资批次ID不正确")
 			return
 		}
-		if err := payroll.Confirm(r.Context(), input.BatchID); err != nil {
+		var err error
+		if input.ItemID > 0 {
+			err = payroll.ConfirmEmployee(r.Context(), input.ItemID)
+		} else {
+			err = payroll.Confirm(r.Context(), input.BatchID)
+		}
+		if err != nil {
 			fail(w, err, "工资确认失败")
 			return
 		}
-		httpx.JSON(w, http.StatusOK, map[string]any{"batch_id": input.BatchID})
+		httpx.JSON(w, http.StatusOK, map[string]any{"batch_id": input.BatchID, "item_id": input.ItemID})
 	}
 }

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>欣欣的日常记录</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="filing-body">
+  <main class="filing-dashboard">
+    <aside class="filing-sidebar">
+      <div class="filing-brand"><span class="brand-mark">欣</span><span><strong>欣欣的日常记录</strong><small>内部管理系统</small></span></div>
+      <nav aria-label="系统导航"><a class="filing-nav-active" href="/"><span>账</span>收支台账</a></nav>
+      <div class="filing-sidebar-note">本网站为个人内部管理系统，当前为备案审核展示页。</div>
+    </aside>
+    <section class="filing-content">
+      <header class="filing-header"><div><p class="eyebrow">业务管理 / 收支台账</p><h1>收支台账</h1><p class="filing-lead">记录日常经营中的收入、支出与资金流水。</p></div><span class="filing-demo-badge">备案审核展示</span></header>
+      <div class="filing-summary"><article><span>本月收入</span><strong class="filing-positive">¥12,800.00</strong><small>示例数据</small></article><article><span>本月支出</span><strong class="filing-negative">¥7,460.00</strong><small>示例数据</small></article><article><span>本月净收支</span><strong>¥5,340.00</strong><small>收入减支出</small></article><article><span>记录笔数</span><strong>4 笔</strong><small>当前展示示例</small></article></div>
+      <section class="filing-table-card"><div class="filing-table-heading"><div><h2>近期收支明细</h2><p>以下为备案审核展示用的示例数据</p></div><span>2026 年 09 月</span></div><div class="filing-record-list">
+        <article class="filing-record"><span class="filing-record-icon filing-income">收</span><div><strong>营业收入</strong><small>2026-09-15 · 日常经营</small></div><b class="filing-positive">+¥8,800.00</b></article>
+        <article class="filing-record"><span class="filing-record-icon filing-expense">支</span><div><strong>采购支出</strong><small>2026-09-14 · 食材采购</small></div><b class="filing-negative">-¥3,260.00</b></article>
+        <article class="filing-record"><span class="filing-record-icon filing-expense">支</span><div><strong>办公用品</strong><small>2026-09-10 · 日常办公</small></div><b class="filing-negative">-¥1,200.00</b></article>
+        <article class="filing-record"><span class="filing-record-icon filing-income">收</span><div><strong>营业收入</strong><small>2026-09-08 · 日常经营</small></div><b class="filing-positive">+¥4,000.00</b></article>
+      </div></section>
+      {{if .FilingNumber}}<div class="filing-number">备案号：{{.FilingNumber}}</div>{{end}}
+    </section>
+  </main>
+</body>
+</html>

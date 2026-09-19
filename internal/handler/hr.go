@@ -19,6 +19,7 @@ type EmployeesPageData struct {
 	Positions       []response.Position
 	Summary         response.EmployeeSummary
 	HealthReminders []response.HealthCertificateReminder
+	GlobalRestDays  int
 }
 type EmployeePageData struct {
 	ActiveMenu, Mode, PageTitle string
@@ -134,7 +135,7 @@ func (h *Handler) EmployeesPage(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "岗位筛选项读取失败")
 		return
 	}
-	h.render(w, "employees.html", EmployeesPageData{ActiveMenu: "employees", Employees: items, Departments: departments, Positions: positions, Summary: summary, HealthReminders: reminders})
+	h.render(w, "employees.html", EmployeesPageData{ActiveMenu: "employees", Employees: items, Departments: departments, Positions: positions, Summary: summary, HealthReminders: reminders, GlobalRestDays: h.Store.MonthlyRestDays})
 }
 func (h *Handler) EmployeeDetail(w http.ResponseWriter, r *http.Request) {
 	if !getOnly(w, r) {
@@ -203,6 +204,7 @@ func (h *Handler) EmployeeForm(w http.ResponseWriter, r *http.Request) {
 	}
 	data.Form.DepartmentID, _ = strconv.ParseUint(r.FormValue("department_id"), 10, 64)
 	data.Form.PositionID, _ = strconv.ParseUint(r.FormValue("position_id"), 10, 64)
+	data.Form.MonthlyRestDays, _ = strconv.Atoi(r.FormValue("monthly_rest_days"))
 	if err := data.Form.Validate(); err != nil {
 		data.Error = err.Error()
 		h.render(w, "employee_form.html", data)

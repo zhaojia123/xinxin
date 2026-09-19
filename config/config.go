@@ -17,9 +17,12 @@ type Config struct {
 	Upload UploadConfig `toml:"upload"`
 }
 type AppConfig struct {
-	Env         string `toml:"env"`
-	Addr        string `toml:"addr"`
-	TokenSecret string `toml:"token_secret"`
+	Env             string `toml:"env"`
+	Addr            string `toml:"addr"`
+	TokenSecret     string `toml:"token_secret"`
+	FilingNumber    string `toml:"filing_number"`
+	FilingLanding   bool   `toml:"filing_landing"`
+	MonthlyRestDays int    `toml:"monthly_rest_days"`
 }
 type MySQLConfig struct {
 	DSN string `toml:"dsn"`
@@ -53,6 +56,12 @@ func Load(name string) (Config, error) {
 	}
 	if cfg.App.Addr == "" {
 		cfg.App.Addr = ":8080"
+	}
+	if cfg.App.MonthlyRestDays <= 0 {
+		cfg.App.MonthlyRestDays = 3
+	}
+	if cfg.App.MonthlyRestDays >= 31 {
+		return Config{}, apperror.New("配置app.monthly_rest_days必须小于31")
 	}
 	// 临时联调或同机多实例运行时，可用环境变量覆盖监听端口。
 	if addr := strings.TrimSpace(os.Getenv("FRIENDS_RECORDS_ADDR")); addr != "" {
