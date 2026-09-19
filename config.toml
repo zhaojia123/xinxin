@@ -3,7 +3,7 @@
 
 [app]
 # 运行环境：开发环境填写 development，正式环境填写 production。
-env = "development"
+env = "production"
 # HTTP 服务监听地址。:8080 表示监听本机所有网卡的 8080 端口。
 addr = ":8999"
 # 小程序登录 Token 的签名密钥，不是微信密钥。
@@ -38,7 +38,7 @@ app_id = "wx61a14738b3d98047"
 # 正式使用前在这里填写，并注意不要把本配置文件提交到 Git。
 app_secret = "6b3f2f143632b03733c805805a0980d4"
 # 是否使用模拟登录。true 不调用微信接口，仅用于本地开发；正式环境必须改成 false。
-mock_login = true
+mock_login = false
 # 是否允许首次登录的小程序用户自动启用。
 # true 表示自动启用；false 表示需要管理员在数据库中手动启用。
 # 新用户默认停用，需管理员手动启用后才能使用小程序
