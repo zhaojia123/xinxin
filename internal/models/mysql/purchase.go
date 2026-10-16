@@ -81,6 +81,7 @@ func (s *Store) PurchaseItems(ctx context.Context, start, end string) ([]respons
 			return nil, apperror.Wrap(err, "读取采购明细失败")
 		}
 		item.ChangeDetail, item.ChangedAt = changeDetail.String, changedAt.String
+		item.Seq = len(items) + 1
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {

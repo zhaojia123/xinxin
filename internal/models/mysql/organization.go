@@ -28,6 +28,7 @@ func (s *Store) Departments(ctx context.Context) ([]response.Department, error) 
 		} else {
 			item.Status, item.StatusClass = "停用", "inactive"
 		}
+		item.Seq = len(result) + 1
 		result = append(result, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -63,6 +64,7 @@ func (s *Store) Positions(ctx context.Context) ([]response.Position, error) {
 		} else {
 			item.Status, item.StatusClass = "停用", "inactive"
 		}
+		item.Seq = len(result) + 1
 		result = append(result, item)
 	}
 	if err := rows.Err(); err != nil {

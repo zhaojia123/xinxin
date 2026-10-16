@@ -3,7 +3,7 @@
 <header class="admin-topbar"><div><p class="breadcrumb"><a href="/admin/employees">员工档案</a> / {{.PageTitle}}</p><h1>{{.PageTitle}}</h1><p class="page-description">保存后自动返回员工档案列表</p></div></header>
 {{if .Error}}<div class="alert" role="alert">{{.Error}}</div>{{end}}
 <form class="detail-card" method="post" enctype="multipart/form-data" data-employee-form><div class="form-section"><div class="section-title"><div><h2>基本信息</h2><p>带 * 的项目为必填项</p></div></div><div class="form-grid">
-<label>员工编号 *<input name="employee_no" required maxlength="32" value="{{.Form.EmployeeNo}}" placeholder="例如 E006"></label>
+<label>员工编号<input name="employee_no" maxlength="32" value="{{.Form.EmployeeNo}}" placeholder="留空由系统自动生成"></label>
 <label>姓名 *<input name="name" required maxlength="64" value="{{.Form.Name}}" placeholder="请输入姓名"></label>
 <label>性别<select name="gender"><option value="unknown" {{if eq .Form.Gender "unknown"}}selected{{end}}>未填写</option><option value="male" {{if eq .Form.Gender "male"}}selected{{end}}>男</option><option value="female" {{if eq .Form.Gender "female"}}selected{{end}}>女</option></select></label>
 <label>手机号<input name="mobile" maxlength="32" value="{{.Form.Mobile}}" placeholder="请输入手机号"></label>
@@ -15,10 +15,10 @@
 <label>岗位<select name="position_id" data-position-select><option value="">不指定岗位</option>{{range .Positions}}<option value="{{.ID}}" data-department-id="{{.DepartmentID}}" {{if eq .ID $.Form.PositionID}}selected{{end}}>{{.Department}} / {{.Name}}</option>{{end}}</select></label>
 <label>员工状态<select name="employment_status"><option value="probation" {{if eq .Form.EmploymentStatus "probation"}}selected{{end}}>试用期</option><option value="active" {{if eq .Form.EmploymentStatus "active"}}selected{{end}}>在职</option><option value="left" {{if eq .Form.EmploymentStatus "left"}}selected{{end}}>已离职</option></select></label>
 <label>用工类型<select name="employment_type"><option value="full_time" {{if eq .Form.EmploymentType "full_time"}}selected{{end}}>正式员工</option><option value="part_time" {{if eq .Form.EmploymentType "part_time"}}selected{{end}}>兼职</option><option value="intern" {{if eq .Form.EmploymentType "intern"}}selected{{end}}>实习</option></select></label>
-<label>入职日期<input name="joined_on" type="date" value="{{.Form.JoinedOn}}"></label>
+<label>入职日期<input name="joined_on" type="date" value="{{.Form.JoinedOn}}" required></label>
 <label>转正日期<input name="regularized_on" type="date" value="{{.Form.RegularizedOn}}"></label>
 <label>离职日期<input name="left_on" type="date" value="{{.Form.LeftOn}}"></label>
-<label>计薪方式<select name="pay_basis"><option value="monthly" {{if eq .Form.PayBasis "monthly"}}selected{{end}}>月薪</option><option value="daily" {{if eq .Form.PayBasis "daily"}}selected{{end}}>日薪</option><option value="hourly" {{if eq .Form.PayBasis "hourly"}}selected{{end}}>时薪</option></select></label>
+<label>计薪方式<select name="pay_basis"><option value="monthly" {{if eq .Form.PayBasis "monthly"}}selected{{end}}>月薪</option><option value="daily" {{if eq .Form.PayBasis "daily"}}selected{{end}}>日薪</option><option value="hourly" {{if eq .Form.PayBasis "hourly"}}selected{{end}}>时薪</option><option value="half_daily" {{if eq .Form.PayBasis "half_daily"}}selected{{end}}>半天工资</option></select></label>
 <label>入职时总工资<input name="entry_salary" type="number" min="0" max="9999999999.99" step="0.01" value="{{.Form.EntrySalary}}" placeholder="未知可留空"></label>
 <label>当前工资<input name="current_salary" type="number" min="0" max="9999999999.99" step="0.01" value="{{.Form.CurrentSalary}}" placeholder="未知可留空"></label>
 <label>每月公休天数（单休可填4/5，双休可填8/9）<input name="monthly_rest_days" type="number" min="0" max="30" step="1" value="{{if gt .Form.MonthlyRestDays 0}}{{.Form.MonthlyRestDays}}{{end}}" placeholder="留空跟随全局设置"></label>

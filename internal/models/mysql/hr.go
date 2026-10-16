@@ -29,6 +29,7 @@ func (s *Store) EmploymentChanges(ctx context.Context) ([]response.EmploymentCha
 			return nil, apperror.Wrap(err, "读取人事异动失败")
 		}
 		v.Type = changeLabel(kind)
+		v.Seq = len(result) + 1
 		result = append(result, v)
 	}
 	if err := rows.Err(); err != nil {
@@ -66,6 +67,7 @@ func (s *Store) SalaryAdjustments(ctx context.Context) ([]response.SalaryAdjustm
 			return nil, apperror.Wrap(err, "读取调薪记录失败")
 		}
 		v.Before, v.After, v.Increase = Money(before), Money(after), fmt.Sprintf("%+.2f", after-before)
+		v.Seq = len(result) + 1
 		result = append(result, v)
 	}
 	if err := rows.Err(); err != nil {

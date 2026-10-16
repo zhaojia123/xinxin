@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 
 	"friends-records/api/request"
 	"friends-records/api/response"
+	"friends-records/internal/apperror"
 )
 
 // MiniInputError 表示可以直接展示给小程序用户的业务错误。
@@ -241,13 +243,20 @@ func (s *Store) MiniOptions(ctx context.Context) (map[string][]MiniOption, error
 }
 
 type MiniLedger struct {
-	ID uint64 `json:"id"`
+	Seq int    `json:"seq,omitempty"`
+	ID  uint64 `json:"id"`
 	request.LedgerInput
-	Account        string             `json:"account"`
-	Category       string             `json:"category"`
-	Department     string             `json:"department"`
-	PayrollBatchID uint64             `json:"payroll_batch_id"`
-	Attachments    []LedgerAttachment `json:"attachments"`
+	Account        string              `json:"account"`
+	Category       string              `json:"category"`
+	Department     string              `json:"department"`
+	PayrollBatchID uint64              `json:"payroll_batch_id"`
+	Attachments    []LedgerAttachment  `json:"attachments"`
+	PayrollItems   []PayrollLedgerItem `json:"payroll_items"`
+}
+
+type PayrollLedgerItem struct {
+	EmployeeName string `json:"employee_name"`
+	Amount       string `json:"amount"`
 }
 
 const miniLedgerSelect = `SELECT l.id,DATE_FORMAT(l.occurred_on,'%Y-%m-%d'),l.account_id,COALESCE(l.category_id,0),COALESCE(l.department_id,0),l.direction,CAST(l.amount AS CHAR),l.summary,l.counterparty,l.voucher_no,l.remark,a.name,COALESCE(c.name,''),COALESCE(d.name,''),COALESCE(pb.id,COALESCE((SELECT pi.payroll_batch_id FROM payroll_items pi WHERE pi.ledger_entry_id=l.id LIMIT 1),0)) FROM ledger_entries l JOIN ledger_accounts a ON a.id=l.account_id LEFT JOIN ledger_categories c ON c.id=l.category_id LEFT JOIN departments d ON d.id=l.department_id LEFT JOIN payroll_batches pb ON pb.ledger_entry_id=l.id`
@@ -268,8 +277,31 @@ func (s *Store) MiniLedger(ctx context.Context, id uint64) (MiniLedger, error) {
 	}
 	if err == nil {
 		v.Attachments, err = s.LedgerAttachments(ctx, id)
+		if err == nil {
+			v.PayrollItems, err = s.PayrollLedgerItems(ctx, id)
+		}
 	}
 	return v, err
+}
+
+func (s *Store) PayrollLedgerItems(ctx context.Context, ledgerID uint64) ([]PayrollLedgerItem, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT e.name,CAST(i.net_salary AS CHAR) FROM payroll_items i JOIN employees e ON e.id=i.employee_id WHERE i.ledger_entry_id=? ORDER BY e.employee_no,e.id`, ledgerID)
+	if err != nil {
+		return nil, apperror.Wrap(err, "读取工资台账明细失败")
+	}
+	defer rows.Close()
+	items := make([]PayrollLedgerItem, 0)
+	for rows.Next() {
+		var item PayrollLedgerItem
+		if err := rows.Scan(&item.EmployeeName, &item.Amount); err != nil {
+			return nil, apperror.Wrap(err, "读取工资台账明细失败")
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, apperror.Wrap(err, "遍历工资台账明细失败")
+	}
+	return items, nil
 }
 
 func (s *Store) MiniLedgerList(ctx context.Context, start, end, direction, search string, offset int) ([]MiniLedger, bool, error) {
@@ -287,6 +319,7 @@ func (s *Store) MiniLedgerList(ctx context.Context, start, end, direction, searc
 		if err != nil {
 			return nil, false, err
 		}
+		v.Seq = len(items) + 1 + offset
 		items = append(items, v)
 	}
 	if err := rows.Err(); err != nil {
@@ -459,6 +492,7 @@ func (s *Store) MiniEmployee(ctx context.Context, id uint64) (MiniEmployee, erro
 	var days int
 	err := s.DB.QueryRowContext(ctx, `SELECT e.id,e.employee_no,e.name,e.gender,e.id_card,e.mobile,COALESCE(e.department_id,0),COALESCE(e.position_id,0),e.employment_status,e.employment_type,COALESCE(e.pay_basis,'monthly'),COALESCE(e.monthly_rest_days,0),COALESCE(DATE_FORMAT(e.joined_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.regularized_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.left_on,'%Y-%m-%d'),''),COALESCE(CAST(e.entry_salary AS CHAR),''),COALESCE(CAST(e.current_salary AS CHAR),''),e.education,e.hometown,e.remark,COALESCE(d.name,''),COALESCE(p.name,''),COALESCE(hc.id,0),COALESCE(hc.file_url,''),COALESCE(DATE_FORMAT(hc.issued_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(hc.expires_on,'%Y-%m-%d'),''),COALESCE(DATEDIFF(hc.expires_on,CURDATE()),0) FROM employees e LEFT JOIN departments d ON d.id=e.department_id LEFT JOIN positions p ON p.id=e.position_id LEFT JOIN employee_health_certificates hc ON hc.id=(SELECT current_hc.id FROM employee_health_certificates current_hc WHERE current_hc.employee_id=e.id AND current_hc.is_current=1 ORDER BY current_hc.expires_on DESC,current_hc.id DESC LIMIT 1) WHERE e.id=? AND e.active=1`, id).Scan(&v.ID, &v.EmployeeNo, &v.Name, &v.Gender, &v.IDCard, &v.Mobile, &v.DepartmentID, &v.PositionID, &v.EmploymentStatus, &v.EmploymentType, &v.PayBasis, &v.MonthlyRestDays, &v.JoinedOn, &v.RegularizedOn, &v.LeftOn, &v.EntrySalary, &v.CurrentSalary, &v.Education, &v.Hometown, &v.Remark, &v.Department, &v.Position, &v.HealthCertificateID, &v.HealthCertificateURL, &v.HealthCertificateIssuedOn, &v.HealthCertificateExpiresOn, &days)
 	v.HealthCertificateDaysRemaining = days
+	v.Gender = request.NormalizeGender(v.Gender)
 	v.HealthCertificateStatus, v.HealthCertificateStatusClass = healthCertificateStatus(v.HealthCertificateID, days)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
@@ -469,11 +503,11 @@ func (s *Store) MiniEmployee(ctx context.Context, id uint64) (MiniEmployee, erro
 	return v, err
 }
 
-func (s *Store) MiniEmployeeList(ctx context.Context, search, status string, offset int) ([]response.Employee, bool, error) {
+func (s *Store) MiniEmployeeList(ctx context.Context, search, status, employmentType string, offset int) ([]response.Employee, bool, error) {
 	if err := s.ready(); err != nil {
 		return nil, false, err
 	}
-	rows, err := s.DB.QueryContext(ctx, employeeSelect+` WHERE e.active=1 AND (?='' OR LOCATE(?,e.name)>0 OR LOCATE(?,e.employee_no)>0 OR LOCATE(?,e.mobile)>0) AND (?='' OR e.employment_status=?) ORDER BY e.employment_status='left',e.employee_no,e.id LIMIT 31 OFFSET ?`, search, search, search, search, status, status, offset)
+	rows, err := s.DB.QueryContext(ctx, employeeSelect+` WHERE e.active=1 AND (?='' OR LOCATE(?,e.name)>0 OR LOCATE(?,e.employee_no)>0 OR LOCATE(?,e.mobile)>0) AND (?='' OR e.employment_status=?) AND (?='' OR e.employment_type=?) ORDER BY e.employment_status='left',e.employee_no,e.id LIMIT 31 OFFSET ?`, search, search, search, search, status, status, employmentType, employmentType, offset)
 	if err != nil {
 		return nil, false, err
 	}
@@ -484,6 +518,7 @@ func (s *Store) MiniEmployeeList(ctx context.Context, search, status string, off
 		if err != nil {
 			return nil, false, err
 		}
+		v.Seq = len(items) + 1 + offset
 		items = append(items, v)
 	}
 	if err := rows.Err(); err != nil {
@@ -555,32 +590,95 @@ func (s *Store) SaveEmployee(ctx context.Context, id, actor uint64, v request.Em
 	return id, tx.Commit()
 }
 
-func (s *Store) DeleteEmployee(ctx context.Context, id, actor uint64) error {
-	if err := s.ready(); err != nil {
-		return err
-	}
-	tx, err := s.DB.BeginTx(ctx, nil)
+// UpdateEmployeeField 复用完整员工校验，避免列表内联编辑绕过日期、工资和状态校验。
+func (s *Store) UpdateEmployeeField(ctx context.Context, id, actor uint64, field, value string) error {
+	item, err := s.MiniEmployee(ctx, id)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	var name string
-	if err := tx.QueryRowContext(ctx, `SELECT name FROM employees WHERE id=? AND active=1 FOR UPDATE`, id).Scan(&name); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
+	v := item.EmployeeInput
+	value = strings.TrimSpace(value)
+	switch field {
+	case "mobile":
+		v.Mobile = value
+	case "joined_on":
+		v.JoinedOn = value
+	case "left_on":
+		v.LeftOn = value
+		if value != "" {
+			v.EmploymentStatus = "left"
+		} else if v.EmploymentStatus == "left" {
+			v.EmploymentStatus = "active"
 		}
-		return err
+	case "entry_salary":
+		v.EntrySalary = value
+	case "current_salary":
+		v.CurrentSalary = value
+	case "pay_basis":
+		v.PayBasis = value
+	case "employment_status":
+		v.EmploymentStatus = value
+	default:
+		return MiniInputError{"该员工字段不支持直接修改"}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE mini_users SET enabled=0 WHERE employee_id=?`, id); err != nil {
-		return err
+	if err := v.Validate(); err != nil {
+		return MiniInputError{err.Error()}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE employees SET active=0,deleted_at=NOW(),deleted_by=? WHERE id=? AND active=1`, actor, id); err != nil {
-		return err
+	_, err = s.SaveEmployee(ctx, id, actor, v)
+	return err
+}
+
+func (s *Store) DeleteEmployee(ctx context.Context, id, actor uint64) error {
+	_, err := s.DeleteEmployees(ctx, []uint64{id}, actor)
+	return err
+}
+
+// DeleteEmployees 软删除多个员工，保留工资和台账等历史关联数据。
+func (s *Store) DeleteEmployees(ctx context.Context, ids []uint64, actor uint64) (int, error) {
+	if err := s.ready(); err != nil {
+		return 0, err
 	}
-	if err := miniAudit(ctx, tx, actor, "employees", id, "删除员工："+name); err != nil {
-		return err
+	seen := make(map[uint64]struct{}, len(ids))
+	validIDs := make([]uint64, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, exists := seen[id]; !exists {
+			seen[id] = struct{}{}
+			validIDs = append(validIDs, id)
+		}
 	}
-	return tx.Commit()
+	if len(validIDs) == 0 {
+		return 0, MiniInputError{"请选择要删除的员工"}
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	for _, id := range validIDs {
+		var name string
+		if err := tx.QueryRowContext(ctx, `SELECT name FROM employees WHERE id=? AND active=1 FOR UPDATE`, id).Scan(&name); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return 0, ErrNotFound
+			}
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE mini_users SET enabled=0 WHERE employee_id=?`, id); err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE employees SET active=0,deleted_at=NOW(),deleted_by=? WHERE id=? AND active=1`, actor, id); err != nil {
+			return 0, err
+		}
+		if err := miniAudit(ctx, tx, actor, "employees", id, "删除员工："+name); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(validIDs), nil
 }
 
 // CreateMiniOption 支持空数据库首次建账，不自动插入业务数据。

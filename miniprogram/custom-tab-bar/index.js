@@ -1,5 +1,5 @@
 // visible 控制是否在底部导航展示，隐藏入口不影响页面和接口继续使用。
-const ALL_TABS = [{ key: 'ledger', title: '台账', url: '/pages/ledger/index', icon: 'book' }, { key: 'purchases', title: '采购', url: '/pages/purchases/index', icon: 'cart', visible: false }, { key: 'employees', title: '员工管理', url: '/pages/employees/index', icon: 'people' }]
+const ALL_TABS = [{ key: 'employees', title: '员工档案', url: '/pages/employees/index', icon: 'people' }, { key: 'attendance', title: '请假管理', url: '/pages/attendance/index', icon: 'calendar' }]
 function hasPermission(user, key) {
   if (Array.isArray(user.permissions)) return user.permissions.indexOf(key) >= 0
   return user['can_' + key] !== false

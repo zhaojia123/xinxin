@@ -8,7 +8,8 @@
     "pages/purchases-edit/index",
     "pages/employees/index",
     "pages/employee-edit/index",
-    "pages/employee-detail/index"
+    "pages/employee-detail/index",
+    "pages/attendance/index"
   ],
   "window": {
     "navigationBarTitleText": "欣欣的日常记录",
@@ -23,8 +24,8 @@
     "selectedColor": "#2457e6",
     "backgroundColor": "#ffffff",
     "list": [
-      {"pagePath": "pages/ledger/index", "text": "台账"},
-      {"pagePath": "pages/employees/index", "text": "员工管理"}
+      {"pagePath": "pages/employees/index", "text": "员工档案"},
+      {"pagePath": "pages/attendance/index", "text": "请假管理"}
     ]
   },
   "style": "v2",

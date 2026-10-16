@@ -127,13 +127,33 @@ type EmployeeInput struct {
 	Remark           string `json:"remark"`
 }
 
+// NormalizeGender 兼容页面或旧数据中的中文性别值，统一保存为数据库枚举值。
+func NormalizeGender(value string) string {
+	switch strings.TrimSpace(value) {
+	case "男", "男性", "male":
+		return "male"
+	case "女", "女性", "female":
+		return "female"
+	case "", "未填写", "未知", "unknown":
+		return "unknown"
+	default:
+		return strings.TrimSpace(value)
+	}
+}
+
 func (v *EmployeeInput) Validate() error {
 	v.Name, v.EmployeeNo = strings.TrimSpace(v.Name), strings.TrimSpace(v.EmployeeNo)
-	if v.Name == "" || !textLength(v.Name, 64) || v.EmployeeNo == "" || !textLength(v.EmployeeNo, 32) {
-		return fmt.Errorf("姓名和员工编号必填，最多分别64字和32字")
+	v.EmploymentStatus = strings.TrimSpace(v.EmploymentStatus)
+	if v.Name == "" || !textLength(v.Name, 64) || !textLength(v.EmployeeNo, 32) {
+		return fmt.Errorf("姓名必填，姓名和员工编号最多分别64字和32字")
 	}
+	v.Gender = NormalizeGender(v.Gender)
 	if v.Gender != "unknown" && v.Gender != "male" && v.Gender != "female" {
 		return fmt.Errorf("性别不正确")
+	}
+	// 填写离职日期即表示员工已离职，避免只改日期时因状态未同步而无法保存。
+	if v.LeftOn != "" {
+		v.EmploymentStatus = "left"
 	}
 	if v.EmploymentStatus != "active" && v.EmploymentStatus != "probation" && v.EmploymentStatus != "left" {
 		return fmt.Errorf("在职状态不正确")
@@ -144,7 +164,7 @@ func (v *EmployeeInput) Validate() error {
 	if v.PayBasis == "" {
 		v.PayBasis = "monthly"
 	}
-	if v.PayBasis != "monthly" && v.PayBasis != "daily" && v.PayBasis != "hourly" {
+	if v.PayBasis != "monthly" && v.PayBasis != "daily" && v.PayBasis != "hourly" && v.PayBasis != "half_daily" {
 		return fmt.Errorf("计薪方式不正确")
 	}
 	if v.MonthlyRestDays < 0 || v.MonthlyRestDays >= 31 {
@@ -178,4 +198,10 @@ func (v *EmployeeInput) Validate() error {
 		}
 	}
 	return nil
+}
+
+// EmployeeFieldInput 用于员工列表中的单字段即时保存。
+type EmployeeFieldInput struct {
+	Field string `json:"field"`
+	Value string `json:"value"`
 }

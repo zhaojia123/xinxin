@@ -82,7 +82,7 @@ func (s *Store) AdminMiniUsers(ctx context.Context) ([]AdminMiniUser, []MiniModu
 	if err := moduleRows.Err(); err != nil {
 		return nil, nil, err
 	}
-	for _, module := range []MiniModule{{Key: "ledger", Name: "台账"}, {Key: "purchases", Name: "采购"}, {Key: "employees", Name: "员工管理"}} {
+	for _, module := range []MiniModule{{Key: "ledger", Name: "台账"}, {Key: "purchases", Name: "采购"}, {Key: "employees", Name: "员工档案管理"}, {Key: "attendance", Name: "请假管理"}} {
 		if !keys[module.Key] {
 			modules = append(modules, module)
 		}
@@ -97,7 +97,9 @@ func miniModuleName(key string) string {
 	case "purchases":
 		return "采购"
 	case "employees":
-		return "员工管理"
+		return "员工档案管理"
+	case "attendance":
+		return "请假管理"
 	default:
 		return key
 	}

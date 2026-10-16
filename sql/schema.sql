@@ -69,6 +69,7 @@ CREATE TABLE employees (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '员工ID',
     employee_no VARCHAR(32) NOT NULL COMMENT '员工编号',
     name VARCHAR(64) NOT NULL COMMENT '姓名',
+    age TINYINT UNSIGNED NULL COMMENT '员工年龄，来源表格',
     gender ENUM('unknown','male','female') NOT NULL DEFAULT 'unknown' COMMENT '性别',
     id_card VARCHAR(32) NOT NULL DEFAULT '' COMMENT '身份证号，建议应用层加密',
     mobile VARCHAR(32) NOT NULL DEFAULT '' COMMENT '手机号',
@@ -81,7 +82,7 @@ CREATE TABLE employees (
     left_on DATE NULL COMMENT '离职日期',
     entry_salary DECIMAL(12,2) NULL COMMENT '入职时工资或时薪，作为历史快照',
     current_salary DECIMAL(12,2) NULL COMMENT '当前工资或时薪，未填写时为空',
-    pay_basis ENUM('monthly','daily','hourly') NOT NULL DEFAULT 'monthly' COMMENT '月薪、日薪或时薪',
+    pay_basis ENUM('monthly','daily','hourly','half_daily') NOT NULL DEFAULT 'monthly' COMMENT '月薪、日薪、时薪或半天工资',
     monthly_rest_days TINYINT UNSIGNED NULL COMMENT '每月公休天数；为空时跟随系统配置',
     education VARCHAR(32) NOT NULL DEFAULT '' COMMENT '学历',
     hometown VARCHAR(128) NOT NULL DEFAULT '' COMMENT '籍贯',
@@ -102,6 +103,23 @@ CREATE TABLE employees (
     CONSTRAINT fk_employees_position FOREIGN KEY (position_id) REFERENCES positions (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='员工档案';
 
+CREATE TABLE employee_work_logs (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    employee_id BIGINT UNSIGNED NOT NULL COMMENT '小时工员工ID',
+    work_date DATE NOT NULL COMMENT '工作日期',
+    hours DECIMAL(6,2) NOT NULL COMMENT '当天工时，半天可填4',
+    remark VARCHAR(255) NOT NULL DEFAULT '' COMMENT '备注',
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at DATETIME NULL,
+    deleted_by BIGINT UNSIGNED NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_employee_work_date (employee_id, work_date),
+    KEY idx_work_logs_date (work_date),
+    CONSTRAINT fk_work_logs_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='小时工每日工时记录';
+
 ALTER TABLE departments ADD CONSTRAINT fk_departments_manager
     FOREIGN KEY (manager_employee_id) REFERENCES employees (id) ON DELETE SET NULL;
 
@@ -113,7 +131,7 @@ CREATE TABLE employee_health_certificates (
     original_name VARCHAR(255) NOT NULL DEFAULT '' COMMENT '上传时原文件名',
     mime_type VARCHAR(64) NOT NULL COMMENT '图片类型',
     file_size BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '文件字节数',
-    issued_on DATE NOT NULL COMMENT '发证日期',
+    issued_on DATE NULL COMMENT '发证日期，来源未提供时为空',
     expires_on DATE NOT NULL COMMENT '到期日期',
     is_current TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否为当前使用的健康证',
     uploaded_by BIGINT UNSIGNED NULL COMMENT '上传管理员ID',
@@ -190,8 +208,10 @@ CREATE TABLE attendance_records (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '记录ID',
     employee_id BIGINT UNSIGNED NOT NULL COMMENT '员工ID',
     category ENUM('leave','exception') NOT NULL COMMENT '请假/异常',
-    record_type VARCHAR(32) NOT NULL COMMENT '年假、事假、调休、迟到、早退等',
+    record_type VARCHAR(32) NOT NULL COMMENT '公休、特殊请假、迟到、早退等',
     occurred_on DATE NOT NULL COMMENT '发生日期',
+    start_at DATETIME NULL COMMENT '开始或发生日期时间',
+    end_at DATETIME NULL COMMENT '结束日期时间',
     start_time TIME NULL COMMENT '开始或发生时间',
     end_time TIME NULL COMMENT '结束时间',
     duration_minutes INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '迟到、早退等分钟数',
@@ -284,6 +304,7 @@ CREATE TABLE payroll_items (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '工资条ID',
     payroll_batch_id BIGINT UNSIGNED NOT NULL,
     employee_id BIGINT UNSIGNED NOT NULL,
+    work_hours DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '按小时计薪员工的本月工时',
     base_salary DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '基本工资快照',
     bonus_amount DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '奖金补贴',
     attendance_deduction DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '请假考勤扣款',
@@ -346,6 +367,13 @@ CREATE TABLE ledger_categories (
     PRIMARY KEY (id),
     UNIQUE KEY uk_ledger_categories_direction_name (direction, name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='台账收支分类';
+
+INSERT INTO ledger_categories (direction, name, enabled, sort_order) VALUES
+    ('income', '服务收入', 1, 10),
+    ('expense', '工资薪酬', 1, 10),
+    ('expense', '房租', 1, 20),
+    ('expense', '采购支出', 1, 30)
+ON DUPLICATE KEY UPDATE enabled = 1;
 
 CREATE TABLE ledger_entries (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '流水ID',
@@ -450,6 +478,33 @@ CREATE TABLE audit_logs (
     KEY idx_audit_logs_user (admin_user_id),
     CONSTRAINT fk_audit_logs_admin FOREIGN KEY (admin_user_id) REFERENCES admin_users (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='操作日志';
+
+CREATE TABLE menu_items (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    source_sheet VARCHAR(64) NOT NULL DEFAULT '手工录入',
+    source_row INT NOT NULL DEFAULT 0,
+    source_no VARCHAR(64) NOT NULL DEFAULT '',
+    restaurant VARCHAR(128) NOT NULL DEFAULT '',
+    window_name VARCHAR(128) NOT NULL DEFAULT '',
+    name VARCHAR(128) NOT NULL,
+    specification VARCHAR(64) NOT NULL DEFAULT '',
+    price DECIMAL(10,2) NOT NULL DEFAULT 0,
+    price_text VARCHAR(32) NOT NULL DEFAULT '',
+    sales_period VARCHAR(128) NOT NULL DEFAULT '',
+    price_range VARCHAR(64) NOT NULL DEFAULT '',
+    price_category VARCHAR(64) NOT NULL DEFAULT '',
+    item_category VARCHAR(64) NOT NULL DEFAULT '',
+    remark VARCHAR(500) NOT NULL DEFAULT '',
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_menu_source (source_sheet, source_row),
+    KEY idx_menu_name (name),
+    KEY idx_menu_price (price),
+    KEY idx_menu_price_category (price_category),
+    KEY idx_menu_item_category (item_category)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='餐厅菜单菜品';
 
 SET FOREIGN_KEY_CHECKS = 1;
 

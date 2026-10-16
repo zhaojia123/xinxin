@@ -10,6 +10,21 @@ import (
 	"friends-records/internal/apperror"
 )
 
+func attendanceDateTime(value string, fallbackDate string, fallbackClock string) any {
+	if value == "" && fallbackClock != "" {
+		value = fallbackDate + "T" + fallbackClock
+	}
+	if value == "" {
+		return nil
+	}
+	for _, layout := range []string{"2006-01-02T15:04", "2006-01-02T15:04:05", "2006-01-02 15:04:05"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed.Format("2006-01-02 15:04:05")
+		}
+	}
+	return value
+}
+
 type AdminOption struct {
 	ID           uint64 `json:"id"`
 	Name         string `json:"name"`
@@ -261,7 +276,7 @@ func (s *Store) AttendanceRecordInput(ctx context.Context, id uint64) (Attendanc
 		return AttendanceRecordInput{}, err
 	}
 	var v AttendanceRecordInput
-	err := s.DB.QueryRowContext(ctx, `SELECT id,employee_id,category,record_type,DATE_FORMAT(occurred_on,'%Y-%m-%d'),COALESCE(DATE_FORMAT(start_time,'%H:%i'),''),COALESCE(DATE_FORMAT(end_time,'%H:%i'),''),duration_minutes,CAST(duration_days AS CHAR),salary_effect,COALESCE(CAST(subsidy_amount AS CHAR),'0'),reason,status FROM attendance_records WHERE id=? AND active=1`, id).Scan(&v.ID, &v.EmployeeID, &v.Category, &v.RecordType, &v.OccurredOn, &v.StartTime, &v.EndTime, &v.DurationMinutes, &v.DurationDays, &v.SalaryEffect, &v.SubsidyAmount, &v.Reason, &v.Status)
+	err := s.DB.QueryRowContext(ctx, `SELECT id,employee_id,category,record_type,DATE_FORMAT(occurred_on,'%Y-%m-%d'),COALESCE(DATE_FORMAT(start_at,'%Y-%m-%dT%H:%i:%s'),''),COALESCE(DATE_FORMAT(end_at,'%Y-%m-%dT%H:%i:%s'),''),duration_minutes,CAST(duration_days AS CHAR),salary_effect,COALESCE(CAST(subsidy_amount AS CHAR),'0'),reason,status FROM attendance_records WHERE id=? AND active=1`, id).Scan(&v.ID, &v.EmployeeID, &v.Category, &v.RecordType, &v.OccurredOn, &v.StartAt, &v.EndAt, &v.DurationMinutes, &v.DurationDays, &v.SalaryEffect, &v.SubsidyAmount, &v.Reason, &v.Status)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -270,6 +285,18 @@ func (s *Store) AttendanceRecordInput(ctx context.Context, id uint64) (Attendanc
 func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.AttendanceInput) (uint64, error) {
 	if err := s.ready(); err != nil {
 		return 0, err
+	}
+	if v.Category == "public_rest" {
+		v.Category = "leave"
+		if v.RecordType == "" {
+			v.RecordType = "公休"
+		}
+	}
+	if v.Category == "holiday" {
+		v.Category = "leave"
+		v.RecordType = "节假日"
+		v.SalaryEffect = "none"
+		v.SubsidyAmount = "0"
 	}
 	if v.Category == "leave" {
 		v.DurationMinutes = 0
@@ -283,15 +310,22 @@ func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.Attenda
 			v.SalaryEffect = "none"
 		}
 	}
+	if v.RecordType == "公休" || v.RecordType == "节假日" {
+		v.SalaryEffect = "none"
+		v.SubsidyAmount = "0"
+	}
 	if v.SubsidyAmount == "" {
 		v.SubsidyAmount = "0"
 	}
+	startAt := attendanceDateTime(v.StartAt, v.OccurredOn, v.StartTime)
+	endAt := attendanceDateTime(v.EndAt, v.OccurredOn, v.EndTime)
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
-	status := "pending"
+	// 当前系统由单人直接登记，出勤记录保存后立即视为已通过。
+	status := "approved"
 	if v.Category == "exception" {
 		status = "recorded"
 	}
@@ -302,12 +336,24 @@ func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.Attenda
 			}
 			return 0, err
 		}
+		var paidCount int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM payroll_adjustments a JOIN payroll_items i ON i.id=a.payroll_item_id WHERE a.attendance_record_id=? AND i.status='paid'`, id).Scan(&paidCount); err != nil {
+			return 0, err
+		}
+		if paidCount > 0 {
+			return 0, MiniInputError{"该记录已经计入已发工资，不能再修改"}
+		}
+		if v.Category == "exception" {
+			status = "recorded"
+		} else {
+			status = "approved"
+		}
 	}
 	if err := requireReference(ctx, tx, `SELECT id FROM employees WHERE id=? AND active=1 FOR SHARE`, "员工不存在", v.EmployeeID); err != nil {
 		return 0, err
 	}
 	if id == 0 {
-		result, e := tx.ExecContext(ctx, `INSERT INTO attendance_records(employee_id,category,record_type,occurred_on,start_time,end_time,duration_minutes,duration_days,salary_effect,subsidy_amount,reason,source,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,'manual',?)`, v.EmployeeID, v.Category, v.RecordType, v.OccurredOn, optionalText(v.StartTime), optionalText(v.EndTime), v.DurationMinutes, v.DurationDays, v.SalaryEffect, v.SubsidyAmount, v.Reason, status)
+		result, e := tx.ExecContext(ctx, `INSERT INTO attendance_records(employee_id,category,record_type,occurred_on,start_at,end_at,start_time,end_time,duration_minutes,duration_days,salary_effect,subsidy_amount,reason,source,status) VALUES(?,?,?,?,?,?,TIME(?),TIME(?),?,?,?,?,?,'manual',?)`, v.EmployeeID, v.Category, v.RecordType, v.OccurredOn, startAt, endAt, startAt, endAt, v.DurationMinutes, v.DurationDays, v.SalaryEffect, v.SubsidyAmount, v.Reason, status)
 		if e != nil {
 			return 0, e
 		}
@@ -317,7 +363,7 @@ func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.Attenda
 		}
 		id = uint64(inserted)
 	} else {
-		_, err = tx.ExecContext(ctx, `UPDATE attendance_records SET employee_id=?,category=?,record_type=?,occurred_on=?,start_time=?,end_time=?,duration_minutes=?,duration_days=?,salary_effect=?,subsidy_amount=?,reason=? WHERE id=? AND active=1`, v.EmployeeID, v.Category, v.RecordType, v.OccurredOn, optionalText(v.StartTime), optionalText(v.EndTime), v.DurationMinutes, v.DurationDays, v.SalaryEffect, v.SubsidyAmount, v.Reason, id)
+		_, err = tx.ExecContext(ctx, `UPDATE attendance_records SET employee_id=?,category=?,record_type=?,occurred_on=?,start_at=?,end_at=?,start_time=TIME(?),end_time=TIME(?),duration_minutes=?,duration_days=?,salary_effect=?,subsidy_amount=?,reason=?,status=? WHERE id=? AND active=1`, v.EmployeeID, v.Category, v.RecordType, v.OccurredOn, startAt, endAt, startAt, endAt, v.DurationMinutes, v.DurationDays, v.SalaryEffect, v.SubsidyAmount, v.Reason, status, id)
 		if err != nil {
 			return 0, err
 		}
@@ -343,6 +389,13 @@ func (s *Store) DeleteAttendance(ctx context.Context, id, actor uint64) error {
 			return ErrNotFound
 		}
 		return err
+	}
+	var paidCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM payroll_adjustments a JOIN payroll_items i ON i.id=a.payroll_item_id WHERE a.attendance_record_id=? AND i.status='paid'`, id).Scan(&paidCount); err != nil {
+		return err
+	}
+	if paidCount > 0 {
+		return MiniInputError{"该记录已经计入已发工资，不能删除"}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE attendance_records SET active=0,deleted_at=NOW(),deleted_by=?,status='cancelled' WHERE id=? AND active=1`, actor, id); err != nil {
 		return err

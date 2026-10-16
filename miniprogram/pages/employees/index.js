@@ -1,9 +1,10 @@
 const listPage = require('../../utils/list')
 const api = require('../../utils/api')
 Page({
-  ...listPage({ endpoint: '/employees', tab: 'employees', module: 'employees', initial: { status: '', summary: null }, params: d => ({ status: d.status, q: d.q }), decorate: v => ({ ...v, initial: v.name.slice(0, 1) }) }),
+  ...listPage({ endpoint: '/employees', tab: 'employees', module: 'employees', initial: { status: '', employmentType: '', summary: null }, params: d => ({ status: d.status, employment_type: d.employmentType, q: d.q }), decorate: v => ({ ...v, initial: v.name.slice(0, 1) }) }),
   filter(e) { this.setData({ status: e.currentTarget.dataset.value }); this.load(true) },
-  add() { wx.navigateTo({ url: '/pages/employee-edit/index' }) },
+  filterType(e) { this.setData({ employmentType: e.currentTarget.dataset.value }); this.load(true) },
+  add(e) { wx.navigateTo({ url: '/pages/employee-edit/index' + (String(e.currentTarget.dataset.temporary) === '1' ? '?temporary=1' : '') }) },
   detail(e) { wx.navigateTo({ url: '/pages/employee-detail/index?id=' + e.currentTarget.dataset.id }) },
   edit(e) { wx.navigateTo({ url: '/pages/employee-edit/index?id=' + e.currentTarget.dataset.id }) },
   remove(e) {

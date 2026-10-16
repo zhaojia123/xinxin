@@ -2,6 +2,7 @@ package request
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -69,10 +70,13 @@ func (v *PositionInput) Validate() error {
 }
 
 type AttendanceInput struct {
-	EmployeeID      uint64 `json:"employee_id"`
-	Category        string `json:"category"`
-	RecordType      string `json:"record_type"`
-	OccurredOn      string `json:"occurred_on"`
+	EmployeeID uint64 `json:"employee_id"`
+	Category   string `json:"category"`
+	RecordType string `json:"record_type"`
+	OccurredOn string `json:"occurred_on"`
+	StartAt    string `json:"start_at"`
+	EndAt      string `json:"end_at"`
+	// 兼容旧版客户端的时间字段，新的后台使用 start_at/end_at。
 	StartTime       string `json:"start_time"`
 	EndTime         string `json:"end_time"`
 	DurationMinutes int    `json:"duration_minutes"`
@@ -89,9 +93,52 @@ func validClock(v string) bool {
 	_, err := time.Parse("15:04", v)
 	return err == nil
 }
+func validDateTime(v string) bool {
+	if v == "" {
+		return true
+	}
+	for _, layout := range []string{"2006-01-02T15:04", "2006-01-02T15:04:05", "2006-01-02 15:04:05"} {
+		if _, err := time.Parse(layout, v); err == nil {
+			return true
+		}
+	}
+	return false
+}
+func parseDateTime(v string) (time.Time, bool) {
+	for _, layout := range []string{"2006-01-02T15:04", "2006-01-02T15:04:05", "2006-01-02 15:04:05"} {
+		if parsed, err := time.Parse(layout, v); err == nil {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
+}
 func (v *AttendanceInput) Validate() error {
 	v.RecordType, v.Reason = strings.TrimSpace(v.RecordType), strings.TrimSpace(v.Reason)
 	v.SalaryEffect = strings.TrimSpace(v.SalaryEffect)
+	if v.Category == "public_rest" {
+		v.Category = "leave"
+		if v.RecordType == "" {
+			v.RecordType = "公休"
+		}
+	}
+	if v.Category == "holiday" {
+		v.Category = "leave"
+		v.RecordType = "节假日"
+		v.SalaryEffect = "none"
+		v.SubsidyAmount = "0"
+	}
+	// 正常公休不扣工资；其余请假记录默认按扣款处理。
+	if v.RecordType == "公休" || v.RecordType == "节假日" {
+		if v.Category != "leave" {
+			return fmt.Errorf("公休或节假日必须选择请假记录类别")
+		}
+		v.SalaryEffect = "none"
+		v.SubsidyAmount = "0"
+	}
+	// 特殊请假属于请假记录；兼容前端误选“历史异常”的旧请求。
+	if v.RecordType == "特殊请假" && v.Category == "exception" {
+		v.Category = "leave"
+	}
 	if v.SalaryEffect == "" {
 		if v.Category == "leave" {
 			v.SalaryEffect = "deduct"
@@ -108,12 +155,25 @@ func (v *AttendanceInput) Validate() error {
 	if v.RecordType == "" || !textLength(v.RecordType, 32) {
 		return fmt.Errorf("记录类型必填且不能超过32字")
 	}
-	if !validDate(v.OccurredOn, false) || !validClock(v.StartTime) || !validClock(v.EndTime) {
+	if v.RecordType == "特殊请假" && v.Category != "leave" {
+		return fmt.Errorf("特殊请假必须选择请假记录类别")
+	}
+	if !validDate(v.OccurredOn, false) || !validClock(v.StartTime) || !validClock(v.EndTime) || !validDateTime(v.StartAt) || !validDateTime(v.EndAt) {
 		return fmt.Errorf("日期或时间格式不正确")
+	}
+	if v.StartAt != "" && v.EndAt != "" {
+		start, _ := parseDateTime(v.StartAt)
+		end, _ := parseDateTime(v.EndAt)
+		if end.Before(start) {
+			return fmt.Errorf("结束时间不能早于开始时间")
+		}
 	}
 	if v.Category == "leave" {
 		if err := ValidateMoney(v.DurationDays, true, 4); err != nil {
 			return fmt.Errorf("请假天数必须大于0，最多2位小数")
+		}
+		if days, _ := strconv.ParseFloat(v.DurationDays, 64); math.Abs(days*2-math.Round(days*2)) > 1e-9 {
+			return fmt.Errorf("请假或公休天数最小单位为0.5天")
 		}
 	}
 	if v.SalaryEffect != "none" && v.SalaryEffect != "deduct" && v.SalaryEffect != "subsidy" && v.SalaryEffect != "deduct_and_subsidy" {
@@ -126,6 +186,12 @@ func (v *AttendanceInput) Validate() error {
 		if err := ValidateMoney(v.DurationDays, true, 4); err != nil {
 			return fmt.Errorf("异常天数必须大于0，最多2位小数")
 		}
+		if days, _ := strconv.ParseFloat(v.DurationDays, 64); math.Abs(days*2-math.Round(days*2)) > 1e-9 {
+			return fmt.Errorf("历史异常天数最小单位为0.5天")
+		}
+	}
+	if v.SalaryEffect == "deduct" && strings.TrimSpace(v.SubsidyAmount) != "" && strings.TrimSpace(v.SubsidyAmount) != "0" && strings.TrimSpace(v.SubsidyAmount) != "0.00" {
+		v.SalaryEffect = "deduct_and_subsidy"
 	}
 	if v.SalaryEffect == "subsidy" || v.SalaryEffect == "deduct_and_subsidy" {
 		if v.SubsidyAmount == "" {

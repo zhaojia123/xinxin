@@ -18,10 +18,22 @@ func (s *Store) Ledger(ctx context.Context, month string) ([]response.LedgerReco
 
 // LedgerRange 查询指定日期区间内的启用台账，结束日期按自然日包含。
 func (s *Store) LedgerRange(ctx context.Context, start, end string) ([]response.LedgerRecord, error) {
+	return s.LedgerRangeFiltered(ctx, start, end, 0)
+}
+
+// LedgerRangeFiltered 查询日期区间内的启用台账，可按收支分类筛选。
+func (s *Store) LedgerRangeFiltered(ctx context.Context, start, end string, categoryID uint64) ([]response.LedgerRecord, error) {
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT l.id,DATE_FORMAT(l.occurred_on,'%Y-%m-%d'),COALESCE(d.name,''),l.summary,l.counterparty,DATE_FORMAT(l.occurred_on,'%c月'),a.name,COALESCE(c.name,''),l.direction,l.amount,a.opening_balance+COALESCE((SELECT SUM(IF(x.direction='income',x.amount,-x.amount)) FROM ledger_entries x WHERE x.account_id=l.account_id AND x.active=1 AND (x.occurred_on<l.occurred_on OR (x.occurred_on=l.occurred_on AND x.id<=l.id))),0),l.voucher_no,COALESCE(pb.id,COALESCE((SELECT pi.payroll_batch_id FROM payroll_items pi WHERE pi.ledger_entry_id=l.id LIMIT 1),0)) FROM ledger_entries l JOIN ledger_accounts a ON a.id=l.account_id LEFT JOIN departments d ON d.id=l.department_id LEFT JOIN ledger_categories c ON c.id=l.category_id LEFT JOIN payroll_batches pb ON pb.ledger_entry_id=l.id WHERE l.active=1 AND l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) ORDER BY l.occurred_on,l.id`, start, end)
+	query := `SELECT l.id,DATE_FORMAT(l.occurred_on,'%Y-%m-%d'),COALESCE(d.name,''),l.summary,l.counterparty,DATE_FORMAT(l.occurred_on,'%c月'),a.name,COALESCE(c.name,''),l.direction,l.amount,a.opening_balance+COALESCE((SELECT SUM(IF(x.direction='income',x.amount,-x.amount)) FROM ledger_entries x WHERE x.account_id=l.account_id AND x.active=1 AND (x.occurred_on<l.occurred_on OR (x.occurred_on=l.occurred_on AND x.id<=l.id))),0),l.voucher_no,COALESCE(pb.id,COALESCE((SELECT pi.payroll_batch_id FROM payroll_items pi WHERE pi.ledger_entry_id=l.id LIMIT 1),0)) FROM ledger_entries l JOIN ledger_accounts a ON a.id=l.account_id LEFT JOIN departments d ON d.id=l.department_id LEFT JOIN ledger_categories c ON c.id=l.category_id LEFT JOIN payroll_batches pb ON pb.ledger_entry_id=l.id WHERE l.active=1 AND l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY)`
+	args := []any{start, end}
+	if categoryID != 0 {
+		query += ` AND l.category_id=?`
+		args = append(args, categoryID)
+	}
+	query += ` ORDER BY l.occurred_on,l.id`
+	rows, err := s.DB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, apperror.Wrap(err, "查询台账流水失败")
 	}
@@ -57,13 +69,24 @@ func (s *Store) LedgerSummary(ctx context.Context, month string) (response.Ledge
 
 // LedgerSummaryRange 统计日期区间，同时保留所选起始年份的年度指标。
 func (s *Store) LedgerSummaryRange(ctx context.Context, start, end string) (response.LedgerSummary, error) {
+	return s.LedgerSummaryRangeFiltered(ctx, start, end, 0)
+}
+
+// LedgerSummaryRangeFiltered 统计日期区间和年度指标，可按收支分类筛选。
+func (s *Store) LedgerSummaryRangeFiltered(ctx context.Context, start, end string, categoryID uint64) (response.LedgerSummary, error) {
 	if err := s.ready(); err != nil {
 		return response.LedgerSummary{}, err
 	}
 	year := start[:4]
 	var v response.LedgerSummary
 	var mi, me, balance, yi, ye, maxi, maxe float64
-	err := s.DB.QueryRowContext(ctx, `SELECT COALESCE(SUM(CASE WHEN l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='income' THEN l.amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='expense' THEN l.amount ELSE 0 END),0),COALESCE((SELECT SUM(opening_balance) FROM ledger_accounts),0)+COALESCE(SUM(CASE WHEN l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) THEN IF(l.direction='income',l.amount,-l.amount) ELSE 0 END),0),COALESCE(SUM(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='income' THEN l.amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='expense' THEN l.amount ELSE 0 END),0),COALESCE(MAX(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='income' THEN l.amount END),0),COALESCE(MAX(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='expense' THEN l.amount END),0),COALESCE(SUM(YEAR(l.occurred_on)=?),0) FROM ledger_entries l WHERE l.active=1`, start, end, start, end, end, year, year, year, year, year).Scan(&mi, &me, &balance, &yi, &ye, &maxi, &maxe, &v.EntryCount)
+	query := `SELECT COALESCE(SUM(CASE WHEN l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='income' THEN l.amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='expense' THEN l.amount ELSE 0 END),0),COALESCE((SELECT SUM(opening_balance) FROM ledger_accounts),0)+COALESCE(SUM(CASE WHEN l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) THEN IF(l.direction='income',l.amount,-l.amount) ELSE 0 END),0),COALESCE(SUM(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='income' THEN l.amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='expense' THEN l.amount ELSE 0 END),0),COALESCE(MAX(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='income' THEN l.amount END),0),COALESCE(MAX(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='expense' THEN l.amount END),0),COALESCE(SUM(YEAR(l.occurred_on)=?),0) FROM ledger_entries l WHERE l.active=1`
+	args := []any{start, end, start, end, end, year, year, year, year, year}
+	if categoryID != 0 {
+		query += ` AND l.category_id=?`
+		args = append(args, categoryID)
+	}
+	err := s.DB.QueryRowContext(ctx, query, args...).Scan(&mi, &me, &balance, &yi, &ye, &maxi, &maxe, &v.EntryCount)
 	if err != nil {
 		return response.LedgerSummary{}, apperror.Wrap(err, "统计台账数据失败")
 	}
@@ -75,10 +98,22 @@ func (s *Store) LedgerSummaryRange(ctx context.Context, start, end string) (resp
 }
 
 func (s *Store) LedgerTrend(ctx context.Context, year int) ([]response.TrendMonth, error) {
+	return s.LedgerTrendFiltered(ctx, year, 0)
+}
+
+// LedgerTrendFiltered 查询年度趋势，可按收支分类筛选。
+func (s *Store) LedgerTrendFiltered(ctx context.Context, year int, categoryID uint64) ([]response.TrendMonth, error) {
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT MONTH(occurred_on),COALESCE(SUM(IF(direction='income',amount,0)),0),COALESCE(SUM(IF(direction='expense',amount,0)),0) FROM ledger_entries WHERE YEAR(occurred_on)=? AND active=1 GROUP BY MONTH(occurred_on)`, year)
+	query := `SELECT MONTH(occurred_on),COALESCE(SUM(IF(direction='income',amount,0)),0),COALESCE(SUM(IF(direction='expense',amount,0)),0) FROM ledger_entries WHERE YEAR(occurred_on)=? AND active=1`
+	args := []any{year}
+	if categoryID != 0 {
+		query += ` AND category_id=?`
+		args = append(args, categoryID)
+	}
+	query += ` GROUP BY MONTH(occurred_on)`
+	rows, err := s.DB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, apperror.Wrap(err, "查询年度收支趋势失败")
 	}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"friends-records/api/request"
+	"friends-records/api/response"
 	"friends-records/internal/httpx"
 	"friends-records/internal/models/mysql"
 	"friends-records/internal/token"
@@ -265,7 +266,12 @@ func (h *Handler) MiniEmployeesAPI(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, 400, "员工状态不正确")
 			return
 		}
-		records, more, err := h.Store.MiniEmployeeList(r.Context(), r.URL.Query().Get("q"), status, offset)
+		employmentType := strings.TrimSpace(r.URL.Query().Get("employment_type"))
+		if employmentType != "" && employmentType != "full_time" && employmentType != "part_time" {
+			httpx.Error(w, 400, "员工类型不正确")
+			return
+		}
+		records, more, err := h.Store.MiniEmployeeList(r.Context(), r.URL.Query().Get("q"), status, employmentType, offset)
 		if err != nil {
 			miniFail(w, err)
 			return
@@ -289,6 +295,17 @@ func (h *Handler) MiniEmployeesAPI(w http.ResponseWriter, r *http.Request) {
 		var input request.EmployeeInput
 		if !decodeJSON(w, r, &input) {
 			return
+		}
+		// 小程序新增员工由服务端统一编号，避免用户手填编号造成重复或遗漏。
+		if r.Method == http.MethodPost && strings.TrimSpace(input.EmployeeNo) == "" {
+			prefix := "EMP"
+			if input.EmploymentType == "part_time" {
+				prefix = "TMP"
+			}
+			input.EmployeeNo = generatedEmployeeNo(prefix)
+		}
+		if input.JoinedOn == "" {
+			input.JoinedOn = time.Now().Format("2006-01-02")
 		}
 		if err := input.Validate(); err != nil {
 			httpx.Error(w, 400, err.Error())
@@ -314,6 +331,90 @@ func (h *Handler) MiniEmployeesAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		httpx.JSON(w, 200, map[string]any{"id": id})
+	default:
+		httpx.MethodNotAllowed(w, "GET", "POST", "PUT", "DELETE")
+	}
+}
+
+// MiniAttendanceAPI 为小程序提供与后台一致的请假、公休和法定节假日记录管理。
+// 列表按月份筛选，写入后的记录由服务端直接按已通过处理，适合当前单人使用场景。
+func (h *Handler) MiniAttendanceAPI(w http.ResponseWriter, r *http.Request) {
+	id, ok := miniID(w, r)
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		if id != 0 {
+			v, err := h.Store.AttendanceRecordInput(r.Context(), id)
+			if err != nil {
+				miniFail(w, err)
+				return
+			}
+			httpx.JSON(w, http.StatusOK, v)
+			return
+		}
+		month := strings.TrimSpace(r.URL.Query().Get("month"))
+		if month != "" {
+			if _, err := time.Parse("2006-01", month); err != nil {
+				httpx.Error(w, http.StatusBadRequest, "月份格式应为YYYY-MM")
+				return
+			}
+		}
+		q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+		kind := strings.TrimSpace(r.URL.Query().Get("type"))
+		items, err := h.Store.AttendanceRecords(r.Context())
+		if err != nil {
+			miniFail(w, err)
+			return
+		}
+		filtered := make([]response.AttendanceRecord, 0, len(items))
+		for _, item := range items {
+			if month != "" && !strings.HasPrefix(item.Date, month+"-") {
+				continue
+			}
+			if kind != "" && item.Category != kind && item.Type != kind {
+				continue
+			}
+			if q != "" {
+				text := strings.ToLower(item.Name + " " + item.EmployeeNo + " " + item.Type + " " + item.Category + " " + item.Reason)
+				if !strings.Contains(text, q) {
+					continue
+				}
+			}
+			item.Seq = len(filtered) + 1
+			filtered = append(filtered, item)
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"records": filtered, "has_more": false})
+	case http.MethodPost, http.MethodPut:
+		if r.Method == http.MethodPost && id != 0 {
+			httpx.Error(w, http.StatusBadRequest, "新增记录不能携带ID")
+			return
+		}
+		var input request.AttendanceInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if err := input.Validate(); err != nil {
+			httpx.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		saved, err := h.Store.SaveAttendance(r.Context(), id, input)
+		if err != nil {
+			miniFail(w, err)
+			return
+		}
+		httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": saved})
+	case http.MethodDelete:
+		if id == 0 {
+			httpx.Error(w, http.StatusBadRequest, "删除记录必须提供ID")
+			return
+		}
+		if err := h.Store.DeleteAttendance(r.Context(), id, miniActor(r)); err != nil {
+			miniFail(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"id": id})
 	default:
 		httpx.MethodNotAllowed(w, "GET", "POST", "PUT", "DELETE")
 	}

@@ -1,15 +1,17 @@
 <view class="login-page">
-  <view class="brand-mark">欣</view>
-  <view class="eyebrow">每一天，都值得好好记录</view>
-  <view class="login-title">欣欣的<text class="blue">日常记录</text></view>
-  <view class="intro"><view>一笔收入，一笔支出。</view><view>把日常理清，让心里有数。</view></view>
-  <view class="preview">
-    <view class="preview-top"><text>我的日常账本</text><text class="preview-tag">清晰 · 有序</text></view>
-    <view class="preview-line"><view class="mini-mark green">收</view><view class="preview-copy"><text>记录每一笔收支</text><text class="muted">分类、账户、备注，一目了然</text></view></view>
-    <view class="preview-line"><view class="mini-mark">人</view><view class="preview-copy"><text>照顾每一位伙伴</text><text class="muted">员工档案，随时查看与更新</text></view></view>
+  <view class="login-atmosphere atmosphere-one"></view><view class="login-atmosphere atmosphere-two"></view>
+  <view class="login-content">
+    <view class="login-header"><view class="brand-mark">欣</view><view><view class="product-name">欣欣的日常记录</view><view class="product-subtitle">人员管理工作台</view></view></view>
+    <view class="eyebrow">员工档案 · 请假管理</view>
+    <view class="login-title">把每位伙伴的<text class="blue">工作记录</text>理清楚</view>
+    <view class="intro"><view>员工信息、请假和公休，集中维护。</view><view>简单记录，随时查看。</view></view>
+    <view class="preview">
+      <view class="preview-top"><view><text>常用功能</text><text class="preview-caption">登录后即可使用</text></view><view class="preview-badge">2 个模块</view></view>
+      <view class="feature-grid"><view class="feature-item"><view class="mini-mark">人</view><view class="preview-copy"><text>员工档案</text><text class="muted">正式工与临时工分类管理</text></view></view><view class="feature-item"><view class="mini-mark green">假</view><view class="preview-copy"><text>请假管理</text><text class="muted">公休、请假与特殊补贴</text></view></view></view>
+    </view>
+    <button class="primary login-button" bindtap="login" loading="{{loading}}" disabled="{{loading}}">{{loading ? '正在登录…' : '微信授权登录'}}</button>
+    <view class="login-note">仅用于识别登录身份，不读取微信聊天记录</view>
   </view>
-  <button class="primary login-button" bindtap="login" loading="{{loading}}" disabled="{{loading}}">{{loading ? '正在登录…' : '微信登录，开始记录'}}</button>
-  <view class="login-note">仅用于识别登录身份，不读取微信聊天记录</view>
   <view class="filing-info">备案号：{{filingNumber}}</view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
   <button wx:if="{{dev}}" class="link settings-link" bindtap="toggleSettings">开发连接设置</button>

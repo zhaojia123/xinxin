@@ -21,7 +21,6 @@ type AppConfig struct {
 	Addr            string `toml:"addr"`
 	TokenSecret     string `toml:"token_secret"`
 	FilingNumber    string `toml:"filing_number"`
-	FilingLanding   bool   `toml:"filing_landing"`
 	MonthlyRestDays int    `toml:"monthly_rest_days"`
 }
 type MySQLConfig struct {

@@ -1,9 +1,108 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>月度工资 · 好友记录</title><link rel="stylesheet" href="/assets/app.css"><script defer src="/assets/app.js"></script></head><body><div class="admin-shell">{{template "sidebar" .}}<main class="admin-main">
-<header class="admin-topbar"><div><p class="breadcrumb">薪资管理 / 月度工资</p><h1>月度工资</h1><p class="page-description">按月生成工资快照，发放后锁定并自动关联台账支出</p></div><div class="header-actions"><button class="ghost-button" data-demo-action="导出工资表">导出工资表</button><div class="payroll-employee-picker" data-payroll-picker><button type="button" class="employee-picker-toggle" data-payroll-picker-toggle>选择员工（可选）</button><div class="employee-picker-panel" data-payroll-picker-panel hidden><input type="search" class="employee-picker-search" data-payroll-employee-search placeholder="搜索员工姓名"><div class="employee-picker-options">{{range .Employees}}<label class="employee-picker-option"><input type="checkbox" value="{{.ID}}" data-payroll-employee><span>{{.Name}}</span></label>{{end}}</div></div></div><button class="ghost-button" data-generate-payroll-employee data-month="{{.Summary.Month}}">生成所选</button><button class="primary-button compact" id="generate-payroll" data-month="{{.Summary.Month}}">生成本月工资</button></div></header>
-<section class="stat-grid four-cols"><article class="stat-card"><span>{{.Summary.Month}} 应发工资</span><strong>{{.Summary.GrossAmount}}</strong><small>基本工资 + 奖金</small></article><article class="stat-card"><span>扣款与税费</span><strong>{{.Summary.DeductionAmount}}</strong><small>考勤、其他、社保、个税</small></article><article class="stat-card"><span>实发合计</span><strong>{{.Summary.NetAmount}}</strong><small>共 {{.Summary.EmployeeCount}} 名员工</small></article><article class="stat-card"><span>发放进度</span><strong>{{.Summary.PaidCount}} / {{.Summary.EmployeeCount}}</strong><small>发放后不可修改</small></article></section>
-<section class="notice-card"><span>算</span><div><strong>实发工资由服务端统一计算，也支持特殊情况手动覆盖</strong><p>每名员工按“本月自然日 − 该员工公休天数”计算应出勤天数；员工档案未单独填写时，默认公休 {{.RestDays}} 天。月薪 ÷ 应出勤天数 × 实际出勤天数，达到应出勤天数则发满月工资。特殊休息不计当天正常工资，另按每天补助50元。若有特殊结算，可填写“手动实发（选填）”，保存后以该金额为准；留空则恢复算法。</p></div></section>
-<section class="table-card"><div class="table-toolbar"><form method="get"><input type="month" name="month" value="{{.Summary.Month}}" onchange="this.form.submit()"></form><select><option>全部发放状态</option><option>已发放</option><option>待确认</option></select>{{if eq .Summary.BatchStatus "draft"}}<button class="ghost-button" data-confirm-payroll data-batch-id="{{.Summary.BatchID}}">批量确认工资</button>{{else if eq .Summary.BatchStatus "confirmed"}}<button class="primary-button compact" data-pay-payroll data-batch-id="{{.Summary.BatchID}}">发放未发员工</button>{{end}}</div><div class="table-header"><div><h2>{{.Summary.Month}} 工资明细</h2><p>基本工资为本月折算工资；入职工资为员工入职时的工资快照。</p></div><span class="count-badge">{{len .Payroll}} 人</span></div><div class="table-wrap"><table class="payroll-edit-table"><thead><tr><th>员工</th><th>入职时工资</th><th>本月基本工资</th><th>奖金补贴</th><th>考勤扣款</th><th>其他扣款</th><th>社保</th><th>个税</th><th>手动实发（选填）</th><th>实发工资</th><th>状态</th><th>操作</th></tr></thead><tbody>
-{{range .Payroll}}<tr data-payroll-row data-id="{{.ID}}"><td><strong>{{.Name}}</strong><small class="cell-subtitle">{{.EmployeeNo}}</small></td><td><strong class="salary">{{.EntrySalary}}</strong></td><td><input class="money-input" data-field="base_salary" type="number" min="0" step="0.01" value="{{.BaseSalaryValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td><td><input class="money-input positive-input" data-field="bonus" type="number" min="0" step="0.01" value="{{.BonusValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td><td><input class="money-input negative-input" data-field="attendance_deduction" type="number" min="0" step="0.01" value="{{.AttendanceDeductionValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td><td><input class="money-input negative-input" data-field="other_deduction" type="number" min="0" step="0.01" value="{{.OtherDeductionValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td><td><input class="money-input" data-field="social_security" type="number" min="0" step="0.01" value="{{.SocialSecurityValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td><td><input class="money-input" data-field="tax" type="number" min="0" step="0.01" value="{{.TaxValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td><td><input class="money-input net-input" data-field="manual_net_salary" type="number" min="0" step="0.01" value="{{.ManualNetSalaryValue}}" placeholder="算法：{{.NetSalary}}" {{if eq .Status "已发放"}}disabled{{end}}><small class="cell-subtitle">留空按算法</small></td><td><strong class="salary" data-net-salary>{{.NetSalary}}</strong></td><td><span class="status {{.StatusClass}}">{{.Status}}</span></td><td><div class="row-actions">{{if ne .Status "已发放"}}<button data-save-payroll>保存</button>{{if eq .Status "待确认"}}<button data-confirm-payroll-item data-item-id="{{.ID}}" data-employee-name="{{.Name}}">单独确认</button>{{else if eq .Status "已确认"}}<button class="payroll-item-pay" data-pay-payroll-item data-item-id="{{.ID}}" data-employee-name="{{.Name}}">单独发放</button>{{end}}{{else}}<span>已发放</span>{{end}}</div></td></tr>
-{{else}}<tr><td colspan="12" class="empty-cell">该月份尚未生成工资，点击右上角“生成本月工资”即可按在职员工创建空白工资明细</td></tr>{{end}}
-</tbody></table></div></section>
-</main></div><div class="demo-toast" role="status"></div></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{.PageTitle}} · 好友记录</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script defer src="/assets/app.js"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    {{template "sidebar" .}}
+    <main class="admin-main">
+      <header class="admin-topbar">
+        <div>
+          <p class="breadcrumb">薪资管理 / {{.PageTitle}}</p>
+          <h1>{{.PageTitle}}</h1>
+          <p class="page-description">{{.PageDescription}}</p>
+        </div>
+        <div class="header-actions">
+          {{if eq .PayrollType "part_time"}}<a class="ghost-button link-button" href="/admin/work-logs?month={{.Summary.Month}}">登记每日工时</a>{{end}}
+          <button class="ghost-button" data-demo-action="导出工资表">导出工资表</button>
+          <div class="payroll-employee-picker" data-payroll-picker>
+            <button type="button" class="employee-picker-toggle" data-payroll-picker-toggle>选择员工（可选）</button>
+            <div class="employee-picker-panel" data-payroll-picker-panel hidden>
+              <input type="search" class="employee-picker-search" data-payroll-employee-search placeholder="搜索员工姓名">
+              <div class="employee-picker-options">{{range .Employees}}<label class="employee-picker-option"><input type="checkbox" value="{{.ID}}" data-payroll-employee><span>{{.Name}}</span></label>{{end}}</div>
+            </div>
+          </div>
+          <button class="ghost-button" data-generate-payroll-employee data-month="{{.Summary.Month}}">生成所选</button>
+          <button class="primary-button compact" id="generate-payroll" data-month="{{.Summary.Month}}">生成本月工资</button>
+        </div>
+      </header>
+
+      <nav class="payroll-type-tabs" aria-label="工资类型">
+        <a class="{{if eq .PayrollType "full_time"}}active{{end}}" href="/admin/payroll?type=full_time&amp;month={{.Summary.Month}}">正式工工资</a>
+        <a class="{{if eq .PayrollType "part_time"}}active{{end}}" href="/admin/payroll?type=part_time&amp;month={{.Summary.Month}}">临时工工资</a>
+      </nav>
+
+      <section class="stat-grid four-cols">
+        <article class="stat-card"><span>{{.Summary.Month}} 应发工资</span><strong>{{.Summary.GrossAmount}}</strong><small>本月基本工资，不含特殊补贴</small></article>
+        <article class="stat-card"><span>扣款与税费</span><strong>{{.Summary.DeductionAmount}}</strong><small>考勤、其他、社保、个税</small></article>
+        <article class="stat-card"><span>实发合计</span><strong>{{.Summary.NetAmount}}</strong><small>含特殊补贴，共 {{.Summary.EmployeeCount}} 名员工</small></article>
+        <article class="stat-card"><span>发放进度</span><strong>{{.Summary.PaidCount}} / {{.Summary.EmployeeCount}}</strong><small>发放后不可修改</small></article>
+      </section>
+
+      <section class="notice-card">
+        <span>算</span>
+        <div>
+          {{if eq .PayrollType "part_time"}}
+          <strong>临时工工资按每日登记的实际工时自动汇总</strong>
+          <p>请先通过“登记每日工时”填写实际上班小时数：全天填 8 小时、半天填 4 小时。按小时计薪为时薪 × 工时；按天计薪按工时折算；按半天计薪按 4 小时折算。</p>
+          {{else}}
+          <strong>正式工工资由服务端统一计算，也支持特殊情况手动覆盖</strong>
+          <p>每名员工统一按 30 天计薪；员工档案未单独填写时，默认公休 {{.RestDays}} 天，即月薪 ÷ {{.WorkDays}} × 实际出勤天数，达到 {{.WorkDays}} 个计薪日则发满月工资。员工单独设置公休时，计薪日按 30 减去个人公休计算。特殊请假不计当天正常工资，补助金额按请假记录中填写的数值计算。若有特殊结算，可填写“手动实发（选填）”，保存后以该金额为准；留空则恢复算法。</p>
+          {{end}}
+        </div>
+      </section>
+
+      <section class="table-card">
+        <div class="table-toolbar">
+          <form method="get"><input type="hidden" name="type" value="{{.PayrollType}}"><input type="month" name="month" value="{{.Summary.Month}}" onchange="this.form.submit()"></form>
+          <select><option>全部发放状态</option><option>已发放</option><option>待确认</option></select>
+          <button class="ghost-button danger-action" data-payroll-delete-selected disabled>删除所选</button>
+          {{if eq .Summary.BatchStatus "draft"}}<button class="ghost-button" data-confirm-payroll data-batch-id="{{.Summary.BatchID}}">批量确认工资</button>{{else if eq .Summary.BatchStatus "confirmed"}}<button class="ghost-button" data-pay-selected data-batch-id="{{.Summary.BatchID}}" disabled>发放所选工资</button><button class="primary-button compact" data-pay-payroll data-batch-id="{{.Summary.BatchID}}">发放未发员工</button>{{end}}
+        </div>
+        <div class="table-header">
+          <div><h2>{{.Summary.Month}} {{.PageTitle}}明细</h2><p>{{if eq .PayrollType "part_time"}}工资根据本月已登记的每日工时汇总；工时与基本工资由系统计算，需补录请前往“登记每日工时”。{{else}}基本工资为本月折算工资；勾选员工后可批量发放，已发放员工不会重复入账。{{end}}</p></div>
+          <span class="count-badge">{{len .Payroll}} 人</span>
+        </div>
+        <div class="table-wrap">
+          <table class="payroll-edit-table">
+            <thead><tr>
+              <th class="payroll-select-column"><input type="checkbox" data-payroll-select-all aria-label="全选可发放员工"></th>
+              <th>员工</th><th>入职时工资</th>
+              {{if eq .PayrollType "part_time"}}<th>本月工时</th>{{end}}
+              <th>本月基本工资</th><th>奖金补贴</th><th>考勤扣款</th><th>其他扣款</th><th>社保</th><th>个税</th><th>手动实发（选填）</th><th>实发工资</th><th>状态</th><th>操作</th>
+            </tr></thead>
+            <tbody>
+              {{range .Payroll}}
+              <tr data-payroll-row data-id="{{.ID}}">
+                <td class="payroll-select-column"><input type="checkbox" data-payroll-select data-item-id="{{.ID}}" data-employee-name="{{.Name}}" aria-label="选择{{.Name}}" {{if eq .Status "已发放"}}disabled{{end}}></td>
+                <td><strong>{{.Name}}</strong><small class="cell-subtitle">{{if eq .EmploymentType "part_time"}}临时工{{else}}正式工{{end}}</small></td>
+                <td><strong class="salary">{{.EntrySalary}}</strong></td>
+                {{if eq $.PayrollType "part_time"}}<td><input class="money-input calculated-input" data-field="work_hours" type="number" min="0" step="0.01" value="{{.WorkHoursValue}}" placeholder="小时" readonly></td>{{end}}
+                <td><input class="money-input {{if eq $.PayrollType "part_time"}}calculated-input{{end}}" data-field="base_salary" type="number" min="0" step="0.01" value="{{.BaseSalaryValue}}" {{if eq $.PayrollType "part_time"}}readonly{{else if eq .Status "已发放"}}disabled{{end}}></td>
+                <td><input class="money-input positive-input" data-field="bonus" type="number" min="0" step="0.01" value="{{.BonusValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td>
+                <td><input class="money-input negative-input" data-field="attendance_deduction" type="number" min="0" step="0.01" value="{{.AttendanceDeductionValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td>
+                <td><input class="money-input negative-input" data-field="other_deduction" type="number" min="0" step="0.01" value="{{.OtherDeductionValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td>
+                <td><input class="money-input" data-field="social_security" type="number" min="0" step="0.01" value="{{.SocialSecurityValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td>
+                <td><input class="money-input" data-field="tax" type="number" min="0" step="0.01" value="{{.TaxValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td>
+                <td><input class="money-input net-input" data-field="manual_net_salary" type="number" min="0" step="0.01" value="{{.ManualNetSalaryValue}}" placeholder="算法：{{.NetSalary}}" {{if eq .Status "已发放"}}disabled{{end}}><small class="cell-subtitle">留空按算法</small></td>
+                <td><strong class="salary" data-net-salary>{{.NetSalary}}</strong></td>
+                <td><span class="status {{.StatusClass}}">{{.Status}}</span></td>
+                <td><div class="row-actions">{{if ne .Status "已发放"}}<button data-save-payroll>保存</button>{{if eq .Status "待确认"}}<button data-confirm-payroll-item data-item-id="{{.ID}}" data-employee-name="{{.Name}}">单独确认</button>{{else if eq .Status "已确认"}}<button class="payroll-item-pay" data-pay-payroll-item data-item-id="{{.ID}}" data-employee-name="{{.Name}}">单独发放</button>{{end}}<button class="danger-action" data-delete-payroll data-item-id="{{.ID}}" data-employee-name="{{.Name}}">删除</button>{{else}}<span>已发放</span>{{end}}</div></td>
+              </tr>
+              {{else}}
+              <tr><td colspan="14" class="empty-cell">该月份尚未生成{{.PageTitle}}，点击右上角“生成本月工资”即可创建工资明细</td></tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="demo-toast" role="status"></div>
+</body>
+</html>

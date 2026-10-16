@@ -60,8 +60,7 @@ friends-records/
 3. 如需导入员工资料，执行 `sql/import/employee_import_202609.sql`。该文件只导入主表人员，当前全部按月薪处理；空工资和空日期会保留为空，不会导入“钟点工”工作表。
    生成 2026-09 工资后，如需录入表格里的两笔已结算金额，再执行 `sql/import/payroll_settlements_202609.sql`。
 4. 修改根目录 `config.toml` 中的 `mysql.dsn`。
-   月薪按当月自然日减公休天数计算应出勤天数，公休天数默认由 `app.monthly_rest_days` 配置；员工档案可单独填写公休天数覆盖默认值（单休可填4/5，双休可填8/9），修改配置后重启服务即可生效。
-   公安备案审核期间可将 `app.filing_landing` 设为 `true`，根地址会展示公开说明页，后台登录仍使用 `/admin/login`；审核通过后改回 `false`。
+   月薪统一按30天计薪，默认公休3天即按27个计薪日计算；公休天数默认由 `app.monthly_rest_days` 配置，员工档案可单独填写公休天数覆盖默认值（单休可填4/5，双休可填8/9），修改配置后重启服务即可生效。
 5. 启动：
 
 ```bash
@@ -70,6 +69,28 @@ make run
 ```
 
 当前配置监听 `:8999`，后台地址：<http://127.0.0.1:8999/admin/login>。
+
+### 线上部署与 502 排查
+
+本项目的 HTML 和 CSS 会嵌入 Go 二进制文件。服务器拉取最新代码后，不能只重启旧进程，必须先重新编译，再启动新二进制：
+
+```bash
+cd /root/xinxin
+git pull
+GOCACHE=/tmp/friends-records-go-cache make build
+pkill -f '/root/xinxin/bin/friends-records' || true
+nohup ./bin/friends-records > /tmp/friends-records.log 2>&1 &
+```
+
+随后先在服务器本机检查 Go 服务，不要直接从浏览器判断：
+
+```bash
+ss -lntp | grep 8999
+curl -i http://127.0.0.1:8999/healthz
+tail -n 100 /tmp/friends-records.log
+```
+
+正常时 `/healthz` 会返回 `200`。如果没有监听 8999，优先查看日志中的配置或 MySQL 连接错误；如果 Go 服务正常监听而域名仍返回 502，检查 Nginx 的 `proxy_pass` 是否指向 `http://127.0.0.1:8999`，修改后执行 `nginx -t && systemctl reload nginx`。
 
 也可以直接运行：
 

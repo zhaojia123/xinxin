@@ -27,6 +27,16 @@ func TestEmployeeInputRejectsMaskedDataAndInvalidDates(t *testing.T) {
 	}
 }
 
+func TestEmployeeInputInfersLeftStatusFromLeaveDate(t *testing.T) {
+	v := EmployeeInput{EmployeeNo: "E002", Name: "小欣", Gender: "female", EmploymentStatus: "", EmploymentType: "full_time", JoinedOn: "2026-09-01", LeftOn: "2026-09-18"}
+	if err := v.Validate(); err != nil {
+		t.Fatalf("填写离职日期时应允许保存：%v", err)
+	}
+	if v.EmploymentStatus != "left" {
+		t.Fatalf("填写离职日期后状态应为 left，实际为 %s", v.EmploymentStatus)
+	}
+}
+
 func TestAttendanceInputRequiresMatchingDuration(t *testing.T) {
 	v := AttendanceInput{EmployeeID: 1, Category: "leave", RecordType: "事假", OccurredOn: "2026-09-07", DurationDays: "1.00"}
 	if err := v.Validate(); err != nil {
@@ -35,6 +45,47 @@ func TestAttendanceInputRequiresMatchingDuration(t *testing.T) {
 	v.Category, v.DurationMinutes = "exception", 0
 	if err := v.Validate(); err == nil {
 		t.Fatal("异常记录应填写分钟数")
+	}
+}
+
+func TestAttendanceInputSupportsPublicRestAndDateTime(t *testing.T) {
+	v := AttendanceInput{EmployeeID: 1, Category: "leave", RecordType: "公休", OccurredOn: "2026-10-12", StartAt: "2026-10-12T09:00", EndAt: "2026-10-12T13:30", DurationDays: "0.50"}
+	if err := v.Validate(); err != nil {
+		t.Fatalf("公休记录不应被拒绝：%v", err)
+	}
+	if v.SalaryEffect != "none" {
+		t.Fatalf("公休工资影响应为 none，实际为 %s", v.SalaryEffect)
+	}
+	v.EndAt = "2026-10-12T08:00"
+	if err := v.Validate(); err == nil {
+		t.Fatal("结束时间早于开始时间时应报错")
+	}
+}
+
+func TestAttendanceInputUsesHalfDayUnit(t *testing.T) {
+	v := AttendanceInput{EmployeeID: 1, Category: "leave", RecordType: "特殊请假", OccurredOn: "2026-10-12", DurationDays: "0.25"}
+	if err := v.Validate(); err == nil {
+		t.Fatal("0.25天应被拒绝，最小单位为0.5天")
+	}
+}
+
+func TestAttendanceInputSupportsHoliday(t *testing.T) {
+	v := AttendanceInput{EmployeeID: 1, Category: "holiday", OccurredOn: "2026-10-01", DurationDays: "1.00"}
+	if err := v.Validate(); err != nil {
+		t.Fatalf("节假日记录校验失败: %v", err)
+	}
+	if v.Category != "leave" || v.RecordType != "节假日" || v.SalaryEffect != "none" {
+		t.Fatalf("节假日记录归一化错误: %+v", v)
+	}
+}
+
+func TestAttendanceInputNormalizesLeaveAndSubsidy(t *testing.T) {
+	v := AttendanceInput{EmployeeID: 1, Category: "exception", RecordType: "特殊请假", OccurredOn: "2026-10-01", DurationDays: "1.00", SalaryEffect: "deduct", SubsidyAmount: "50"}
+	if err := v.Validate(); err != nil {
+		t.Fatalf("特殊请假兼容校验失败: %v", err)
+	}
+	if v.Category != "leave" || v.SalaryEffect != "deduct_and_subsidy" || v.SubsidyAmount != "50" {
+		t.Fatalf("请假补助归一化错误: %+v", v)
 	}
 }
 

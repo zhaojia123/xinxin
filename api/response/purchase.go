@@ -1,6 +1,7 @@
 package response
 
 type PurchaseItem struct {
+	Seq          int    `json:"seq,omitempty"`
 	ID           uint64 `json:"id"`
 	Date         string `json:"date"`
 	SupplierName string `json:"supplier_name"`

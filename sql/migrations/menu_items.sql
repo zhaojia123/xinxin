@@ -1,0 +1,27 @@
+-- 菜单菜品主档，支持从多个工作表导入并保留来源行。
+CREATE TABLE IF NOT EXISTS menu_items (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    source_sheet VARCHAR(64) NOT NULL DEFAULT '手工录入',
+    source_row INT NOT NULL DEFAULT 0,
+    source_no VARCHAR(64) NOT NULL DEFAULT '',
+    restaurant VARCHAR(128) NOT NULL DEFAULT '',
+    window_name VARCHAR(128) NOT NULL DEFAULT '',
+    name VARCHAR(128) NOT NULL,
+    specification VARCHAR(64) NOT NULL DEFAULT '',
+    price DECIMAL(10,2) NOT NULL DEFAULT 0,
+    price_text VARCHAR(32) NOT NULL DEFAULT '',
+    sales_period VARCHAR(128) NOT NULL DEFAULT '',
+    price_range VARCHAR(64) NOT NULL DEFAULT '',
+    price_category VARCHAR(64) NOT NULL DEFAULT '',
+    item_category VARCHAR(64) NOT NULL DEFAULT '',
+    remark VARCHAR(500) NOT NULL DEFAULT '',
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_menu_source (source_sheet, source_row),
+    KEY idx_menu_name (name),
+    KEY idx_menu_price (price),
+    KEY idx_menu_price_category (price_category),
+    KEY idx_menu_item_category (item_category)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='餐厅菜单菜品';

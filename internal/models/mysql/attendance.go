@@ -2,14 +2,92 @@ package mysql
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"friends-records/api/response"
 	"friends-records/internal/apperror"
 )
+
+type AttendanceCalendarRow struct {
+	EmployeeNo string
+	Name       string
+	Marks      []string
+}
+
+// AttendanceCalendar 返回指定月份的全员日历；无记录日期默认标记为正常出勤。
+func (s *Store) AttendanceCalendar(ctx context.Context, month string) ([]AttendanceCalendarRow, int, error) {
+	if err := s.ready(); err != nil {
+		return nil, 0, err
+	}
+	start, err := time.Parse("2006-01-02", month+"-01")
+	if err != nil {
+		return nil, 0, apperror.Wrap(err, "出勤月份格式不正确")
+	}
+	days := start.AddDate(0, 1, -1).Day()
+	rows, err := s.DB.QueryContext(ctx, `SELECT e.employee_no,e.name,DAY(a.occurred_on),a.category,a.record_type,a.salary_effect,COALESCE(a.subsidy_amount,0) FROM employees e LEFT JOIN attendance_records a ON a.employee_id=e.id AND a.occurred_on>=? AND a.occurred_on<? AND a.active=1 AND a.status IN ('pending','approved','recorded','confirmed') WHERE e.active=1 ORDER BY e.employee_no,a.occurred_on,a.id`, start, start.AddDate(0, 1, 0))
+	if err != nil {
+		return nil, 0, apperror.Wrap(err, "查询全员出勤日历失败")
+	}
+	defer rows.Close()
+	type markSet struct {
+		no, name string
+		marks    []string
+	}
+	ordered := make([]*markSet, 0)
+	byNo := map[string]*markSet{}
+	markPriority := map[string]int{"√": 0, "○": 1, "☆": 2, "✕": 3, "◎": 4}
+	for rows.Next() {
+		var no, name string
+		var day sql.NullInt64
+		var category, recordType, salaryEffect sql.NullString
+		var subsidy sql.NullFloat64
+		if err := rows.Scan(&no, &name, &day, &category, &recordType, &salaryEffect, &subsidy); err != nil {
+			return nil, 0, err
+		}
+		item := byNo[no]
+		if item == nil {
+			item = &markSet{no: no, name: name, marks: make([]string, days)}
+			for i := range item.marks {
+				item.marks[i] = "√"
+			}
+			byNo[no] = item
+			ordered = append(ordered, item)
+		}
+		if !day.Valid || day.Int64 < 1 || int(day.Int64) > days {
+			continue
+		}
+		idx := int(day.Int64) - 1
+		mark := ""
+		switch {
+		case category.String == "leave" && recordType.String == "特殊请假" && (salaryEffect.String == "subsidy" || salaryEffect.String == "deduct_and_subsidy" || subsidy.Float64 > 0):
+			mark = "◎"
+		case category.String == "leave" && recordType.String != "公休" && recordType.String != "节假日":
+			mark = "✕"
+		case recordType.String == "节假日":
+			mark = "☆"
+		case recordType.String == "公休":
+			mark = "○"
+		}
+		if mark != "" {
+			if markPriority[mark] > markPriority[item.marks[idx]] {
+				item.marks[idx] = mark
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	result := make([]AttendanceCalendarRow, 0, len(ordered))
+	for _, item := range ordered {
+		result = append(result, AttendanceCalendarRow{EmployeeNo: item.no, Name: item.name, Marks: item.marks})
+	}
+	return result, days, nil
+}
 
 func attendanceStatus(value string) (string, string) {
 	switch value {
@@ -23,8 +101,11 @@ func attendanceStatus(value string) (string, string) {
 		return "已确认", "warning"
 	case "cancelled":
 		return "已取消", "inactive"
+	case "pending":
+		// 兼容历史数据：旧记录曾保存为待审批，现在按已通过处理。
+		return "已通过", "active"
 	default:
-		return "待审批", "pending"
+		return "已通过", "active"
 	}
 }
 func sourceLabel(value string) string {
@@ -44,9 +125,9 @@ func (s *Store) AttendanceRecords(ctx context.Context) ([]response.AttendanceRec
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT a.id,e.employee_no,e.name,a.category,a.record_type,DATE_FORMAT(a.occurred_on,'%Y-%m-%d'),COALESCE(DATE_FORMAT(a.start_time,'%H:%i'),''),a.duration_minutes,a.duration_days,a.salary_effect,COALESCE(a.subsidy_amount,0),a.reason,a.status,a.source FROM attendance_records a JOIN employees e ON e.id=a.employee_id WHERE a.active=1 ORDER BY a.occurred_on DESC,a.id DESC LIMIT 500`)
+	rows, err := s.DB.QueryContext(ctx, `SELECT a.id,e.employee_no,e.name,a.category,a.record_type,DATE_FORMAT(a.occurred_on,'%Y-%m-%d'),CASE WHEN a.start_at IS NOT NULL THEN DATE_FORMAT(a.start_at,'%Y-%m-%d %H:%i') ELSE COALESCE(DATE_FORMAT(a.start_time,'%H:%i'),'') END,a.duration_minutes,a.duration_days,a.salary_effect,COALESCE(a.subsidy_amount,0),a.reason,a.status,a.source FROM attendance_records a JOIN employees e ON e.id=a.employee_id WHERE a.active=1 AND a.category<>'exception' ORDER BY a.occurred_on DESC,a.id DESC LIMIT 500`)
 	if err != nil {
-		return nil, apperror.Wrap(err, "查询请假与异常记录失败")
+		return nil, apperror.Wrap(err, "查询请假与公休记录失败")
 	}
 	defer rows.Close()
 	result := make([]response.AttendanceRecord, 0)
@@ -56,10 +137,19 @@ func (s *Store) AttendanceRecords(ctx context.Context) ([]response.AttendanceRec
 		var minutes int
 		var days, subsidy float64
 		if err := rows.Scan(&item.ID, &item.EmployeeNo, &item.Name, &category, &item.Type, &item.Date, &item.Time, &minutes, &days, &effect, &subsidy, &item.Reason, &status, &source); err != nil {
-			return nil, apperror.Wrap(err, "读取请假与异常记录失败")
+			return nil, apperror.Wrap(err, "读取请假与公休记录失败")
 		}
 		if category == "leave" {
-			item.Category, item.Duration = "请假", fmt.Sprintf("%g天", days)
+			if item.Type == "公休" {
+				item.Category = "公休"
+			} else if item.Type == "节假日" {
+				item.Category = "节假日"
+			} else if item.Type == "特殊请假" {
+				item.Category = "特殊请假"
+			} else {
+				item.Category = "请假"
+			}
+			item.Duration = fmt.Sprintf("%g天", days)
 		} else {
 			item.Category = "异常"
 			if days > 0 {
@@ -74,10 +164,11 @@ func (s *Store) AttendanceRecords(ctx context.Context) ([]response.AttendanceRec
 		}
 		item.Status, item.StatusClass = attendanceStatus(status)
 		item.Source = sourceLabel(source)
+		item.Seq = len(result) + 1
 		result = append(result, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, apperror.Wrap(err, "遍历请假与异常记录失败")
+		return nil, apperror.Wrap(err, "遍历请假与公休记录失败")
 	}
 	return result, nil
 }
@@ -113,11 +204,20 @@ func periodRange(period string, now time.Time) (string, string, time.Time, time.
 }
 
 func (s *Store) AttendanceStatistics(ctx context.Context, period string) (response.AttendanceStatistics, error) {
+	return s.AttendanceStatisticsAt(ctx, period, "")
+}
+
+// AttendanceStatisticsAt 按页面选择的月份计算统计，避免列表月份和顶部统计月份不一致。
+func (s *Store) AttendanceStatisticsAt(ctx context.Context, period, month string) (response.AttendanceStatistics, error) {
 	if err := s.ready(); err != nil {
 		return response.AttendanceStatistics{}, err
 	}
-	period, label, start, end := periodRange(period, time.Now())
-	rows, err := s.DB.QueryContext(ctx, `SELECT e.employee_no,e.name,COALESCE(SUM(CASE WHEN a.category='leave' AND a.status='approved' THEN a.duration_days ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.category='leave' AND a.status='approved' THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='迟到' AND a.status IN ('recorded','confirmed','approved') THEN a.duration_minutes ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='迟到' AND a.status IN ('recorded','confirmed','approved') THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='早退' AND a.status IN ('recorded','confirmed','approved') THEN a.duration_minutes ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='早退' AND a.status IN ('recorded','confirmed','approved') THEN 1 ELSE 0 END),0) FROM employees e LEFT JOIN attendance_records a ON a.employee_id=e.id AND a.occurred_on>=? AND a.occurred_on<? AND a.active=1 WHERE e.employment_status IN ('active','probation') AND e.active=1 GROUP BY e.id,e.employee_no,e.name ORDER BY e.employee_no`, start, end)
+	base := time.Now()
+	if parsed, err := time.Parse("2006-01", strings.TrimSpace(month)); err == nil {
+		base = parsed
+	}
+	period, label, start, end := periodRange(period, base)
+	rows, err := s.DB.QueryContext(ctx, `SELECT e.employee_no,e.name,COALESCE(SUM(CASE WHEN a.category='leave' AND a.record_type NOT IN ('公休','节假日') AND a.status IN ('pending','approved') THEN a.duration_days ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.category='leave' AND a.record_type NOT IN ('公休','节假日') AND a.status IN ('pending','approved') THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='迟到' AND a.status IN ('pending','recorded','confirmed','approved') THEN a.duration_minutes ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='迟到' AND a.status IN ('pending','recorded','confirmed','approved') THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='早退' AND a.status IN ('pending','recorded','confirmed','approved') THEN a.duration_minutes ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='早退' AND a.status IN ('pending','recorded','confirmed','approved') THEN 1 ELSE 0 END),0) FROM employees e LEFT JOIN attendance_records a ON a.employee_id=e.id AND a.occurred_on>=? AND a.occurred_on<? AND a.active=1 WHERE e.employment_status IN ('active','probation') AND e.active=1 GROUP BY e.id,e.employee_no,e.name ORDER BY e.employee_no`, start, end)
 	if err != nil {
 		return response.AttendanceStatistics{}, apperror.Wrap(err, "查询员工出勤统计失败")
 	}
@@ -134,9 +234,8 @@ func (s *Store) AttendanceStatistics(ctx context.Context, period string) (respon
 		return response.AttendanceStatistics{}, apperror.Wrap(err, "遍历员工出勤统计失败")
 	}
 	result := response.AttendanceStatistics{Period: period, Label: label, Leave: metrics(all, "leave"), Late: metrics(all, "late"), Early: metrics(all, "early"), Best: bestEmployees(all, period)}
-	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM attendance_records WHERE status='pending' AND active=1 AND occurred_on>=? AND occurred_on<?`, start, end).Scan(&result.PendingCount); err != nil {
-		return response.AttendanceStatistics{}, apperror.Wrap(err, "统计待审批记录失败")
-	}
+	// 当前出勤登记不再走审批流程，历史待审批记录也按已通过处理。
+	result.PendingCount = 0
 	return result, nil
 }
 

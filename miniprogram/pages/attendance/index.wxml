@@ -1,0 +1,24 @@
+<view class="page">
+  <view class="row"><view><view class="eyebrow">人员管理 / 出勤记录</view><view class="title">请假管理</view></view><button wx:if="{{canCreate}}" class="primary small-button" bindtap="add">＋ 新增记录</button></view>
+  <view class="subtitle">记录公休、请假、法定节假日和特殊请假补贴，保存后直接生效。</view>
+  <view class="toolbar card"><view class="toolbar-line"><text class="label">月份</text><picker mode="date" fields="month" value="{{month}}" bindchange="monthChange"><view class="control picker-value">{{month}}</view></picker></view><view class="search inline-search"><input placeholder="搜索员工、类型或原因" value="{{q}}" bindinput="search" confirm-type="search"/></view></view>
+  <view class="filters"><view class="filter {{typeFilter === '' ? 'active' : ''}}" data-value="" bindtap="filterType">全部</view><view wx:for="{{types}}" wx:key="recordType" class="filter {{typeFilter === item.recordType || typeFilter === item.name ? 'active' : ''}}" data-value="{{item.recordType}}" bindtap="filterType">{{item.name}}</view></view>
+  <view wx:if="{{error}}" class="error">{{error}}<button class="link" bindtap="load">重新加载</button></view>
+  <view wx:if="{{loading}}" class="loading">正在加载记录…</view>
+  <view wx:for="{{records}}" wx:key="id" class="record-card card">
+    <view class="record-head"><view class="record-main"><view class="record-name">{{item.name}} <text class="pill">{{item.category}}</text></view><view class="muted">{{item.employee_no}}</view></view><view class="record-actions"><text wx:if="{{canEdit}}" class="link" data-id="{{item.id}}" bindtap="edit">编辑</text><text wx:if="{{canDelete}}" class="danger" data-id="{{item.id}}" bindtap="remove">删除</text></view></view>
+    <view class="record-line"><text>{{item.date}}</text><text>{{item.type}}</text><text>{{item.duration}}</text><text wx:if="{{item.subsidy}}" class="positive">补助 {{item.subsidy}}</text></view>
+    <view wx:if="{{item.reason}}" class="muted reason">{{item.reason}}</view>
+  </view>
+  <view wx:if="{{loaded && !records.length && !loading && !error}}" class="empty card"><view class="empty-mark">假</view><view class="empty-title">{{month}} 暂无记录</view><view>可以新增公休、请假或节假日安排</view></view>
+
+  <view wx:if="{{showForm}}" class="mask"><view class="dialog"><view class="row"><view class="section-title">{{editingID ? '编辑记录' : '新增记录'}}</view><text class="close" bindtap="cancel">×</text></view>
+    <view class="field"><view class="label">员工（可多选）<text class="required">*</text></view><checkbox-group bindchange="employeeChange" class="employee-picker"><label wx:for="{{employees}}" wx:key="id" class="employee-option"><checkbox value="{{item.id}}" checked="{{item.selected}}"/>{{item.name}} · {{item.employee_no}}</label></checkbox-group></view>
+    <view class="field"><view class="label">记录类型<text class="required">*</text></view><picker range="{{types}}" range-key="name" value="{{typeIndex}}" bindchange="typeChange"><view class="control picker-value">{{types[typeIndex].name}}</view></picker></view>
+    <view class="field"><view class="label">发生日期（可多选）<text class="required">*</text></view><view class="date-add"><picker mode="date" value="{{formDate}}" bindchange="dateChange"><view class="control picker-value">{{formDate}}</view></picker><button class="secondary small-button" bindtap="addDate">加入日期</button></view><view class="chips"><view wx:for="{{dates}}" wx:key="*this" class="chip">{{item}} <text data-date="{{item}}" bindtap="removeDate">×</text></view></view></view>
+    <view class="field"><view class="label">每个选中日期天数</view><input class="control" type="digit" value="{{duration}}" bindinput="durationChange"/></view>
+    <view wx:if="{{typeIndex === 3}}" class="field"><view class="label">补助金额（每天）</view><input class="control" type="digit" value="{{subsidy}}" placeholder="没有补助填写0" bindinput="subsidyChange"/></view>
+    <view class="field"><view class="label">原因</view><textarea class="control reason-input" value="{{reason}}" bindinput="reasonChange" placeholder="选填" maxlength="500"></textarea></view>
+    <view class="dialog-footer"><button class="secondary" bindtap="cancel">取消</button><button class="primary" loading="{{saving}}" bindtap="save">保存记录</button></view>
+  </view></view>
+</view>

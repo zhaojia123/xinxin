@@ -59,8 +59,8 @@ func (s *Store) MiniLogin(ctx context.Context, openID, unionID string, autoRegis
 	if err := s.DB.QueryRowContext(ctx, `SELECT id,display_name,enabled,can_ledger,can_purchases,can_employees FROM mini_users WHERE openid=? LIMIT 1`, openID).Scan(&user.ID, &user.DisplayName, &user.Enabled, &user.CanLedger, &user.CanPurchases, &user.CanEmployees); err != nil {
 		return MiniUser{}, apperror.Wrap(err, "读取小程序用户失败")
 	}
-	// 新用户沿用当前三个模块的默认权限；后续新增模块只需向权限表增加记录。
-	if _, err := s.DB.ExecContext(ctx, `INSERT IGNORE INTO mini_user_permissions (mini_user_id,module_key,enabled) VALUES (?,?,?),(?,?,?),(?,?,?)`, user.ID, "ledger", user.CanLedger, user.ID, "purchases", user.CanPurchases, user.ID, "employees", user.CanEmployees); err != nil {
+	// 新用户沿用旧字段初始化模块权限，请假管理跟随员工档案权限。
+	if _, err := s.DB.ExecContext(ctx, `INSERT IGNORE INTO mini_user_permissions (mini_user_id,module_key,enabled) VALUES (?,?,?),(?,?,?),(?,?,?),(?,?,?)`, user.ID, "ledger", user.CanLedger, user.ID, "purchases", user.CanPurchases, user.ID, "employees", user.CanEmployees, user.ID, "attendance", user.CanEmployees); err != nil {
 		return MiniUser{}, apperror.Wrap(err, "初始化小程序用户权限失败")
 	}
 	permissions, err := s.MiniPermissions(ctx, user.ID)

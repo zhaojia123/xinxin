@@ -1,6 +1,7 @@
 package response
 
 type Employee struct {
+	Seq                            int                  `json:"seq,omitempty"`
 	ID                             uint64               `json:"id"`
 	DepartmentID                   uint64               `json:"department_id"`
 	PositionID                     uint64               `json:"position_id"`
@@ -42,6 +43,22 @@ type EmployeeAttachment struct {
 	OriginalName   string `json:"original_name"`
 	MIMEType       string `json:"mime_type"`
 	FileSize       int64  `json:"file_size"`
+}
+
+type WorkLog struct {
+	ID            uint64 `json:"id"`
+	EmployeeID    uint64 `json:"employee_id"`
+	EmployeeNo    string `json:"employee_no"`
+	Name          string `json:"name"`
+	WorkDate      string `json:"work_date"`
+	Hours         string `json:"hours"`
+	HoursValue    string `json:"hours_value"`
+	PayBasis      string `json:"pay_basis"`
+	PayBasisLabel string `json:"pay_basis_label"`
+	PayRate       string `json:"pay_rate"`
+	Amount        string `json:"amount"`
+	AmountValue   string `json:"amount_value"`
+	Remark        string `json:"remark"`
 }
 type HealthCertificateReminder struct {
 	EmployeeID    uint64 `json:"employee_id"`
@@ -130,6 +147,7 @@ type ChangeSummary struct {
 }
 
 type SalaryAdjustment struct {
+	Seq         int    `json:"seq,omitempty"`
 	ID          uint64 `json:"id"`
 	EmployeeNo  string `json:"employee_no"`
 	Name        string `json:"name"`
@@ -149,12 +167,19 @@ type SalarySummary struct {
 }
 
 type PayrollRecord struct {
+	Seq                      int    `json:"seq,omitempty"`
 	ID                       uint64 `json:"id"`
 	BatchID                  uint64 `json:"batch_id"`
 	Month                    string `json:"month"`
 	EmployeeNo               string `json:"employee_no"`
 	Name                     string `json:"name"`
+	EmploymentType           string `json:"employment_type"`
+	JoinedOn                 string `json:"joined_on"`
+	RequiredAttendanceDays   int    `json:"required_attendance_days"`
+	LeaveDays                string `json:"leave_days"`
+	PublicRestDays           string `json:"public_rest_days"`
 	PayBasis                 string `json:"pay_basis"`
+	WorkHours                string `json:"work_hours"`
 	EntrySalary              string `json:"entry_salary"`
 	BaseSalary               string `json:"base_salary"`
 	Bonus                    string `json:"bonus"`
@@ -168,6 +193,7 @@ type PayrollRecord struct {
 	Status                   string `json:"status"`
 	StatusClass              string `json:"status_class"`
 	BaseSalaryValue          string `json:"base_salary_value"`
+	WorkHoursValue           string `json:"work_hours_value"`
 	BonusValue               string `json:"bonus_value"`
 	AttendanceDeductionValue string `json:"attendance_deduction_value"`
 	OtherDeductionValue      string `json:"other_deduction_value"`
@@ -187,6 +213,7 @@ type PayrollSummary struct {
 }
 
 type Department struct {
+	Seq           int    `json:"seq,omitempty"`
 	ID            uint64 `json:"id"`
 	DepartmentNo  string `json:"department_no"`
 	Name          string `json:"name"`
@@ -199,6 +226,7 @@ type Department struct {
 	EmployeeCount int    `json:"employee_count"`
 }
 type Position struct {
+	Seq           int    `json:"seq,omitempty"`
 	ID            uint64 `json:"id"`
 	DepartmentID  uint64 `json:"department_id"`
 	PositionNo    string `json:"position_no"`
@@ -215,6 +243,102 @@ type OrganizationSummary struct {
 	DepartmentCount     int `json:"department_count"`
 	PositionCount       int `json:"position_count"`
 	ActiveEmployeeCount int `json:"active_employee_count"`
+}
+
+// MenuItem 是菜品菜单记录，保留来源工作表和行号便于核对原始文件。
+type MenuItem struct {
+	Seq           int    `json:"seq,omitempty"`
+	ID            uint64 `json:"id"`
+	SourceSheet   string `json:"source_sheet"`
+	SourceRow     int    `json:"source_row"`
+	SourceNo      string `json:"source_no"`
+	Restaurant    string `json:"restaurant"`
+	WindowName    string `json:"window_name"`
+	Name          string `json:"name"`
+	Specification string `json:"specification"`
+	Price         string `json:"price"`
+	PriceText     string `json:"price_text"`
+	SalesPeriod   string `json:"sales_period"`
+	PriceRange    string `json:"price_range"`
+	PriceCategory string `json:"price_category"`
+	ItemCategory  string `json:"item_category"`
+	Remark        string `json:"remark"`
+}
+
+type MenuPage struct {
+	Items           []MenuItem      `json:"items"`
+	Page            int             `json:"page"`
+	PageSize        int             `json:"page_size"`
+	Total           int             `json:"total"`
+	TotalPages      int             `json:"total_pages"`
+	Sort            string          `json:"sort"`
+	PriceStats      []MenuPriceStat `json:"price_stats"`
+	PriceCategories []string        `json:"price_categories"`
+	ItemCategories  []string        `json:"item_categories"`
+}
+
+type MenuPriceStat struct {
+	Price     string `json:"price"`
+	PriceText string `json:"price_text"`
+	Count     int    `json:"count"`
+}
+
+type Stall struct {
+	Seq                     int    `json:"seq,omitempty"`
+	ID                      uint64 `json:"id"`
+	StallNo                 string `json:"stall_no"`
+	Name                    string `json:"name"`
+	ResponsibleName         string `json:"responsible_name"`
+	ResponsibleMobile       string `json:"responsible_mobile"`
+	MonthlyRent             string `json:"monthly_rent"`
+	DefaultGuaranteedAmount string `json:"default_guaranteed_amount"`
+	AllocationMode          string `json:"allocation_mode"`
+	ProfitJiaRate           string `json:"profit_jia_rate"`
+	ProfitYiRate            string `json:"profit_yi_rate"`
+	GuaranteedRate          string `json:"guaranteed_rate"`
+	BaseAmountRate          string `json:"base_amount_rate"`
+	BaseAmountFactor        string `json:"base_amount_factor"`
+	TotalAmountRate         string `json:"total_amount_rate"`
+	Remark                  string `json:"remark"`
+	Month                   string `json:"month"`
+	SchoolCardAmount        string `json:"school_card_amount"`
+	HuilaimiAmount          string `json:"huilaimi_amount"`
+	CostAmount              string `json:"cost_amount"`
+	GuaranteedAmount        string `json:"guaranteed_amount"`
+	NetTurnover             string `json:"net_turnover"`
+	TotalTurnover           string `json:"total_turnover"`
+	ConradCommission        string `json:"conrad_commission"`
+	JiaCommission           string `json:"jia_commission"`
+	YiCommission            string `json:"yi_commission"`
+	OwnCommission           string `json:"own_commission"`
+	RentCommission          string `json:"rent_commission"`
+	GuaranteedCommission    string `json:"guaranteed_commission"`
+	BaseCommission          string `json:"base_commission"`
+	TotalRateCommission     string `json:"total_rate_commission"`
+	TotalCommission         string `json:"total_commission"`
+	Remaining               string `json:"remaining"`
+	TurnoverID              uint64 `json:"turnover_id,omitempty"`
+}
+
+type StallSummary struct {
+	StallCount        int    `json:"stall_count"`
+	TotalCardTurnover string `json:"total_card_turnover"`
+	TotalHuilaimi     string `json:"total_huilaimi"`
+	TotalTurnover     string `json:"total_turnover"`
+	TotalCost         string `json:"total_cost"`
+	ConradCommission  string `json:"conrad_commission"`
+	JiaCommission     string `json:"jia_commission"`
+	YiCommission      string `json:"yi_commission"`
+	OwnCommission     string `json:"own_commission"`
+	TotalCommission   string `json:"total_commission"`
+	Remaining         string `json:"remaining"`
+}
+
+type StallSettings struct {
+	Month       string `json:"month"`
+	CanteenName string `json:"canteen_name"`
+	ConradRate  string `json:"conrad_rate"`
+	Remark      string `json:"remark"`
 }
 
 type LedgerRecord struct {
@@ -255,12 +379,14 @@ type TrendMonth struct {
 	ExpensePercent int    `json:"expense_percent"`
 }
 type AuditLog struct {
+	Seq         int    `json:"seq,omitempty"`
 	ID          uint64 `json:"id"`
 	Time        string `json:"time"`
 	Operator    string `json:"operator"`
 	Module      string `json:"module"`
 	Action      string `json:"action"`
 	Target      string `json:"target"`
+	Detail      string `json:"detail"`
 	IP          string `json:"ip"`
 	Result      string `json:"result"`
 	ResultClass string `json:"result_class"`

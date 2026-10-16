@@ -30,8 +30,9 @@ func scanEmployee(row scanner) (response.Employee, error) {
 	default:
 		item.Gender = "未知"
 	}
-	item.IDCard = Mask(idCard, 3, 4)
-	item.Mobile = Mask(mobile, 3, 4)
+	// 后台仅供本人使用，员工列表按用户要求展示完整证件号和手机号。
+	item.IDCard = idCard
+	item.Mobile = mobile
 	item.Status, item.StatusClass = Status(status)
 	switch employmentType {
 	case "part_time":
@@ -79,6 +80,7 @@ func (s *Store) Employees(ctx context.Context) ([]response.Employee, error) {
 		if err != nil {
 			return nil, apperror.Wrap(err, "读取员工列表失败")
 		}
+		item.Seq = len(result) + 1
 		result = append(result, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -150,7 +152,7 @@ func (s *Store) EmployeeEvents(ctx context.Context, id uint64) ([]response.Emplo
 		return nil, err
 	}
 	rows, err := s.DB.QueryContext(ctx, `SELECT event_date,title,detail,color FROM (
-		SELECT occurred_on event_date,CONCAT(record_type,' · ',CASE status WHEN 'approved' THEN '已通过' WHEN 'pending' THEN '待审批' WHEN 'recorded' THEN '已记录' WHEN 'confirmed' THEN '已确认' ELSE '已结束' END) title,reason detail,'blue' color FROM attendance_records WHERE employee_id=? AND active=1
+        SELECT occurred_on event_date,CONCAT(record_type,' · ',CASE status WHEN 'approved' THEN '已通过' WHEN 'pending' THEN '已通过' WHEN 'recorded' THEN '已记录' WHEN 'confirmed' THEN '已确认' ELSE '已结束' END) title,reason detail,'blue' color FROM attendance_records WHERE employee_id=? AND active=1
 		UNION ALL SELECT effective_on,CONCAT('人事异动 · ',CASE change_type WHEN 'hire' THEN '入职' WHEN 'regularize' THEN '转正' WHEN 'transfer' THEN '调岗' WHEN 'promotion' THEN '晋升' WHEN 'demotion' THEN '降职' WHEN 'leave' THEN '离职' END),reason,'green' FROM employment_changes WHERE employee_id=?
 		UNION ALL SELECT effective_on,CONCAT('工资调整至 ',FORMAT(after_salary,2)),reason,'green' FROM salary_adjustments WHERE employee_id=?
 		UNION ALL SELECT issued_on,CONCAT('健康证更新 · 到期日期 ',DATE_FORMAT(expires_on,'%Y-%m-%d')),original_name,'blue' FROM employee_health_certificates WHERE employee_id=?

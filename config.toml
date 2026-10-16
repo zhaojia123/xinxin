@@ -3,7 +3,7 @@
 
 [app]
 # 运行环境：开发环境填写 development，正式环境填写 production。
-env = "production"
+env = "development"
 # HTTP 服务监听地址。:8080 表示监听本机所有网卡的 8080 端口。
 addr = ":8999"
 # 小程序登录 Token 的签名密钥，不是微信密钥。
@@ -12,9 +12,7 @@ addr = ":8999"
 # 不要使用姓名、手机号、生日或常见句子。
 token_secret = "9b33a573914d14dd3c87fadaf9e0b2b45241b5b9110831e325757a5edf397b91"
 filing_number = "陇ICP备2026008700号-2"
-# 公安备案审核期间临时展示静态首页；审核通过后改为 false。
-filing_landing = true
-# 每月公休天数；应出勤天数=当月自然日数-该值，后续可按校历调整。
+# 每月公休天数；工资统一按30天计薪，应出勤天数=30-该值，后续可按校历调整。
 monthly_rest_days = 3
 
 [mysql]
@@ -38,7 +36,7 @@ app_id = "wx61a14738b3d98047"
 # 正式使用前在这里填写，并注意不要把本配置文件提交到 Git。
 app_secret = "6b3f2f143632b03733c805805a0980d4"
 # 是否使用模拟登录。true 不调用微信接口，仅用于本地开发；正式环境必须改成 false。
-mock_login = false
+mock_login = true
 # 是否允许首次登录的小程序用户自动启用。
 # true 表示自动启用；false 表示需要管理员在数据库中手动启用。
 # 新用户默认停用，需管理员手动启用后才能使用小程序

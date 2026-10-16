@@ -15,9 +15,16 @@ Page({
     catch (error) { this.setData({ error: error.message }) }
   },
   openHome(user) {
-    const target = hasPermission(user, 'ledger') ? '/pages/ledger/index' : hasPermission(user, 'purchases') ? '/pages/purchases/index' : hasPermission(user, 'employees') ? '/pages/employees/index' : ''
-    if (target) wx.switchTab({ url: target })
-    else this.setData({ error: '当前账号尚未分配可用模块，请联系管理员' })
+    // 仅能用 switchTab 跳转到当前底部导航中的页面，默认进入员工档案。
+    const target = hasPermission(user, 'employees') ? '/pages/employees/index' : hasPermission(user, 'attendance') ? '/pages/attendance/index' : ''
+    if (!target) {
+      this.setData({ error: '当前账号尚未分配员工档案或请假管理权限，请联系管理员' })
+      return
+    }
+    wx.switchTab({
+      url: target,
+      fail: () => this.setData({ error: '登录成功，但首页跳转失败，请重新打开小程序后再试' })
+    })
   },
   async login() {
     if (this.data.loading) return

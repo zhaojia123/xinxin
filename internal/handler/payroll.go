@@ -1,24 +1,32 @@
 package handler
 
 import (
+	"encoding/csv"
 	"net/http"
+	"net/url"
 	"strconv"
-	"time"
+	"strings"
 
 	"friends-records/api/request"
 	"friends-records/api/response"
 	"friends-records/internal/httpx"
 	"friends-records/internal/models/mysql"
 	"friends-records/internal/service"
+	"friends-records/internal/token"
 )
 
 type PayrollPageData struct {
-	ActiveMenu string
-	Payroll    []response.PayrollRecord
-	Summary    response.PayrollSummary
-	Employees  []mysql.AdminOption
-	RestDays   int
-	WorkDays   int
+	ActiveMenu      string
+	Payroll         []response.PayrollRecord
+	Summary         response.PayrollSummary
+	Employees       []mysql.AdminOption
+	RestDays        int
+	WorkDays        int
+	StatusFilter    string
+	Search          string
+	PayrollType     string
+	PageTitle       string
+	PageDescription string
 }
 
 func (h *Handler) PayrollPage(w http.ResponseWriter, r *http.Request) {
@@ -31,6 +39,13 @@ func (h *Handler) PayrollPage(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "工资记录读取失败")
 		return
 	}
+	payrollType := r.URL.Query().Get("type")
+	if payrollType != "part_time" && payrollType != "full_time" {
+		payrollType = "full_time"
+	}
+	statusFilter, search := r.URL.Query().Get("status"), r.URL.Query().Get("q")
+	items = filterPayroll(items, statusFilter, search)
+	items = filterPayrollType(items, payrollType)
 	summary, err := h.Store.PayrollSummary(r.Context(), month)
 	if err != nil {
 		fail(w, err, "工资统计读取失败")
@@ -42,15 +57,77 @@ func (h *Handler) PayrollPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	people, _ := options["employees"].([]mysql.AdminOption)
-	start, _ := time.Parse("2006-01", month)
-	calendarDays := start.AddDate(0, 1, 0).Add(-24 * time.Hour).Day()
-	workDays := calendarDays - h.Store.MonthlyRestDays
+	// 工资统一按固定30天计薪，默认公休3天，对应27个计薪日。
+	workDays := 30 - h.Store.MonthlyRestDays
 	if workDays < 1 {
 		workDays = 1
 	}
-	h.render(w, "payroll.html", PayrollPageData{ActiveMenu: "payroll", Payroll: items, Summary: summary, Employees: people, RestDays: h.Store.MonthlyRestDays, WorkDays: workDays})
+	summary = payrollSummaryForType(summary, items)
+	pageTitle, pageDescription, activeMenu := "正式工工资", "请假、公休和入职日期会自动参与正式工月度工资计算", "payroll-formal"
+	if payrollType == "part_time" {
+		pageTitle, pageDescription, activeMenu = "临时工工资", "先登记每日工时，再按时薪、日薪或半天工资自动汇总本月工资", "payroll-temporary"
+	}
+	h.render(w, "payroll.html", PayrollPageData{ActiveMenu: activeMenu, Payroll: items, Summary: summary, Employees: people, RestDays: h.Store.MonthlyRestDays, WorkDays: workDays, StatusFilter: statusFilter, Search: search, PayrollType: payrollType, PageTitle: pageTitle, PageDescription: pageDescription})
 }
-func (h *Handler) PayrollAPI(payroll service.Payroll) http.HandlerFunc {
+
+func filterPayrollType(items []response.PayrollRecord, payrollType string) []response.PayrollRecord {
+	result := make([]response.PayrollRecord, 0, len(items))
+	for _, item := range items {
+		if item.EmploymentType == payrollType {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+// payrollSummaryForType 复用当前工资批次状态，只重算当前页面类型的金额和人数统计。
+func payrollSummaryForType(summary response.PayrollSummary, items []response.PayrollRecord) response.PayrollSummary {
+	var gross, deductions, net float64
+	summary.EmployeeCount, summary.PaidCount = len(items), 0
+	for _, item := range items {
+		parse := func(value string) float64 {
+			amount, _ := strconv.ParseFloat(strings.TrimLeft(value, "¥"), 64)
+			return amount
+		}
+		gross += parse(item.BaseSalary)
+		deductions += parse(item.AttendanceDeduction) + parse(item.OtherDeduction) + parse(item.SocialSecurity) + parse(item.Tax)
+		net += parse(item.NetSalary)
+		if item.Status == "已发放" {
+			summary.PaidCount++
+		}
+	}
+	summary.GrossAmount, summary.DeductionAmount, summary.NetAmount = mysql.Money(gross), mysql.Money(deductions), mysql.Money(net)
+	return summary
+}
+
+// PayrollExport 导出当前月份工资明细，CSV 可直接用 Excel 打开。
+func (h *Handler) PayrollExport(tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := adminActor(w, r, tokens); !ok {
+			return
+		}
+		if r.Method != http.MethodGet {
+			httpx.MethodNotAllowed(w, http.MethodGet)
+			return
+		}
+		month := mysql.NormalizeMonth(r.URL.Query().Get("month"))
+		items, err := h.Store.Payroll(r.Context(), month)
+		if err != nil {
+			fail(w, err, "工资表导出失败")
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.QueryEscape(month+".csv"))
+		writer := csv.NewWriter(w)
+		_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
+		_ = writer.Write([]string{"序号", "员工", "入职时间", "应出勤天数", "请假天数", "公休天数", "入职时工资", "本月基本工资", "奖金补贴", "考勤扣款", "其他扣款", "社保", "个税", "实发工资"})
+		for i, item := range items {
+			_ = writer.Write([]string{strconv.Itoa(i + 1), item.Name, item.JoinedOn, strconv.Itoa(item.RequiredAttendanceDays), item.LeaveDays, item.PublicRestDays, item.EntrySalary, item.BaseSalary, item.Bonus, item.AttendanceDeduction, item.OtherDeduction, item.SocialSecurity, item.Tax, item.NetSalary})
+		}
+		writer.Flush()
+	}
+}
+func (h *Handler) PayrollAPI(payroll service.Payroll, tokens *token.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -82,8 +159,30 @@ func (h *Handler) PayrollAPI(payroll service.Payroll) http.HandlerFunc {
 				return
 			}
 			httpx.JSON(w, http.StatusOK, map[string]any{"id": id, "net_salary": mysql.Money(net)})
+		case http.MethodDelete:
+			actor, ok := adminActor(w, r, tokens)
+			if !ok {
+				return
+			}
+			id, _ := strconv.ParseUint(r.URL.Query().Get("id"), 10, 64)
+			ids := []uint64{id}
+			if id == 0 {
+				var input struct {
+					ItemIDs []uint64 `json:"item_ids"`
+				}
+				if !decodeJSON(w, r, &input) {
+					return
+				}
+				ids = input.ItemIDs
+			}
+			deleted, err := payroll.Delete(r.Context(), ids, actor)
+			if err != nil {
+				adminWriteError(w, err)
+				return
+			}
+			httpx.JSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 		default:
-			httpx.MethodNotAllowed(w, http.MethodGet, http.MethodPut)
+			httpx.MethodNotAllowed(w, http.MethodGet, http.MethodPut, http.MethodDelete)
 		}
 	}
 }
@@ -144,7 +243,9 @@ func (h *Handler) PayrollPayAPI(payroll service.Payroll) http.HandlerFunc {
 		}
 		var entryID uint64
 		var err error
-		if input.ItemID > 0 {
+		if len(input.ItemIDs) > 0 {
+			entryID, err = payroll.PayEmployees(r.Context(), input)
+		} else if input.ItemID > 0 {
 			entryID, err = payroll.PayEmployee(r.Context(), input)
 		} else {
 			entryID, err = payroll.Pay(r.Context(), input)
@@ -154,6 +255,29 @@ func (h *Handler) PayrollPayAPI(payroll service.Payroll) http.HandlerFunc {
 			return
 		}
 		httpx.JSON(w, http.StatusOK, map[string]any{"ledger_entry_id": entryID})
+	}
+}
+
+func (h *Handler) TemporaryPayrollAPI(payroll service.Payroll) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			httpx.MethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var input request.TemporaryPayrollInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if err := input.Validate(); err != nil {
+			httpx.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		id, err := payroll.PayTemporary(r.Context(), input)
+		if err != nil {
+			fail(w, err, "临时工工资发放失败")
+			return
+		}
+		httpx.JSON(w, http.StatusCreated, map[string]any{"ledger_entry_id": id})
 	}
 }
 func (h *Handler) PayrollConfirmAPI(payroll service.Payroll) http.HandlerFunc {

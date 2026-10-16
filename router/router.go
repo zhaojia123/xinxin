@@ -36,10 +36,6 @@ func New(cfg config.Config, db *sql.DB, templates *template.Template, static fs.
 			http.NotFound(w, r)
 			return
 		}
-		if cfg.App.FilingLanding {
-			handlers.FilingLanding(w, r, cfg.App.FilingNumber)
-			return
-		}
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 	})
 	return httpx.Common(mux)

@@ -124,7 +124,7 @@ func (h *Handler) AdminEmployeesAPI(tokens *token.Manager) http.HandlerFunc {
 				return
 			}
 			httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": id})
-		case http.MethodDelete:
+		case http.MethodPatch:
 			actor, ok := adminActor(w, r, tokens)
 			if !ok {
 				return
@@ -133,13 +133,42 @@ func (h *Handler) AdminEmployeesAPI(tokens *token.Manager) http.HandlerFunc {
 			if !ok {
 				return
 			}
-			if err := h.Store.DeleteEmployee(r.Context(), id, actor); err != nil {
+			var input request.EmployeeFieldInput
+			if !decodeJSON(w, r, &input) {
+				return
+			}
+			if err := h.Store.UpdateEmployeeField(r.Context(), id, actor, input.Field, input.Value); err != nil {
 				adminWriteError(w, err)
 				return
 			}
-			httpx.JSON(w, http.StatusOK, map[string]any{"id": id})
+			httpx.JSON(w, http.StatusOK, map[string]any{"id": id, "field": input.Field, "value": input.Value})
+		case http.MethodDelete:
+			actor, ok := adminActor(w, r, tokens)
+			if !ok {
+				return
+			}
+			id, ok := adminID(w, r, false)
+			if !ok {
+				return
+			}
+			ids := []uint64{id}
+			if id == 0 {
+				var input struct {
+					IDs []uint64 `json:"ids"`
+				}
+				if !decodeJSON(w, r, &input) {
+					return
+				}
+				ids = input.IDs
+			}
+			deleted, err := h.Store.DeleteEmployees(r.Context(), ids, actor)
+			if err != nil {
+				adminWriteError(w, err)
+				return
+			}
+			httpx.JSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 		default:
-			httpx.MethodNotAllowed(w, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete)
+			httpx.MethodNotAllowed(w, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete)
 		}
 	}
 }
