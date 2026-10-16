@@ -26,7 +26,7 @@ func main() {
 	}
 }
 func run() error {
-	cfg, err := config.Load("config.toml")
+	cfg, err := config.LoadDefault()
 	if err != nil {
 		return err
 	}

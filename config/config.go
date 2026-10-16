@@ -37,6 +37,21 @@ type UploadConfig struct {
 	MaxSizeMB int64  `toml:"max_size_mb"`
 }
 
+const configPathEnv = "FRIENDS_RECORDS_CONFIG"
+
+// LoadDefault 按本地、线上、旧配置的顺序加载，环境变量可明确覆盖配置文件路径。
+func LoadDefault() (Config, error) {
+	if name := strings.TrimSpace(os.Getenv(configPathEnv)); name != "" {
+		return Load(name)
+	}
+	for _, name := range []string{"config.local.toml", "config.production.toml", "config.toml"} {
+		if _, err := find(name); err == nil {
+			return Load(name)
+		}
+	}
+	return Load("config.local.toml")
+}
+
 func Load(name string) (Config, error) {
 	path, err := find(name)
 	if err != nil {

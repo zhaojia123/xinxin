@@ -1,7 +1,7 @@
 {
   "appid": "wx61a14738b3d98047",
   "projectname": "欣欣的日常记录",
-  "description": "日常台账与员工档案",
+  "description": "员工档案与请假管理",
   "compileType": "miniprogram",
   "miniprogramRoot": "./",
   "setting": {

@@ -11,7 +11,9 @@
 ```text
 friends-records/
 ├── main.go                       # 唯一启动入口
-├── config.toml                   # 本地配置
+├── config.local.toml             # 本地真实配置（不提交）
+├── config.production.toml        # 线上真实配置（不提交）
+├── config.*.example.toml         # 可提交的配置模板
 ├── api/
 │   ├── request/                  # API 入参
 │   └── response/                 # 页面与 API 出参
@@ -59,7 +61,7 @@ friends-records/
    已有数据库升级时，另外执行 `sql/migrations/ledger_attachments.sql`、`sql/migrations/employee_attachments.sql`、`sql/migrations/purchase_items.sql`、`sql/migrations/mini_user_permissions.sql`、`sql/migrations/employee_payroll_rules.sql` 和 `sql/migrations/20260918_payroll_accounts.sql`。
 3. 如需导入员工资料，执行 `sql/import/employee_import_202609.sql`。该文件只导入主表人员，当前全部按月薪处理；空工资和空日期会保留为空，不会导入“钟点工”工作表。
    生成 2026-09 工资后，如需录入表格里的两笔已结算金额，再执行 `sql/import/payroll_settlements_202609.sql`。
-4. 修改根目录 `config.toml` 中的 `mysql.dsn`。
+4. 复制 `config.local.example.toml` 为根目录 `config.local.toml`，再修改其中的 `mysql.dsn`。
    月薪统一按30天计薪，默认公休3天即按27个计薪日计算；公休天数默认由 `app.monthly_rest_days` 配置，员工档案可单独填写公休天数覆盖默认值（单休可填4/5，双休可填8/9），修改配置后重启服务即可生效。
 5. 启动：
 
@@ -71,6 +73,10 @@ make run
 当前配置监听 `:8999`，后台地址：<http://127.0.0.1:8999/admin/login>。
 
 ### 线上部署与 502 排查
+
+本地与线上无需来回修改同一份配置。程序会按 `config.local.toml`、`config.production.toml`、旧版 `config.toml` 的顺序自动读取第一份存在的配置：本地保留 `config.local.toml`，服务器只放置 `config.production.toml` 即可。也可以通过 `FRIENDS_RECORDS_CONFIG=/绝对路径/配置文件.toml` 明确指定配置文件。
+
+首次线上部署时，将 `config.production.example.toml` 复制为服务器根目录的 `config.production.toml`，仅在这份服务器文件中填写数据库连接、`app.token_secret` 和微信密钥。线上配置必须保持 `app.env = "production"`、`wechat.mock_login = false` 和绝对上传目录；这些真实配置文件已加入 `.gitignore`。
 
 本项目的 HTML 和 CSS 会嵌入 Go 二进制文件。服务器拉取最新代码后，不能只重启旧进程，必须先重新编译，再启动新二进制：
 
@@ -184,7 +190,7 @@ POST /api/mini/employee-document
 
 - 后台目前按照此前要求不保存 Cookie，因此页面和后台 API 尚未做访问拦截。正式上线前必须增加后台 Session 或 Token 鉴权。
 - MySQL 的 3306 端口不要暴露到公网。
-- 健康证照片默认保存到 `data/uploads/health-certificates`，可通过 `config.toml` 的 `[upload]` 修改目录和大小上限。
+- 健康证照片默认保存到 `data/uploads/health-certificates`，可通过当前环境配置文件的 `[upload]` 修改目录和大小上限。
 - 台账凭证图片保存到 `data/uploads/ledger-proofs`，员工证件图片保存到 `data/uploads/employee-documents`；后台和小程序详情页会展示这些图片，列表页不增加图片内容。
 - 服务器部署时可将 `upload.dir` 写成绝对路径，例如 `/data/friends-records/uploads`，文件只会保存在你的服务器目录中，MySQL只保存路径和证件信息。
-- `config.toml` 中的微信 AppSecret 已经在聊天和本地文件中出现，正式上线前建议在微信公众平台重置。
+- 请勿把微信 AppSecret、数据库密码或 token 密钥写入模板与代码库；如密钥曾泄露，正式上线前请在微信公众平台重置。

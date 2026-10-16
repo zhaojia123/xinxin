@@ -1,1 +1,1 @@
-{"desc":"内部台账不参与微信搜索索引","rules":[{"action":"disallow","page":"*"}]}
+{"desc":"内部人员管理数据不参与微信搜索索引","rules":[{"action":"disallow","page":"*"}]}
