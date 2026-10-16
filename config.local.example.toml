@@ -1,0 +1,21 @@
+# 本地开发模板：复制为 config.local.toml 后再填写本地数据库配置。
+
+[app]
+env = "development"
+addr = ":8999"
+token_secret = ""
+filing_number = "陇ICP备2026008700号-2"
+monthly_rest_days = 3
+
+[mysql]
+dsn = "用户名:密码@tcp(127.0.0.1:3306)/数据库名?charset=utf8mb4&parseTime=true&loc=Local"
+
+[upload]
+dir = "data/uploads"
+max_size_mb = 5
+
+[wechat]
+app_id = "wx61a14738b3d98047"
+app_secret = ""
+mock_login = true
+auto_register = false

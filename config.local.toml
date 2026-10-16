@@ -1,0 +1,21 @@
+# 本机开发配置：只保存在本机，不提交到代码库。
+
+[app]
+env = "development"
+addr = ":8999"
+token_secret = "9b33a573914d14dd3c87fadaf9e0b2b45241b5b9110831e325757a5edf397b91"
+filing_number = "陇ICP备2026008700号-2"
+monthly_rest_days = 3
+
+[mysql]
+dsn = "root:ZhaoJia@0424@tcp(47.94.206.184:3306)/xx_taizhang?charset=utf8mb4&parseTime=true&loc=Local"
+
+[upload]
+dir = "data/uploads"
+max_size_mb = 5
+
+[wechat]
+app_id = "wx61a14738b3d98047"
+app_secret = "6b3f2f143632b03733c805805a0980d4"
+mock_login = true
+auto_register = false
