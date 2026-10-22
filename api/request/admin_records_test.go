@@ -113,3 +113,17 @@ func TestOptionInputRequiresCategoryDirectionAndPositionDepartment(t *testing.T)
 		t.Fatal("岗位必须指定所属部门")
 	}
 }
+
+func TestWorkLogInputSupportsMultipleDatesAndDeduplication(t *testing.T) {
+	v := WorkLogInput{EmployeeID: 1, WorkDates: []string{"2026-10-03", "2026-10-01", "2026-10-03"}, Hours: "8", Remark: "全天班"}
+	if err := v.Validate(); err != nil {
+		t.Fatalf("多日期工时记录校验失败：%v", err)
+	}
+	if len(v.WorkDates) != 2 || v.WorkDates[0] != "2026-10-01" || v.WorkDates[1] != "2026-10-03" || v.WorkDate != "2026-10-01" {
+		t.Fatalf("多日期应去重并排序，实际为：%+v", v)
+	}
+	v.WorkDates = []string{"2026-10-32"}
+	if err := v.Validate(); err == nil {
+		t.Fatal("非法工作日期应被拒绝")
+	}
+}

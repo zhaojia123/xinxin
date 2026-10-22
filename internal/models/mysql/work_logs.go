@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 
 	"friends-records/api/request"
@@ -33,6 +34,7 @@ func (s *Store) WorkLogs(ctx context.Context, month, search string) ([]response.
 		item.PayRate = Money(rate)
 		var amount float64
 		item.PayBasisLabel, amount = payBasisAmount(item.PayBasis, rate, hours)
+		item.WorkLabel = workLogLabel(item.PayBasis, hours)
 		item.Amount, item.AmountValue = Money(amount), Decimal(amount)
 		items = append(items, item)
 	}
@@ -42,56 +44,95 @@ func (s *Store) WorkLogs(ctx context.Context, month, search string) ([]response.
 	return items, nil
 }
 
-func (s *Store) SaveWorkLog(ctx context.Context, id, actor uint64, v request.WorkLogInput) (uint64, error) {
+// WorkLog 查询单条工时，供小程序编辑时校验记录归属和回显使用。
+func (s *Store) WorkLog(ctx context.Context, id uint64) (response.WorkLog, error) {
 	if err := s.ready(); err != nil {
+		return response.WorkLog{}, err
+	}
+	var item response.WorkLog
+	var hours, rate float64
+	err := s.DB.QueryRowContext(ctx, `SELECT w.id,w.employee_id,e.employee_no,e.name,DATE_FORMAT(w.work_date,'%Y-%m-%d'),w.hours,e.pay_basis,COALESCE(e.current_salary,0),w.remark FROM employee_work_logs w JOIN employees e ON e.id=w.employee_id WHERE w.id=? AND w.active=1 AND e.active=1 AND e.employment_type='part_time'`, id).Scan(&item.ID, &item.EmployeeID, &item.EmployeeNo, &item.Name, &item.WorkDate, &hours, &item.PayBasis, &rate, &item.Remark)
+	if errors.Is(err, sql.ErrNoRows) {
+		return response.WorkLog{}, ErrNotFound
+	}
+	if err != nil {
+		return response.WorkLog{}, apperror.Wrap(err, "读取每日工时失败")
+	}
+	item.Hours, item.HoursValue, item.PayRate = Decimal(hours), Decimal(hours), Money(rate)
+	item.PayBasisLabel, _ = payBasisAmount(item.PayBasis, rate, hours)
+	item.WorkLabel = workLogLabel(item.PayBasis, hours)
+	_, amount := payBasisAmount(item.PayBasis, rate, hours)
+	item.Amount, item.AmountValue = Money(amount), Decimal(amount)
+	return item, nil
+}
+
+func (s *Store) SaveWorkLog(ctx context.Context, id, actor uint64, v request.WorkLogInput) (uint64, error) {
+	ids, err := s.SaveWorkLogs(ctx, id, actor, v)
+	if err != nil {
 		return 0, err
 	}
+	return ids[0], nil
+}
+
+// SaveWorkLogs 允许一次登记多个日期，同一临时工同一天始终只有一条记录。
+func (s *Store) SaveWorkLogs(ctx context.Context, id, actor uint64, v request.WorkLogInput) ([]uint64, error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
 	if err := v.Validate(); err != nil {
-		return 0, apperror.New(err.Error())
+		return nil, apperror.New(err.Error())
+	}
+	if id != 0 && len(v.WorkDates) != 1 {
+		return nil, apperror.New("编辑单条工时时只能保留一个工作日期")
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, apperror.Wrap(err, "开始保存工时事务失败")
+		return nil, apperror.Wrap(err, "开始保存工时事务失败")
 	}
 	defer tx.Rollback()
-	var payBasis, employmentType string
-	if err := tx.QueryRowContext(ctx, `SELECT pay_basis,employment_type FROM employees WHERE id=? AND active=1 FOR SHARE`, v.EmployeeID).Scan(&payBasis, &employmentType); err != nil {
+	var payBasis, employmentType, employeeName string
+	if err := tx.QueryRowContext(ctx, `SELECT pay_basis,employment_type,name FROM employees WHERE id=? AND active=1 FOR SHARE`, v.EmployeeID).Scan(&payBasis, &employmentType, &employeeName); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, ErrNotFound
+			return nil, ErrNotFound
 		}
-		return 0, apperror.Wrap(err, "读取小时工资料失败")
+		return nil, apperror.Wrap(err, "读取小时工资料失败")
 	}
 	if employmentType != "part_time" || (payBasis != "hourly" && payBasis != "daily" && payBasis != "half_daily") {
-		return 0, apperror.New("只有按小时、按天或按半天计薪的临时工可以录入每日工时")
+		return nil, apperror.New("只有按小时、按天或按半天计薪的临时工可以录入每日工时")
 	}
-	if id == 0 {
-		// 同一员工同一天保持一条记录；已删除的旧记录会被直接恢复，避免唯一键阻止重新补录。
-		result, err := tx.ExecContext(ctx, `INSERT INTO employee_work_logs(employee_id,work_date,hours,remark) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id),hours=VALUES(hours),remark=VALUES(remark),active=1,deleted_at=NULL,deleted_by=NULL`, v.EmployeeID, v.WorkDate, v.Hours, v.Remark)
-		if err != nil {
-			return 0, apperror.Wrap(err, "新增每日工时失败")
+	ids := make([]uint64, 0, len(v.WorkDates))
+	for _, workDate := range v.WorkDates {
+		logID := id
+		if logID == 0 {
+			// 同一员工同一天保持一条记录；已删除的旧记录会被直接恢复，避免唯一键阻止重新补录。
+			result, err := tx.ExecContext(ctx, `INSERT INTO employee_work_logs(employee_id,work_date,hours,remark) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id),hours=VALUES(hours),remark=VALUES(remark),active=1,deleted_at=NULL,deleted_by=NULL`, v.EmployeeID, workDate, v.Hours, v.Remark)
+			if err != nil {
+				return nil, apperror.Wrap(err, "新增每日工时失败")
+			}
+			last, err := result.LastInsertId()
+			if err != nil {
+				return nil, apperror.Wrap(err, "读取每日工时编号失败")
+			}
+			logID = uint64(last)
+		} else {
+			result, err := tx.ExecContext(ctx, `UPDATE employee_work_logs SET employee_id=?,work_date=?,hours=?,remark=? WHERE id=? AND active=1`, v.EmployeeID, workDate, v.Hours, v.Remark, logID)
+			if err != nil {
+				return nil, apperror.Wrap(err, "修改每日工时失败")
+			}
+			count, _ := result.RowsAffected()
+			if count == 0 {
+				return nil, ErrNotFound
+			}
 		}
-		last, err := result.LastInsertId()
-		if err != nil {
-			return 0, apperror.Wrap(err, "读取每日工时编号失败")
+		if err := miniAudit(ctx, tx, actor, "work_logs", logID, fmt.Sprintf("%s · %s · %s小时", employeeName, workDate, v.Hours)); err != nil {
+			return nil, err
 		}
-		id = uint64(last)
-	} else {
-		result, err := tx.ExecContext(ctx, `UPDATE employee_work_logs SET employee_id=?,work_date=?,hours=?,remark=? WHERE id=? AND active=1`, v.EmployeeID, v.WorkDate, v.Hours, v.Remark, id)
-		if err != nil {
-			return 0, apperror.Wrap(err, "修改每日工时失败")
-		}
-		count, _ := result.RowsAffected()
-		if count == 0 {
-			return 0, ErrNotFound
-		}
-	}
-	if err := miniAudit(ctx, tx, actor, "work_logs", id, v.WorkDate+" "+v.Hours+"小时"); err != nil {
-		return 0, err
+		ids = append(ids, logID)
 	}
 	if err := tx.Commit(); err != nil {
-		return 0, apperror.Wrap(err, "提交每日工时失败")
+		return nil, apperror.Wrap(err, "提交每日工时失败")
 	}
-	return id, nil
+	return ids, nil
 }
 
 // payBasisAmount 将统一保存的小时数换算成当天金额，全天=8小时，半天=4小时。
@@ -103,6 +144,31 @@ func payBasisAmount(payBasis string, rate, hours float64) (string, float64) {
 		return "按半天", rate * hours / 4
 	default:
 		return "按小时", rate * hours
+	}
+}
+
+// workLogLabel 兼顾导出和页面显示，让按天、按半天的出勤一眼可辨。
+func workLogLabel(payBasis string, hours float64) string {
+	hoursText := Decimal(hours) + "小时"
+	switch payBasis {
+	case "daily":
+		if hours == 8 {
+			return "全天（8小时）"
+		}
+		if hours == 4 {
+			return "半天（4小时）"
+		}
+		return hoursText + "（按天折算）"
+	case "half_daily":
+		if hours == 4 {
+			return "半天（4小时）"
+		}
+		if hours == 8 {
+			return "全天（8小时）"
+		}
+		return hoursText + "（按半天折算）"
+	default:
+		return hoursText
 	}
 }
 

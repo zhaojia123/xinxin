@@ -56,6 +56,7 @@ type WorkLog struct {
 	PayBasis      string `json:"pay_basis"`
 	PayBasisLabel string `json:"pay_basis_label"`
 	PayRate       string `json:"pay_rate"`
+	WorkLabel     string `json:"work_label"`
 	Amount        string `json:"amount"`
 	AmountValue   string `json:"amount_value"`
 	Remark        string `json:"remark"`
@@ -311,6 +312,9 @@ type Stall struct {
 	JiaCommission           string `json:"jia_commission"`
 	YiCommission            string `json:"yi_commission"`
 	OwnCommission           string `json:"own_commission"`
+	ManualOwnCommission     string `json:"manual_own_commission"`
+	ManualOwnCommissionSet  bool   `json:"manual_own_commission_set"`
+	CanManualOwnCommission  bool   `json:"can_manual_own_commission"`
 	RentCommission          string `json:"rent_commission"`
 	GuaranteedCommission    string `json:"guaranteed_commission"`
 	BaseCommission          string `json:"base_commission"`

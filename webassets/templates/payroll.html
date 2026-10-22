@@ -19,7 +19,7 @@
         </div>
         <div class="header-actions">
           {{if eq .PayrollType "part_time"}}<a class="ghost-button link-button" href="/admin/work-logs?month={{.Summary.Month}}">登记每日工时</a>{{end}}
-          <button class="ghost-button" data-demo-action="导出工资表">导出工资表</button>
+          <button type="button" class="ghost-button" data-payroll-export data-month="{{.Summary.Month}}" data-payroll-type="{{.PayrollType}}">导出工资表</button>
           <div class="payroll-employee-picker" data-payroll-picker>
             <button type="button" class="employee-picker-toggle" data-payroll-picker-toggle>选择员工（可选）</button>
             <div class="employee-picker-panel" data-payroll-picker-panel hidden>
@@ -69,28 +69,17 @@
           <span class="count-badge">{{len .Payroll}} 人</span>
         </div>
         <div class="table-wrap">
-          <table class="payroll-edit-table">
+          <table class="payroll-edit-table" data-payroll-table data-payroll-type="{{.PayrollType}}">
             <thead><tr>
               <th class="payroll-select-column"><input type="checkbox" data-payroll-select-all aria-label="全选可发放员工"></th>
-              <th>员工</th><th>入职时工资</th>
-              {{if eq .PayrollType "part_time"}}<th>本月工时</th>{{end}}
-              <th>本月基本工资</th><th>奖金补贴</th><th>考勤扣款</th><th>其他扣款</th><th>社保</th><th>个税</th><th>手动实发（选填）</th><th>实发工资</th><th>状态</th><th>操作</th>
+              {{if eq .PayrollType "part_time"}}<th>员工</th><th>计薪方式</th><th><button type="button" class="table-sort" data-payroll-sort="work_hours">本月工时 ↕</button></th><th><button type="button" class="table-sort" data-payroll-sort="base_salary">系统工资 ↕</button></th><th><button type="button" class="table-sort" data-payroll-sort="bonus">奖金补贴 ↕</button></th><th><button type="button" class="table-sort" data-payroll-sort="other_deduction">其他扣款 ↕</button></th><th><button type="button" class="table-sort" data-payroll-sort="net_salary">实发工资 ↕</button></th><th>状态</th><th>操作</th>{{else}}<th>员工</th><th>入职时工资</th><th><button type="button" class="table-sort" data-payroll-sort="base_salary">本月基本工资 ↕</button></th><th><button type="button" class="table-sort" data-payroll-sort="bonus">奖金补贴 ↕</button></th><th><button type="button" class="table-sort" data-payroll-sort="attendance_deduction">考勤扣款 ↕</button></th><th><button type="button" class="table-sort" data-payroll-sort="other_deduction">其他扣款 ↕</button></th><th><button type="button" class="table-sort" data-payroll-sort="social_security">社保 ↕</button></th><th><button type="button" class="table-sort" data-payroll-sort="tax">个税 ↕</button></th><th>手动实发（选填）</th><th><button type="button" class="table-sort" data-payroll-sort="net_salary">实发工资 ↕</button></th><th>状态</th><th>操作</th>{{end}}
             </tr></thead>
             <tbody>
               {{range .Payroll}}
               <tr data-payroll-row data-id="{{.ID}}">
                 <td class="payroll-select-column"><input type="checkbox" data-payroll-select data-item-id="{{.ID}}" data-employee-name="{{.Name}}" aria-label="选择{{.Name}}" {{if eq .Status "已发放"}}disabled{{end}}></td>
                 <td><strong>{{.Name}}</strong><small class="cell-subtitle">{{if eq .EmploymentType "part_time"}}临时工{{else}}正式工{{end}}</small></td>
-                <td><strong class="salary">{{.EntrySalary}}</strong></td>
-                {{if eq $.PayrollType "part_time"}}<td><input class="money-input calculated-input" data-field="work_hours" type="number" min="0" step="0.01" value="{{.WorkHoursValue}}" placeholder="小时" readonly></td>{{end}}
-                <td><input class="money-input {{if eq $.PayrollType "part_time"}}calculated-input{{end}}" data-field="base_salary" type="number" min="0" step="0.01" value="{{.BaseSalaryValue}}" {{if eq $.PayrollType "part_time"}}readonly{{else if eq .Status "已发放"}}disabled{{end}}></td>
-                <td><input class="money-input positive-input" data-field="bonus" type="number" min="0" step="0.01" value="{{.BonusValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td>
-                <td><input class="money-input negative-input" data-field="attendance_deduction" type="number" min="0" step="0.01" value="{{.AttendanceDeductionValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td>
-                <td><input class="money-input negative-input" data-field="other_deduction" type="number" min="0" step="0.01" value="{{.OtherDeductionValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td>
-                <td><input class="money-input" data-field="social_security" type="number" min="0" step="0.01" value="{{.SocialSecurityValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td>
-                <td><input class="money-input" data-field="tax" type="number" min="0" step="0.01" value="{{.TaxValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td>
-                <td><input class="money-input net-input" data-field="manual_net_salary" type="number" min="0" step="0.01" value="{{.ManualNetSalaryValue}}" placeholder="算法：{{.NetSalary}}" {{if eq .Status "已发放"}}disabled{{end}}><small class="cell-subtitle">留空按算法</small></td>
-                <td><strong class="salary" data-net-salary>{{.NetSalary}}</strong></td>
+                {{if eq $.PayrollType "part_time"}}<td>{{if eq .PayBasis "hourly"}}按小时{{else if eq .PayBasis "daily"}}按天{{else}}按半天{{end}}</td><td><input class="money-input calculated-input" data-field="work_hours" type="number" min="0" step="0.01" value="{{.WorkHoursValue}}" placeholder="小时" readonly></td><td><input class="money-input calculated-input" data-field="base_salary" type="number" min="0" step="0.01" value="{{.BaseSalaryValue}}" readonly></td><td><input class="money-input positive-input" data-field="bonus" type="number" min="0" step="0.01" value="{{.BonusValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td><td><input class="money-input negative-input" data-field="other_deduction" type="number" min="0" step="0.01" value="{{.OtherDeductionValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td><td><strong class="salary" data-net-salary>{{.NetSalary}}</strong></td>{{else}}<td><strong class="salary">{{.EntrySalary}}</strong></td><td><input class="money-input" data-field="base_salary" type="number" min="0" step="0.01" value="{{.BaseSalaryValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td><td><input class="money-input positive-input" data-field="bonus" type="number" min="0" step="0.01" value="{{.BonusValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td><td><input class="money-input negative-input" data-field="attendance_deduction" type="number" min="0" step="0.01" value="{{.AttendanceDeductionValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td><td><input class="money-input negative-input" data-field="other_deduction" type="number" min="0" step="0.01" value="{{.OtherDeductionValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td><td><input class="money-input" data-field="social_security" type="number" min="0" step="0.01" value="{{.SocialSecurityValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td><td><input class="money-input" data-field="tax" type="number" min="0" step="0.01" value="{{.TaxValue}}" {{if eq .Status "已发放"}}disabled{{end}}></td><td><input class="money-input net-input" data-field="manual_net_salary" type="number" min="0" step="0.01" value="{{.ManualNetSalaryValue}}" placeholder="算法：{{.NetSalary}}" {{if eq .Status "已发放"}}disabled{{end}}><small class="cell-subtitle">留空按算法</small></td><td><strong class="salary" data-net-salary>{{.NetSalary}}</strong></td>{{end}}
                 <td><span class="status {{.StatusClass}}">{{.Status}}</span></td>
                 <td><div class="row-actions">{{if ne .Status "已发放"}}<button data-save-payroll>保存</button>{{if eq .Status "待确认"}}<button data-confirm-payroll-item data-item-id="{{.ID}}" data-employee-name="{{.Name}}">单独确认</button>{{else if eq .Status "已确认"}}<button class="payroll-item-pay" data-pay-payroll-item data-item-id="{{.ID}}" data-employee-name="{{.Name}}">单独发放</button>{{end}}<button class="danger-action" data-delete-payroll data-item-id="{{.ID}}" data-employee-name="{{.Name}}">删除</button>{{else}}<span>已发放</span>{{end}}</div></td>
               </tr>

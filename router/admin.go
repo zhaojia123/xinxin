@@ -39,6 +39,7 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	mux.HandleFunc("/admin/payroll", h.PayrollPage)
 	// GET /admin/work-logs：小时工每日工时记录。
 	mux.HandleFunc("/admin/work-logs", h.WorkLogsPage)
+	mux.HandleFunc("/admin/work-logs/export", h.WorkLogsExport(tokens))
 	mux.HandleFunc("/admin/payroll/export", h.PayrollExport(tokens))
 	// GET /admin/ledger：台账流水和收支统计页面。
 	mux.HandleFunc("/admin/ledger", h.LedgerPage)

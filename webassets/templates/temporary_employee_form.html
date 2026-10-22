@@ -1,6 +1,6 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.PageTitle}} · 好友记录</title><link rel="stylesheet" href="/assets/app.css"><script defer src="/assets/app.js"></script></head>
 <body><div class="admin-shell">{{template "sidebar" .}}<main class="admin-main narrow-main">
-<header class="admin-topbar"><div><p class="breadcrumb"><a href="/admin/employees">员工档案</a> / {{.PageTitle}}</p><h1>{{.PageTitle}}</h1><p class="page-description">只填写临时工实际需要的信息，保存后可直接参与月度工资计算</p></div></header>
+<header class="admin-topbar"><div><p class="breadcrumb"><a href="{{.ReturnTo}}">员工档案</a> / {{.PageTitle}}</p><h1>{{.PageTitle}}</h1><p class="page-description">只填写临时工实际需要的信息，保存后返回进入前的员工列表</p></div></header>
 {{if .Error}}<div class="alert" role="alert">{{.Error}}</div>{{end}}
 <form class="detail-card temporary-employee-form" method="post" data-employee-form>
   <input type="hidden" name="temporary" value="1"><input type="hidden" name="employee_no" value="{{.Form.EmployeeNo}}"><input type="hidden" name="gender" value="unknown"><input type="hidden" name="employment_status" value="active"><input type="hidden" name="employment_type" value="part_time">
@@ -16,5 +16,5 @@
     <label>入职时间<input name="joined_on" type="date" value="{{.Form.JoinedOn}}" required></label>
     <label>离职日期<input name="left_on" type="date" value="{{.Form.LeftOn}}"></label>
   </div></div>
-  <div class="form-actions"><a class="ghost-button link-button" href="/admin/employees">取消</a><button class="primary-button" type="submit">保存临时工</button></div>
+  <div class="form-actions"><a class="ghost-button link-button" href="{{.ReturnTo}}">取消</a><button class="primary-button" type="submit">保存临时工</button></div>
 </form></main></div><div class="demo-toast" role="status"></div></body></html>

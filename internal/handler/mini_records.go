@@ -420,6 +420,70 @@ func (h *Handler) MiniAttendanceAPI(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// MiniWorkLogsAPI 为小程序提供临时工逐日工时登记；新增时可一次选择多个日期。
+func (h *Handler) MiniWorkLogsAPI(w http.ResponseWriter, r *http.Request) {
+	id, ok := miniID(w, r)
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		if id != 0 {
+			item, err := h.Store.WorkLog(r.Context(), id)
+			if err != nil {
+				miniFail(w, err)
+				return
+			}
+			httpx.JSON(w, http.StatusOK, item)
+			return
+		}
+		month := strings.TrimSpace(r.URL.Query().Get("month"))
+		if month != "" {
+			if _, err := time.Parse("2006-01", month); err != nil {
+				httpx.Error(w, http.StatusBadRequest, "月份格式应为YYYY-MM")
+				return
+			}
+		}
+		items, err := h.Store.WorkLogs(r.Context(), mysql.NormalizeMonth(month), r.URL.Query().Get("q"))
+		if err != nil {
+			miniFail(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"records": items, "has_more": false})
+	case http.MethodPost, http.MethodPut:
+		if r.Method == http.MethodPost && id != 0 {
+			httpx.Error(w, http.StatusBadRequest, "新增工时不能携带ID")
+			return
+		}
+		var input request.WorkLogInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if err := input.Validate(); err != nil {
+			httpx.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		saved, err := h.Store.SaveWorkLogs(r.Context(), id, miniActor(r), input)
+		if err != nil {
+			miniFail(w, err)
+			return
+		}
+		httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": saved[0], "ids": saved, "saved_count": len(saved)})
+	case http.MethodDelete:
+		if id == 0 {
+			httpx.Error(w, http.StatusBadRequest, "删除工时必须提供ID")
+			return
+		}
+		if err := h.Store.DeleteWorkLog(r.Context(), id, miniActor(r)); err != nil {
+			miniFail(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"id": id})
+	default:
+		httpx.MethodNotAllowed(w, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete)
+	}
+}
+
 func (h *Handler) MiniOptionsAPI(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:

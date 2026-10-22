@@ -41,13 +41,19 @@ func calculateStall(item *response.Stall, conradRate float64) {
 		base = total * stallNumber(item.BaseAmountRate) / 100 * stallNumber(item.BaseAmountFactor) / 100
 		totalRate = total * stallNumber(item.TotalAmountRate) / 100
 	}
-	own := jia + yi + rent + guaranteed + base + totalRate
+	calculatedOwn := jia + yi + rent + guaranteed + base + totalRate
+	own := calculatedOwn
+	// 没有单独配置抽成规则时，允许对当前月份手动填写我方抽成。
+	if item.ManualOwnCommissionSet {
+		own = stallNumber(item.ManualOwnCommission)
+	}
 	item.NetTurnover = Decimal(net)
 	item.TotalTurnover = Decimal(total)
 	item.ConradCommission = Decimal(conrad)
 	item.JiaCommission = Decimal(jia)
 	item.YiCommission = Decimal(yi)
 	item.OwnCommission = Decimal(own)
+	item.CanManualOwnCommission = calculatedOwn == 0 || item.ManualOwnCommissionSet
 	item.RentCommission = Decimal(rent)
 	item.GuaranteedCommission = Decimal(guaranteed)
 	item.BaseCommission = Decimal(base)
@@ -62,8 +68,8 @@ func scanStall(row interface{ Scan(...any) error }, conradRate float64) (respons
 	var month sql.NullString
 	var mode sql.NullString
 	var rent, defaultGuaranteed, jiaRate, yiRate, guaranteedRate, baseRate, baseFactor, totalRate sql.NullFloat64
-	var card, huilaimi, cost, guaranteedAmount sql.NullFloat64
-	if err := row.Scan(&item.ID, &item.StallNo, &item.Name, &item.ResponsibleName, &item.ResponsibleMobile, &rent, &defaultGuaranteed, &mode, &jiaRate, &yiRate, &guaranteedRate, &baseRate, &baseFactor, &totalRate, &item.Remark, &turnoverID, &month, &card, &huilaimi, &cost, &guaranteedAmount); err != nil {
+	var card, huilaimi, cost, guaranteedAmount, manualOwnCommission sql.NullFloat64
+	if err := row.Scan(&item.ID, &item.StallNo, &item.Name, &item.ResponsibleName, &item.ResponsibleMobile, &rent, &defaultGuaranteed, &mode, &jiaRate, &yiRate, &guaranteedRate, &baseRate, &baseFactor, &totalRate, &item.Remark, &turnoverID, &month, &card, &huilaimi, &cost, &guaranteedAmount, &manualOwnCommission); err != nil {
 		return response.Stall{}, err
 	}
 	item.MonthlyRent = Decimal(rent.Float64)
@@ -84,6 +90,8 @@ func scanStall(row interface{ Scan(...any) error }, conradRate float64) (respons
 	item.HuilaimiAmount = Decimal(huilaimi.Float64)
 	item.CostAmount = Decimal(cost.Float64)
 	item.GuaranteedAmount = Decimal(guaranteedAmount.Float64)
+	item.ManualOwnCommission = Decimal(manualOwnCommission.Float64)
+	item.ManualOwnCommissionSet = manualOwnCommission.Valid
 	if guaranteedAmount.Float64 == 0 {
 		item.GuaranteedAmount = item.DefaultGuaranteedAmount
 	}
@@ -94,7 +102,7 @@ func scanStall(row interface{ Scan(...any) error }, conradRate float64) (respons
 func stallSelect() string {
 	return `SELECT s.id,s.stall_no,s.name,s.responsible_name,s.responsible_mobile,s.monthly_rent,s.default_guaranteed_amount,
  s.allocation_mode,s.profit_jia_rate,s.profit_yi_rate,s.guaranteed_rate,s.base_amount_rate,s.base_amount_factor,s.total_amount_rate,s.remark,
- t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE(t.cost_amount,0),COALESCE(t.guaranteed_amount,0)`
+ t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE(t.cost_amount,0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
 }
 
 func stallMonthlySelect() string {
@@ -102,7 +110,7 @@ func stallMonthlySelect() string {
  COALESCE(r.monthly_rent,s.monthly_rent),COALESCE(r.default_guaranteed_amount,s.default_guaranteed_amount),
  COALESCE(r.allocation_mode,s.allocation_mode),COALESCE(r.profit_jia_rate,s.profit_jia_rate),COALESCE(r.profit_yi_rate,s.profit_yi_rate),
  COALESCE(r.guaranteed_rate,s.guaranteed_rate),COALESCE(r.base_amount_rate,s.base_amount_rate),COALESCE(r.base_amount_factor,s.base_amount_factor),COALESCE(r.total_amount_rate,s.total_amount_rate),s.remark,
- t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE(t.cost_amount,0),COALESCE(t.guaranteed_amount,0)`
+ t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE(t.cost_amount,0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
 }
 
 // StallSettings 查询指定月份的康莱德公司抽成比例；未设置时返回0。
@@ -310,7 +318,7 @@ func (s *Store) SaveStallTurnover(ctx context.Context, id, actor uint64, v reque
 	if err := s.ready(); err != nil {
 		return 0, err
 	}
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO stall_turnovers(stall_id,turnover_month,school_amount,card_amount,huilaimi_amount,cost_amount,guaranteed_amount,remark) VALUES(?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE school_amount=VALUES(school_amount),card_amount=VALUES(card_amount),huilaimi_amount=VALUES(huilaimi_amount),cost_amount=VALUES(cost_amount),guaranteed_amount=VALUES(guaranteed_amount),remark=VALUES(remark),active=1,deleted_at=NULL,deleted_by=NULL`, v.StallID, v.Month+"-01", v.CardAmount, v.CardAmount, v.HuilaimiAmount, v.CostAmount, v.GuaranteedAmount, v.Remark)
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO stall_turnovers(stall_id,turnover_month,school_amount,card_amount,huilaimi_amount,cost_amount,guaranteed_amount,manual_own_commission,remark) VALUES(?,?,?,?,?,?,?,NULLIF(?,''),?) ON DUPLICATE KEY UPDATE school_amount=VALUES(school_amount),card_amount=VALUES(card_amount),huilaimi_amount=VALUES(huilaimi_amount),cost_amount=VALUES(cost_amount),guaranteed_amount=VALUES(guaranteed_amount),manual_own_commission=VALUES(manual_own_commission),remark=VALUES(remark),active=1,deleted_at=NULL,deleted_by=NULL`, v.StallID, v.Month+"-01", v.CardAmount, v.CardAmount, v.HuilaimiAmount, v.CostAmount, v.GuaranteedAmount, v.ManualOwnCommission, v.Remark)
 	if err != nil {
 		return 0, err
 	}
@@ -349,7 +357,8 @@ func (s *Store) PostStallCommissionLedger(ctx context.Context, actor uint64, v r
 	var stallID uint64
 	var stallName, responsible, mode string
 	var rent, defaultGuaranteed, jiaRate, yiRate, guaranteedRate, baseRate, baseFactor, totalRate, card, huilaimi, cost, guaranteedAmount float64
-	if err := tx.QueryRowContext(ctx, `SELECT s.id,s.name,s.responsible_name,COALESCE(r.allocation_mode,s.allocation_mode),COALESCE(r.monthly_rent,s.monthly_rent),COALESCE(r.default_guaranteed_amount,s.default_guaranteed_amount),COALESCE(r.profit_jia_rate,s.profit_jia_rate),COALESCE(r.profit_yi_rate,s.profit_yi_rate),COALESCE(r.guaranteed_rate,s.guaranteed_rate),COALESCE(r.base_amount_rate,s.base_amount_rate),COALESCE(r.base_amount_factor,s.base_amount_factor),COALESCE(r.total_amount_rate,s.total_amount_rate),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE(t.cost_amount,0),COALESCE(t.guaranteed_amount,0) FROM stall_accounts s LEFT JOIN stall_turnovers t ON t.stall_id=s.id AND t.turnover_month=? AND t.active=1 LEFT JOIN stall_monthly_rules r ON r.stall_id=s.id AND r.turnover_month=? WHERE s.id=? AND s.active=1`, v.Month+"-01", v.Month+"-01", v.StallID).Scan(&stallID, &stallName, &responsible, &mode, &rent, &defaultGuaranteed, &jiaRate, &yiRate, &guaranteedRate, &baseRate, &baseFactor, &totalRate, &card, &huilaimi, &cost, &guaranteedAmount); err == sql.ErrNoRows {
+	var manualOwnCommission sql.NullFloat64
+	if err := tx.QueryRowContext(ctx, `SELECT s.id,s.name,s.responsible_name,COALESCE(r.allocation_mode,s.allocation_mode),COALESCE(r.monthly_rent,s.monthly_rent),COALESCE(r.default_guaranteed_amount,s.default_guaranteed_amount),COALESCE(r.profit_jia_rate,s.profit_jia_rate),COALESCE(r.profit_yi_rate,s.profit_yi_rate),COALESCE(r.guaranteed_rate,s.guaranteed_rate),COALESCE(r.base_amount_rate,s.base_amount_rate),COALESCE(r.base_amount_factor,s.base_amount_factor),COALESCE(r.total_amount_rate,s.total_amount_rate),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE(t.cost_amount,0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission FROM stall_accounts s LEFT JOIN stall_turnovers t ON t.stall_id=s.id AND t.turnover_month=? AND t.active=1 LEFT JOIN stall_monthly_rules r ON r.stall_id=s.id AND r.turnover_month=? WHERE s.id=? AND s.active=1`, v.Month+"-01", v.Month+"-01", v.StallID).Scan(&stallID, &stallName, &responsible, &mode, &rent, &defaultGuaranteed, &jiaRate, &yiRate, &guaranteedRate, &baseRate, &baseFactor, &totalRate, &card, &huilaimi, &cost, &guaranteedAmount, &manualOwnCommission); err == sql.ErrNoRows {
 		return ErrNotFound
 	} else if err != nil {
 		return apperror.Wrap(err, "读取档口抽成数据失败")
@@ -361,7 +370,7 @@ func (s *Store) PostStallCommissionLedger(ctx context.Context, actor uint64, v r
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(conrad_rate,0) FROM stall_commission_settings WHERE turnover_month=?`, v.Month+"-01").Scan(&conradRate); err != nil && err != sql.ErrNoRows {
 		return apperror.Wrap(err, "读取康莱德抽成比例失败")
 	}
-	item := response.Stall{AllocationMode: mode, MonthlyRent: Decimal(rent), DefaultGuaranteedAmount: Decimal(defaultGuaranteed), ProfitJiaRate: stallRate(jiaRate), ProfitYiRate: stallRate(yiRate), GuaranteedRate: stallRate(guaranteedRate), BaseAmountRate: stallRate(baseRate), BaseAmountFactor: stallRate(baseFactor), TotalAmountRate: stallRate(totalRate), SchoolCardAmount: Decimal(card), HuilaimiAmount: Decimal(huilaimi), CostAmount: Decimal(cost), GuaranteedAmount: Decimal(guaranteedAmount)}
+	item := response.Stall{AllocationMode: mode, MonthlyRent: Decimal(rent), DefaultGuaranteedAmount: Decimal(defaultGuaranteed), ProfitJiaRate: stallRate(jiaRate), ProfitYiRate: stallRate(yiRate), GuaranteedRate: stallRate(guaranteedRate), BaseAmountRate: stallRate(baseRate), BaseAmountFactor: stallRate(baseFactor), TotalAmountRate: stallRate(totalRate), SchoolCardAmount: Decimal(card), HuilaimiAmount: Decimal(huilaimi), CostAmount: Decimal(cost), GuaranteedAmount: Decimal(guaranteedAmount), ManualOwnCommission: Decimal(manualOwnCommission.Float64), ManualOwnCommissionSet: manualOwnCommission.Valid}
 	calculateStall(&item, conradRate)
 	amount := stallNumber(item.OwnCommission)
 	if amount <= 0 {

@@ -9,7 +9,8 @@
     "pages/employees/index",
     "pages/employee-edit/index",
     "pages/employee-detail/index",
-    "pages/attendance/index"
+    "pages/attendance/index",
+    "pages/work-logs/index"
   ],
   "window": {
     "navigationBarTitleText": "欣欣的日常记录",

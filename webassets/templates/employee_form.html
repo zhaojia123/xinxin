@@ -1,6 +1,6 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.PageTitle}} · 好友记录</title><link rel="stylesheet" href="/assets/app.css"><script defer src="/assets/app.js"></script></head>
 <body><div class="admin-shell">{{template "sidebar" .}}<main class="admin-main narrow-main">
-<header class="admin-topbar"><div><p class="breadcrumb"><a href="/admin/employees">员工档案</a> / {{.PageTitle}}</p><h1>{{.PageTitle}}</h1><p class="page-description">保存后自动返回员工档案列表</p></div></header>
+<header class="admin-topbar"><div><p class="breadcrumb"><a href="{{.ReturnTo}}">员工档案</a> / {{.PageTitle}}</p><h1>{{.PageTitle}}</h1><p class="page-description">保存后自动返回进入前的员工列表</p></div></header>
 {{if .Error}}<div class="alert" role="alert">{{.Error}}</div>{{end}}
 <form class="detail-card" method="post" enctype="multipart/form-data" data-employee-form><div class="form-section"><div class="section-title"><div><h2>基本信息</h2><p>带 * 的项目为必填项</p></div></div><div class="form-grid">
 <label>员工编号<input name="employee_no" maxlength="32" value="{{.Form.EmployeeNo}}" placeholder="留空由系统自动生成"></label>
@@ -36,5 +36,5 @@
 <div class="employee-document-item"><div class="upload-dropzone" data-employee-create-upload><input type="file" data-employee-create-file data-kind="health_certificate_front" accept="image/jpeg,image/png,image/webp"><span class="upload-dropzone-plus">＋</span><strong>健康证正面</strong><small data-employee-create-name>选择图片</small></div></div>
 <div class="employee-document-item"><div class="upload-dropzone" data-employee-create-upload><input type="file" data-employee-create-file data-kind="health_certificate_back" accept="image/jpeg,image/png,image/webp"><span class="upload-dropzone-plus">＋</span><strong>健康证反面</strong><small data-employee-create-name>选择图片</small></div></div>
 </div><p class="employee-upload-tip">可先选择多张图片，点击“保存员工”后会一并上传。</p>{{end}}</div>
-<div class="form-actions"><a class="ghost-button link-button" href="/admin/employees">取消</a><button class="primary-button" type="submit">保存员工</button></div></form>
+<div class="form-actions"><a class="ghost-button link-button" href="{{.ReturnTo}}">取消</a><button class="primary-button" type="submit">保存员工</button></div></form>
 </main></div><div class="demo-toast" role="status"></div></body></html>

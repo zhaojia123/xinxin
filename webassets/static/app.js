@@ -217,15 +217,16 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
   const setupDateMulti = overlay => {
-    const field = overlay.querySelector('[data-record-field="occurred_ons"]');
+    const field = overlay.querySelector('[data-record-field="occurred_ons"], [data-work-log-dates]');
     if (!field) return;
     const input = field.querySelector("[data-date-multi-input]");
-    const hidden = field.querySelector('input[name="occurred_ons"]');
+    const isWorkLog = field.hasAttribute("data-work-log-dates");
+    const hidden = field.querySelector(isWorkLog ? 'input[name="work_dates"]' : 'input[name="occurred_ons"]');
     const list = field.querySelector("[data-date-multi-list]");
     const summary = field.querySelector("[data-date-multi-summary]");
     const calendar = field.querySelector("[data-date-calendar]");
     const editable = !calendar?.hasAttribute("data-readonly");
-    const duration = overlay.querySelector('[name="duration_days"]');
+    const duration = overlay.querySelector(isWorkLog ? '[name="hours"]' : '[name="duration_days"]');
     let dragging = false;
     let dragStart = "";
     let dragEnd = "";
@@ -284,7 +285,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (summary) {
         const perDate = Number(duration?.value || 0);
         const total = dates.length * (Number.isFinite(perDate) ? perDate : 0);
-        summary.textContent = dates.length ? `已选 ${dates.length} 个日期，每个日期 ${perDate.toFixed(2)} 天，本次合计 ${total.toFixed(2)} 天` : "请至少加入一个发生日期";
+        summary.textContent = dates.length
+          ? (isWorkLog ? `已选 ${dates.length} 个工作日期，每日 ${perDate.toFixed(2)} 小时，本次合计 ${total.toFixed(2)} 小时` : `已选 ${dates.length} 个日期，每个日期 ${perDate.toFixed(2)} 天，本次合计 ${total.toFixed(2)} 天`)
+          : (isWorkLog ? "请至少加入一个工作日期" : "请至少加入一个发生日期");
       }
       renderCalendar();
       list?.querySelectorAll("[data-date-multi-remove]").forEach(button => button.addEventListener("click", () => {
@@ -371,7 +374,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!confirmed) return;
         try {
           await fetchJSON(`${recordEndpoints.ledger}?id=${id}`, {method: "DELETE"});
-          window.location.href = window.location.pathname + window.location.search;
+          // 弹窗从当前列表打开，保存后只刷新当前列表和筛选条件。
+          window.location.reload();
         } catch (error) {
           overlay.querySelector(".record-dialog-error").textContent = error.message;
         }
@@ -482,7 +486,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const saved = await fetchJSON(recordEndpoints[kind] + (id ? `?id=${id}` : ""), {method:id ? "PUT" : "POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(values)});
             if (kind === "ledger" && pendingProofs.length) await uploadLedgerProofFiles(saved.id || id, pendingProofs);
           }
-          window.location.href = window.location.pathname + window.location.search;
+          // 新增或修改后保持在当前列表，不丢失已选筛选条件。
+          window.location.reload();
         } catch (error) { form.querySelector(".record-dialog-error").textContent = error.message; button.disabled = false; }
       });
     } catch (error) { showMessage(error.message); }
@@ -529,6 +534,14 @@ document.addEventListener("DOMContentLoaded", () => {
   enableListRowEditing(".table-card tbody tr", "attendance");
   enableListRowEditing(".organization-grid tbody tr");
   enableListRowEditing("[data-employee-row]");
+  // 从员工列表进入新增或编辑页时，带上当前列表地址，保存和取消都会回到原列表。
+  document.querySelectorAll("[data-employee-create], [data-employee-edit]").forEach(link => {
+    link.addEventListener("click", () => {
+      const target = new URL(link.href, window.location.origin);
+      target.searchParams.set("return_to", window.location.pathname + window.location.search);
+      link.href = target.pathname + target.search;
+    });
+  });
   document.querySelectorAll("[data-employee-inline]").forEach(input => {
     input.dataset.originalValue = input.value;
     input.addEventListener("change", async () => {
@@ -554,6 +567,11 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       await fetchJSON(`${endpoint}?id=${button.dataset.id}`, {method:"DELETE"});
       // 详情页删除后回到列表，避免继续停留在已不存在的详情地址。
+      // 列表内删除只刷新当前列表，保留当前筛选和页码；详情页才返回员工列表。
+      if (button.closest("tr")) {
+        window.location.reload();
+        return;
+      }
       window.location.href = kind === "employee" ? "/admin/employees" : window.location.pathname + window.location.search;
     } catch (error) {
       showMessage(error.message);
@@ -571,7 +589,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const date = await askValue({title:`办理 ${button.dataset.name} 离职`,label:"离职日期",type:"date",value:today()});
     if (!date) return;
     button.disabled=true;
-    try { await fetchJSON(`/api/admin/employees/leave?id=${button.dataset.id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({left_on:date})}); window.location.href="/admin/employees"; }
+    try { await fetchJSON(`/api/admin/employees/leave?id=${button.dataset.id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({left_on:date})}); window.location.reload(); }
     catch(error){showMessage(error.message);button.disabled=false;}
   }));
   document.querySelector("[data-confirm-payroll]")?.addEventListener("click", async event => {
@@ -874,6 +892,19 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const payrollRows = Array.from(document.querySelectorAll("[data-payroll-row]"));
+  const payrollTable = document.querySelector("[data-payroll-table]");
+  let payrollSort = {key: "", direction: 1};
+  payrollTable?.querySelectorAll("[data-payroll-sort]").forEach(button => button.addEventListener("click", () => {
+    const key = button.dataset.payrollSort;
+    payrollSort = {key, direction: payrollSort.key === key ? -payrollSort.direction : 1};
+    const body = payrollTable.querySelector("tbody");
+    const rows = Array.from(body?.querySelectorAll("[data-payroll-row]") || []);
+    const value = row => key === "net_salary"
+      ? Number((row.querySelector("[data-net-salary]")?.textContent || "").replace(/[^0-9.-]/g, ""))
+      : numberValue(row, key);
+    rows.sort((left, right) => (value(left) - value(right)) * payrollSort.direction).forEach(row => body.appendChild(row));
+    payrollTable.querySelectorAll("[data-payroll-sort]").forEach(item => item.classList.toggle("is-active", item === button));
+  }));
   payrollRows.forEach((row) => {
     row.querySelectorAll(".money-input").forEach((input) => input.addEventListener("input", () => {
       row.dataset.payrollVersion = String(Number(row.dataset.payrollVersion || 0) + 1);
@@ -1011,6 +1042,10 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  const employeeReturnToList = () => {
+    const target = new URLSearchParams(window.location.search).get("return_to") || "/admin/employees";
+    return target.startsWith("/admin/employees") ? target : "/admin/employees";
+  };
   const employeeCreateForm = document.querySelector("[data-employee-form]");
   const employeeCreateUploads = document.querySelectorAll("[data-employee-create-upload]");
   if (employeeCreateForm && employeeCreateUploads.length) {
@@ -1044,11 +1079,11 @@ document.addEventListener("DOMContentLoaded", () => {
           const data = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(data.error || "证件图片上传失败");
         }
-        window.location.href = "/admin/employees";
+        window.location.href = employeeReturnToList();
       } catch (error) {
         if (saved?.id) {
           showMessage(`员工已保存，但证件图片上传失败：${error.message}`);
-          setTimeout(() => { window.location.href = `/admin/employees/edit?id=${saved.id}`; }, 700);
+          setTimeout(() => { window.location.href = `/admin/employees/edit?id=${saved.id}&return_to=${encodeURIComponent(employeeReturnToList())}`; }, 700);
         } else {
           showMessage(`保存员工失败：${error.message}`);
           button.disabled = false;
@@ -1060,14 +1095,13 @@ document.addEventListener("DOMContentLoaded", () => {
   // 统一补充列表序号、查询条件和金额区间筛选，避免各页面重复实现。
   const pagePath = window.location.pathname;
   if (pagePath === "/admin/payroll") {
-    const exportButton = document.querySelector('[data-demo-action="导出工资表"]');
+    const exportButton = document.querySelector("[data-payroll-export]");
     if (exportButton) {
-      // 工资表使用服务端导出，阻止通用的“未启用”演示提示。
       exportButton.addEventListener("click", (event) => {
         event.preventDefault();
-        event.stopImmediatePropagation();
-        const month = document.querySelector('input[type="month"]')?.value || "";
-        const query = month ? `?month=${encodeURIComponent(month)}` : "";
+        const month = exportButton.dataset.month || document.querySelector('input[type="month"]')?.value || "";
+        const type = exportButton.dataset.payrollType || "full_time";
+        const query = `?month=${encodeURIComponent(month)}&type=${encodeURIComponent(type)}`;
         const dirtyRows = Array.from(document.querySelectorAll("[data-payroll-row][data-payroll-dirty=\"true\"]"));
         exportButton.disabled = true;
         Promise.all(dirtyRows.map(flushPayrollRow)).then(() => {
@@ -1076,7 +1110,7 @@ document.addEventListener("DOMContentLoaded", () => {
           exportButton.disabled = false;
           showMessage(`导出前保存失败：${error.message}`);
         });
-      }, true);
+      });
     }
   }
   const addSequenceColumn = (table) => {
@@ -1248,7 +1282,8 @@ document.addEventListener("DOMContentLoaded", () => {
   if (pagePath === "/admin/payroll" && pageTable) {
     const toolbar = document.querySelector(".table-card .table-toolbar");
     const range = addNumberRange(toolbar, "实发最低", "实发最高");
-    const apply = () => filterRowsByAmount(pageTable, 11, range);
+    const payrollType = document.querySelector("[data-payroll-table]")?.dataset.payrollType;
+    const apply = () => filterRowsByAmount(pageTable, payrollType === "part_time" ? 7 : 10, range);
     range.min.addEventListener("input", apply); range.max.addEventListener("input", apply);
   }
   if (pagePath === "/admin/stalls" || pagePath === "/admin/stalls/monthly") {
@@ -1273,7 +1308,7 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     const openTurnoverDialog = (data) => {
       const edit = Boolean(data.turnoverId && Number(data.turnoverId)); const overlay = document.createElement("div"); overlay.className = "record-dialog";
-      overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>${escapeHTML(data.stallName || "档口")}</small><h2>录入${escapeHTML(data.month || month())}营业额</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="record-form-grid"><label>月份 *<input name="month" type="month" required value="${escapeHTML(data.month || month())}"></label><label>学校卡机营业额<input name="card_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.card || "0")}"></label><label>汇来米营业额<input name="huilaimi_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.huilaimi || "0")}"></label><label>当月成本<input name="cost_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.cost || "0")}"></label><label>保底金额基数<input name="guaranteed_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.guaranteed || "0")}"></label><label class="span-2">备注（选填）<textarea name="remark" maxlength="500"></textarea></label></div><div class="notice-card compact-notice"><span>算</span><div><strong>本月总营业额 = 学校卡机 + 汇来米</strong><p>康莱德只按学校卡机计算；成本和保底金额只在对应抽成模式启用时参与计算。</p></div></div><div class="record-dialog-error" role="alert"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存营业额</button></div></form></div>`;
+      overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>${escapeHTML(data.stallName || "档口")}</small><h2>录入${escapeHTML(data.month || month())}营业额</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="record-form-grid"><label>月份 *<input name="month" type="month" required value="${escapeHTML(data.month || month())}"></label><label>学校卡机营业额<input name="card_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.card || "0")}"></label><label>汇来米营业额<input name="huilaimi_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.huilaimi || "0")}"></label><label>当月成本<input name="cost_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.cost || "0")}"></label><label>保底金额基数<input name="guaranteed_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.guaranteed || "0")}"></label><label>手动我方抽成<input name="manual_own_commission" type="number" min="0" step="0.01" value="${escapeHTML(data.manualOwn || "")}" placeholder="未配规则时可填写，留空恢复算法"></label><label class="span-2">备注（选填）<textarea name="remark" maxlength="500"></textarea></label></div><div class="notice-card compact-notice"><span>算</span><div><strong>本月总营业额 = 学校卡机 + 汇来米</strong><p>康莱德只按学校卡机计算；未配置档口抽成规则时，可填写手动我方抽成，留空则继续按档口规则自动计算。</p></div></div><div class="record-dialog-error" role="alert"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存营业额</button></div></form></div>`;
       document.body.appendChild(overlay); const close = () => overlay.remove(); overlay.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", close)); overlay.addEventListener("click", event => { if (event.target === overlay) close(); });
       overlay.querySelector("form").addEventListener("submit", async event => { event.preventDefault(); const form = event.currentTarget; const submit = form.querySelector("button[type=submit]"); submit.disabled = true; try { const values = Object.fromEntries(new FormData(form).entries()); values.stall_id = Number(data.stallId); await fetchJSON(`/api/admin/stall-turnovers${edit ? `?id=${data.turnoverId}` : ""}`, {method: edit ? "PUT" : "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(values)}); window.location.reload(); } catch (error) { form.querySelector(".record-dialog-error").textContent = error.message; submit.disabled = false; } });
     };
@@ -1294,19 +1329,24 @@ document.addEventListener("DOMContentLoaded", () => {
       catch (error) { form.querySelector("[data-stall-settings-error]").textContent = error.message; }
       finally { button.disabled = false; }
     });
+    const inlineTurnoverHTML = value => `<strong>¥${value || "0.00"}</strong><small>点击修改</small>`;
+    const inlineOwnCommissionHTML = item => {
+      if (item.can_manual_own_commission) return `<strong class="salary">¥${item.own_commission || "0.00"}</strong><small class="cell-subtitle">${item.manual_own_commission_set ? "手动抽成，点击修改" : "未设规则，点击填写"}</small>`;
+      const modeText = item.allocation_mode === "profit_share" ? "甲乙净额分成" : item.allocation_mode === "none" ? "不抽成" : "月租+自定义比例";
+      return `<strong class="salary">¥${item.own_commission || "0.00"}</strong><small class="cell-subtitle">${modeText}</small>`;
+    };
     const updateCalculatedRow = (row, item) => {
       const money = value => `¥${value || "0.00"}`;
-      const modeText = item.allocation_mode === "profit_share" ? "甲乙净额分成" : item.allocation_mode === "none" ? "不抽成" : "月租+自定义比例";
       const cells = row.cells;
-      cells[3].textContent = money(item.school_card_amount);
-      cells[4].textContent = money(item.huilaimi_amount);
+      cells[3].innerHTML = inlineTurnoverHTML(item.school_card_amount);
+      cells[4].innerHTML = inlineTurnoverHTML(item.huilaimi_amount);
       cells[5].innerHTML = `<strong>${money(item.total_turnover)}</strong>`;
-      cells[6].textContent = money(item.cost_amount);
+      cells[6].innerHTML = inlineTurnoverHTML(item.cost_amount);
       cells[7].textContent = money(item.net_turnover);
       cells[8].textContent = money(item.conrad_commission);
       cells[9].textContent = money(item.jia_commission);
       cells[10].textContent = money(item.yi_commission);
-      cells[11].innerHTML = `<strong class="salary">${money(item.own_commission)}</strong><small class="cell-subtitle">${modeText}</small>`;
+      cells[11].innerHTML = inlineOwnCommissionHTML(item);
       cells[12].textContent = money(item.remaining);
       const turnoverButton = cells[13].querySelector("[data-turnover-edit]");
       if (turnoverButton) {
@@ -1316,6 +1356,7 @@ document.addEventListener("DOMContentLoaded", () => {
         turnoverButton.dataset.huilaimi = item.huilaimi_amount || "0.00";
         turnoverButton.dataset.cost = item.cost_amount || "0.00";
         turnoverButton.dataset.guaranteed = item.guaranteed_amount || "0.00";
+        turnoverButton.dataset.manualOwn = item.manual_own_commission_set ? item.manual_own_commission || "0.00" : "";
       }
       const ledgerButton = cells[13].querySelector("[data-stall-ledger]");
       if (ledgerButton) ledgerButton.dataset.ownCommission = item.own_commission || "0.00";
@@ -1332,41 +1373,66 @@ document.addEventListener("DOMContentLoaded", () => {
       url.searchParams.set("month", value);
       window.location.href = url.toString();
     });
-    const startInlineEdit = (cell, value, save) => {
+    const startInlineEdit = (cell, value, save, afterSave) => {
       if (cell.dataset.inlineEditing === "true") return;
       cell.dataset.inlineEditing = "true";
+      const originalHTML = cell.innerHTML;
       const input = document.createElement("input");
-      input.type = "number"; input.min = "0"; input.step = "0.01"; input.value = value || "0";
+      input.type = "number"; input.min = "0"; input.step = "0.01";
+      input.value = value === "" && cell.dataset.inlineTurnoverField === "manual_own_commission" ? "" : value || "0";
       input.className = "inline-number-input";
       cell.textContent = ""; cell.appendChild(input); input.focus(); input.select();
       let finished = false;
       const finish = async commit => {
         if (finished) return;
         finished = true;
-        if (!commit) { window.location.reload(); return; }
+        if (!commit) { cell.innerHTML = originalHTML; delete cell.dataset.inlineEditing; return; }
         input.disabled = true;
-        try { await save(input.value); window.location.reload(); }
-        catch (error) { showMessage(error.message); window.location.reload(); }
+        try {
+          await save(input.value);
+          if (afterSave) await afterSave();
+          else cell.innerHTML = originalHTML;
+          delete cell.dataset.inlineEditing;
+          showMessage("已保存并重算当前档口");
+        } catch (error) {
+          cell.innerHTML = originalHTML;
+          delete cell.dataset.inlineEditing;
+          showMessage(error.message);
+        }
       };
       input.addEventListener("keydown", event => { if (event.key === "Enter") finish(true); if (event.key === "Escape") finish(false); });
       input.addEventListener("blur", () => finish(true));
     };
     document.querySelector("[data-stall-add]")?.addEventListener("click", () => openStallDialog());
+    root?.addEventListener("keydown", event => {
+      const cell = event.target.closest("[data-inline-turnover-field], [data-inline-master-field]");
+      if (!cell || (event.key !== "Enter" && event.key !== " ")) return;
+      event.preventDefault();
+      cell.click();
+    });
     root?.addEventListener("click", async event => {
       const row = event.target.closest("[data-stall-row]"); if (!row) return;
       const masterCell = event.target.closest("[data-inline-master-field]");
       if (masterCell && pagePath === "/admin/stalls") {
         const field = masterCell.dataset.inlineMasterField;
         const values = {stall_no: row.dataset.stallNo, name: row.dataset.name, responsible_name: row.dataset.responsibleName, responsible_mobile: row.dataset.responsibleMobile, monthly_rent: row.dataset.monthlyRent, default_guaranteed_amount: row.dataset.defaultGuaranteedAmount, allocation_mode: row.dataset.allocationMode, profit_jia_rate: row.dataset.profitJiaRate, profit_yi_rate: row.dataset.profitYiRate, guaranteed_rate: row.dataset.guaranteedRate, base_amount_rate: row.dataset.baseAmountRate, base_amount_factor: row.dataset.baseAmountFactor, total_amount_rate: row.dataset.totalAmountRate, remark: row.dataset.remark};
-        startInlineEdit(masterCell, values[field], async value => { values[field] = value; await fetchJSON(`/api/admin/stalls?id=${row.dataset.id}`, {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(values)}); });
+        startInlineEdit(masterCell, values[field], async value => { values[field] = value; await fetchJSON(`/api/admin/stalls?id=${row.dataset.id}`, {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(values)}); }, () => {
+          row.dataset[field.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())] = values[field];
+          masterCell.textContent = field.endsWith("rate") || field.endsWith("factor") ? `${values[field]}%` : `¥${values[field]}`;
+        });
         return;
       }
       const turnoverCell = event.target.closest("[data-inline-turnover-field]");
       if (turnoverCell && pagePath === "/admin/stalls/monthly") {
         const field = turnoverCell.dataset.inlineTurnoverField;
         const button = row.querySelector("[data-turnover-edit]");
-        const values = {stall_id: Number(row.dataset.id), month: month(), card_amount: button?.dataset.card || "0", huilaimi_amount: button?.dataset.huilaimi || "0", cost_amount: button?.dataset.cost || "0", guaranteed_amount: button?.dataset.guaranteed || "0", school_amount: button?.dataset.card || "0", remark: ""};
-        startInlineEdit(turnoverCell, values[field], async value => { values[field] = value; if (field === "card_amount") values.school_amount = value; await fetchJSON(`/api/admin/stall-turnovers${button?.dataset.turnoverId ? `?id=${button.dataset.turnoverId}` : ""}`, {method: button?.dataset.turnoverId ? "PUT" : "POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(values)}); });
+        const values = {stall_id: Number(row.dataset.id), month: month(), card_amount: button?.dataset.card || "0", huilaimi_amount: button?.dataset.huilaimi || "0", cost_amount: button?.dataset.cost || "0", guaranteed_amount: button?.dataset.guaranteed || "0", manual_own_commission: button?.dataset.manualOwn || "", school_amount: button?.dataset.card || "0", remark: ""};
+        startInlineEdit(turnoverCell, values[field], async value => { values[field] = value; if (field === "card_amount") values.school_amount = value; await fetchJSON(`/api/admin/stall-turnovers${button?.dataset.turnoverId ? `?id=${button.dataset.turnoverId}` : ""}`, {method: button?.dataset.turnoverId ? "PUT" : "POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(values)}); }, async () => {
+          const data = await fetchJSON(`/api/admin/stalls?month=${encodeURIComponent(month())}&q=${encodeURIComponent(row.dataset.stallNo || "")}`);
+          const item = (data.stalls || []).find(value => String(value.id) === String(row.dataset.id));
+          if (!item) throw new Error("没有找到当前档口");
+          updateCalculatedRow(row, item);
+        });
         return;
       }
       if (event.target.closest("[data-stall-edit]")) openStallDialog(row.dataset, pagePath === "/admin/stalls/monthly");
@@ -1496,6 +1562,19 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch (error) { showMessage(error.message); }
     });
     syncWorkLogSelections();
+    let workLogSort = {key: "", direction: 1};
+    root?.querySelectorAll("[data-work-log-sort]").forEach(button => button.addEventListener("click", () => {
+      const key = button.dataset.workLogSort;
+      workLogSort = {key, direction: workLogSort.key === key ? -workLogSort.direction : 1};
+      const body = root.querySelector("tbody");
+      const rows = Array.from(body?.querySelectorAll("[data-work-log-row]") || []);
+      const value = row => key === "hours"
+        ? Number(row.querySelector('[data-work-log-field="hours"]')?.value || 0)
+        : Number((row.querySelector("[data-work-log-amount]")?.textContent || "").replace(/[^0-9.-]/g, ""));
+      rows.sort((left, right) => (value(left) - value(right)) * workLogSort.direction).forEach(row => body.appendChild(row));
+      root.querySelectorAll("[data-work-log-sort]").forEach(item => item.classList.toggle("is-active", item === button));
+    }));
+    setupDateMulti(root);
     const refreshWorkLogRate = () => {
       const option = form?.querySelector('select[name="employee_id"] option:checked');
       const rate = Number(option?.dataset.payRate || 0);
@@ -1508,29 +1587,73 @@ document.addEventListener("DOMContentLoaded", () => {
       else hint.textContent = `时薪 ¥${rate.toFixed(2)}；全天约 ¥${(rate * 8).toFixed(2)}，半天约 ¥${(rate * 4).toFixed(2)}`;
     };
     form?.querySelector('select[name="employee_id"]')?.addEventListener("change", refreshWorkLogRate);
-    form?.querySelectorAll("[data-work-log-hours]").forEach(button => button.addEventListener("click", () => { form.querySelector('input[name="hours"]').value = button.dataset.workLogHours; }));
+    form?.querySelectorAll("[data-work-log-hours]").forEach(button => button.addEventListener("click", () => {
+      const hours = form.querySelector('input[name="hours"]');
+      hours.value = button.dataset.workLogHours;
+      hours.dispatchEvent(new Event("input", {bubbles: true}));
+    }));
     form?.addEventListener("submit", async event => {
       event.preventDefault();
       const submit = form.querySelector("button[type=submit]");
       submit.disabled = true;
-      try { await fetchJSON("/api/admin/work-logs", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(Object.fromEntries(new FormData(form).entries()))}); window.location.reload(); }
+      try {
+        const values = Object.fromEntries(new FormData(form).entries());
+        values.work_dates = String(values.work_dates || "").split(",").map(value => value.trim()).filter(Boolean);
+        if (!values.work_dates.length) throw new Error("请至少选择一个工作日期");
+        await fetchJSON("/api/admin/work-logs", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(values)});
+        window.location.reload();
+      }
       catch (error) { form.querySelector(".record-dialog-error").textContent = error.message; submit.disabled = false; }
     });
+    const workLogPayload = row => ({
+      employee_id: Number(row.dataset.employeeId),
+      work_date: row.querySelector('[data-work-log-field="work_date"]').value,
+      hours: row.querySelector('[data-work-log-field="hours"]').value,
+      remark: row.querySelector('[data-work-log-field="remark"]').value
+    });
+    const saveWorkLogRow = async row => {
+      await fetchJSON(`/api/admin/work-logs?id=${row.dataset.id}`, {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(workLogPayload(row))});
+      row.dataset.workLogDirty = "false";
+    };
+    const flushWorkLogRow = row => {
+      clearTimeout(row._workLogSaveTimer);
+      row._workLogSaveTimer = null;
+      const previous = row._workLogPending || Promise.resolve();
+      const task = previous.catch(() => {}).then(() => saveWorkLogRow(row));
+      row._workLogPending = task;
+      return task;
+    };
+    const scheduleWorkLogSave = row => {
+      clearTimeout(row._workLogSaveTimer);
+      row._workLogSaveTimer = setTimeout(() => {
+        row._workLogSaveTimer = null;
+        flushWorkLogRow(row).catch(error => showMessage(`工时自动保存失败：${error.message}`));
+      }, 450);
+    };
     root?.addEventListener("input", event => {
       const row = event.target.closest("[data-work-log-row]");
-      if (!row || event.target.dataset.workLogField !== "hours") return;
-      const rate = Number((row.querySelector("[data-work-log-rate]")?.textContent || "").replace(/[^0-9.-]/g, ""));
-      const hours = Number(event.target.value || 0);
-      const amount = row.querySelector("[data-work-log-amount]");
-      const divisor = row.dataset.payBasis === "daily" ? 8 : row.dataset.payBasis === "half_daily" ? 4 : 1;
-      if (amount) amount.textContent = `¥${(rate * hours / divisor).toFixed(2)}`;
+      if (!row || !event.target.dataset.workLogField) return;
+      if (event.target.dataset.workLogField === "hours") {
+        const rate = Number((row.querySelector("[data-work-log-rate]")?.textContent || "").replace(/[^0-9.-]/g, ""));
+        const hours = Number(event.target.value || 0);
+        const amount = row.querySelector("[data-work-log-amount]");
+        const divisor = row.dataset.payBasis === "daily" ? 8 : row.dataset.payBasis === "half_daily" ? 4 : 1;
+        if (amount) amount.textContent = `¥${(rate * hours / divisor).toFixed(2)}`;
+      }
+      row.dataset.workLogDirty = "true";
+      scheduleWorkLogSave(row);
+    });
+    root?.addEventListener("change", event => {
+      const row = event.target.closest("[data-work-log-row]");
+      if (!row || event.target.dataset.workLogField !== "work_date") return;
+      row.dataset.workLogDirty = "true";
+      scheduleWorkLogSave(row);
     });
     root?.addEventListener("click", async event => {
       const row = event.target.closest("[data-work-log-row]");
       if (!row) return;
       if (event.target.closest("[data-work-log-save]")) {
-        const values = {employee_id: Number(row.dataset.employeeId), work_date: row.querySelector('[data-work-log-field="work_date"]').value, hours: row.querySelector('[data-work-log-field="hours"]').value, remark: row.querySelector('[data-work-log-field="remark"]').value};
-        try { await fetchJSON(`/api/admin/work-logs?id=${row.dataset.id}`, {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(values)}); showMessage("工时已保存"); }
+        try { await flushWorkLogRow(row); showMessage("工时已保存"); }
         catch (error) { showMessage(error.message); }
       }
       if (event.target.closest("[data-work-log-delete]")) {

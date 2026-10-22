@@ -16,15 +16,16 @@ Page({
   },
   openHome(user) {
     // 仅能用 switchTab 跳转到当前底部导航中的页面，默认进入员工档案。
-    const target = hasPermission(user, 'employees') ? '/pages/employees/index' : hasPermission(user, 'attendance') ? '/pages/attendance/index' : ''
+    const target = hasPermission(user, 'employees') ? '/pages/employees/index' : hasPermission(user, 'attendance') ? '/pages/attendance/index' : hasPermission(user, 'work_logs') ? '/pages/work-logs/index' : ''
     if (!target) {
-      this.setData({ error: '当前账号尚未分配员工档案或请假管理权限，请联系管理员' })
+      this.setData({ error: '当前账号尚未分配员工档案、请假管理或临时工工时权限，请联系管理员' })
       return
     }
-    wx.switchTab({
-      url: target,
-      fail: () => this.setData({ error: '登录成功，但首页跳转失败，请重新打开小程序后再试' })
-    })
+    if (target === '/pages/work-logs/index') {
+      wx.reLaunch({ url: target, fail: () => this.setData({ error: '登录成功，但首页跳转失败，请重新打开小程序后再试' }) })
+      return
+    }
+    wx.switchTab({ url: target, fail: () => this.setData({ error: '登录成功，但首页跳转失败，请重新打开小程序后再试' }) })
   },
   async login() {
     if (this.data.loading) return

@@ -28,6 +28,7 @@ type EmployeesPageData struct {
 }
 type EmployeePageData struct {
 	ActiveMenu, Mode, PageTitle string
+	ReturnTo                    string
 	ID                          uint64
 	Temporary                   bool
 	Employee                    response.Employee
@@ -37,6 +38,21 @@ type EmployeePageData struct {
 	Departments                 []response.Department
 	Positions                   []response.Position
 }
+
+// employeeListReturnTo 仅允许返回员工列表，避免表单回跳到非本站地址。
+func employeeListReturnTo(raw string) string {
+	const fallback = "/admin/employees"
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.IsAbs() || parsed.Path != fallback {
+		return fallback
+	}
+	return parsed.RequestURI()
+}
+
 type RecordsPageData struct {
 	ActiveMenu         string
 	Exceptions         []response.AttendanceRecord
@@ -286,7 +302,7 @@ func (h *Handler) EmployeeForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	temporary := r.URL.Query().Get("temporary") == "1"
-	data := EmployeePageData{ActiveMenu: "employees", Mode: "new", PageTitle: "新增员工", Temporary: temporary, Departments: departments, Positions: positions}
+	data := EmployeePageData{ActiveMenu: "employees", Mode: "new", PageTitle: "新增员工", ReturnTo: employeeListReturnTo(r.URL.Query().Get("return_to")), Temporary: temporary, Departments: departments, Positions: positions}
 	data.Form.Gender, data.Form.EmploymentStatus, data.Form.EmploymentType, data.Form.PayBasis, data.Form.CurrentSalary, data.Form.JoinedOn = "unknown", "probation", "full_time", "monthly", "", time.Now().Format("2006-01-02")
 	if temporary {
 		data.PageTitle = "新增临时工"
@@ -413,7 +429,7 @@ func (h *Handler) EmployeeForm(w http.ResponseWriter, r *http.Request) {
 		renderForm()
 		return
 	}
-	http.Redirect(w, r, "/admin/employees", http.StatusSeeOther)
+	http.Redirect(w, r, data.ReturnTo, http.StatusSeeOther)
 }
 
 // temporaryEmployeeNo 为临时工生成内部编号，用户无需手工维护编号。

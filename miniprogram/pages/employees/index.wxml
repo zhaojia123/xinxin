@@ -1,6 +1,7 @@
 <view class="page">
   <view class="employee-page-header"><view class="employee-title-block"><view class="eyebrow">一起把日子过好</view><view class="title">员工档案</view></view><view wx:if="{{canCreate}}" class="employee-add-actions"><button class="secondary small-button" data-temporary="1" bindtap="add">＋ 临时工</button><button class="primary small-button" data-temporary="0" bindtap="add">＋ 正式工</button></view></view>
   <view class="subtitle">每一位伙伴，都有一份清晰的记录。</view>
+  <button wx:if="{{canWorkLogs}}" class="employee-work-log-entry secondary" bindtap="workLogs">登记临时工工时</button>
   <view class="health-reminder card"><view class="row"><view><view class="section-title">健康证到期提醒</view><view class="muted">未来 20 天内到期</view></view><view class="health-count">{{reminders.length}} 人</view></view><view wx:if="{{reminders.length}}" class="health-names"><text wx:for="{{reminders}}" wx:key="employee_id">{{item.name}}（{{item.days_remaining}}天）</text></view><view wx:else class="muted">未来 20 天暂无健康证到期员工</view></view>
   <view class="stats card"><view><text class="count">{{summary ? summary.total : '—'}}</text><text class="muted">员工总数</text></view><view><text class="count positive">{{summary ? summary.active : '—'}}</text><text class="muted">在职</text></view><view><text class="count blue">{{summary ? summary.probation : '—'}}</text><text class="muted">试用期</text></view></view>
   <view class="search"><input placeholder="搜索姓名、员工编号、手机号" value="{{q}}" bindinput="search" maxlength="64" confirm-type="search"/></view>

@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"encoding/csv"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"friends-records/api/request"
@@ -72,12 +74,12 @@ func (h *Handler) WorkLogsAPI(tokens *token.Manager) http.HandlerFunc {
 				httpx.Error(w, http.StatusBadRequest, err.Error())
 				return
 			}
-			saved, err := h.Store.SaveWorkLog(r.Context(), id, actor, input)
+			saved, err := h.Store.SaveWorkLogs(r.Context(), id, actor, input)
 			if err != nil {
 				adminWriteError(w, err)
 				return
 			}
-			httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": saved})
+			httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": saved[0], "ids": saved, "saved_count": len(saved)})
 		case http.MethodDelete:
 			ids := []uint64{id}
 			if id == 0 {
@@ -98,5 +100,33 @@ func (h *Handler) WorkLogsAPI(tokens *token.Manager) http.HandlerFunc {
 		default:
 			httpx.MethodNotAllowed(w, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete)
 		}
+	}
+}
+
+// WorkLogsExport 导出指定月份逐日出勤，保留全天、半天和实际小时的标记。
+func (h *Handler) WorkLogsExport(tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := adminActor(w, r, tokens); !ok {
+			return
+		}
+		if r.Method != http.MethodGet {
+			httpx.MethodNotAllowed(w, http.MethodGet)
+			return
+		}
+		month := mysql.NormalizeMonth(r.URL.Query().Get("month"))
+		items, err := h.Store.WorkLogs(r.Context(), month, r.URL.Query().Get("q"))
+		if err != nil {
+			fail(w, err, "临时工工时导出失败")
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.QueryEscape(month+"临时工每日出勤.csv"))
+		writer := csv.NewWriter(w)
+		_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
+		_ = writer.Write([]string{"日期", "员工姓名", "计薪方式", "出勤标记", "实际工时", "计薪标准", "当天金额", "备注"})
+		for _, item := range items {
+			_ = writer.Write([]string{item.WorkDate, item.Name, item.PayBasisLabel, item.WorkLabel, item.Hours, item.PayRate, item.Amount, item.Remark})
+		}
+		writer.Flush()
 	}
 }

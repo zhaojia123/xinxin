@@ -34,7 +34,9 @@ type StallTurnoverInput struct {
 	HuilaimiAmount   string `json:"huilaimi_amount"`
 	CostAmount       string `json:"cost_amount"`
 	GuaranteedAmount string `json:"guaranteed_amount"`
-	Remark           string `json:"remark"`
+	// ManualOwnCommission 留空时按档口规则计算；填写后仅覆盖当前档口当月的我方抽成。
+	ManualOwnCommission string `json:"manual_own_commission"`
+	Remark              string `json:"remark"`
 }
 
 // StallSettingsInput 是指定月份的康莱德公司抽成设置。
@@ -176,7 +178,7 @@ func (v *StallTurnoverInput) Validate() error {
 	if _, err := time.Parse("2006-01", strings.TrimSpace(v.Month)); err != nil {
 		return fmt.Errorf("营业额月份格式必须是YYYY-MM")
 	}
-	for _, item := range []struct{ value, label string }{{v.CardAmount, "学校卡机营业额"}, {v.HuilaimiAmount, "汇来米营业额"}, {v.CostAmount, "成本"}, {v.GuaranteedAmount, "保底金额"}} {
+	for _, item := range []struct{ value, label string }{{v.CardAmount, "学校卡机营业额"}, {v.HuilaimiAmount, "汇来米营业额"}, {v.CostAmount, "成本"}, {v.GuaranteedAmount, "保底金额"}, {v.ManualOwnCommission, "手动我方抽成"}} {
 		if err := validateDecimal(item.value, item.label, 1000000000); err != nil {
 			return err
 		}

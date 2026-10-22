@@ -67,6 +67,8 @@ INSERT IGNORE INTO mini_user_permissions (mini_user_id, module_key, enabled, can
 SELECT id, 'employees', can_employees, can_employees, can_employees, can_employees, can_employees FROM mini_users;
 INSERT IGNORE INTO mini_user_permissions (mini_user_id, module_key, enabled, can_view, can_create, can_edit, can_delete)
 SELECT id, 'attendance', can_employees, can_employees, can_employees, can_employees, can_employees FROM mini_users;
+INSERT IGNORE INTO mini_user_permissions (mini_user_id, module_key, enabled, can_view, can_create, can_edit, can_delete)
+SELECT id, 'work_logs', can_employees, can_employees, can_employees, can_employees, can_employees FROM mini_users;
 
 -- 例如：仅允许用户ID为 2 的用户访问采购模块
 -- UPDATE mini_users SET can_ledger=0, can_purchases=1, can_employees=0 WHERE id=2;

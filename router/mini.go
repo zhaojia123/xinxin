@@ -32,6 +32,9 @@ func registerMiniRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmysq
 	attendanceAccess := func(ctx context.Context, id uint64, action string) (bool, error) {
 		return store.MiniPermissionAction(ctx, id, "attendance", action)
 	}
+	workLogAccess := func(ctx context.Context, id uint64, action string) (bool, error) {
+		return store.MiniPermissionAction(ctx, id, "work_logs", action)
+	}
 	anyAccess := store.MiniAnyPermission
 	// 每个业务接口都校验对应模块权限，避免仅隐藏导航而仍可直接写入其他模块。
 	mux.HandleFunc("/api/mini/ledger", handler.RequireMiniCRUD(tokens, store.MiniEnabled, ledgerAccess, h.MiniLedgerAPI))
@@ -41,5 +44,6 @@ func registerMiniRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmysq
 	}, h.MiniPurchaseExport))
 	mux.HandleFunc("/api/mini/employees", handler.RequireMiniCRUD(tokens, store.MiniEnabled, employeeAccess, h.MiniEmployeesAPI))
 	mux.HandleFunc("/api/mini/attendance", handler.RequireMiniCRUD(tokens, store.MiniEnabled, attendanceAccess, h.MiniAttendanceAPI))
+	mux.HandleFunc("/api/mini/work-logs", handler.RequireMiniCRUD(tokens, store.MiniEnabled, workLogAccess, h.MiniWorkLogsAPI))
 	mux.HandleFunc("/api/mini/options", handler.RequireMiniPermission(tokens, store.MiniEnabled, anyAccess, h.MiniOptionsAPI))
 }

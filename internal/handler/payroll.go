@@ -116,15 +116,47 @@ func (h *Handler) PayrollExport(tokens *token.Manager) http.HandlerFunc {
 			fail(w, err, "工资表导出失败")
 			return
 		}
+		payrollType := r.URL.Query().Get("type")
+		if payrollType != "part_time" {
+			payrollType = "full_time"
+		}
+		items = filterPayrollType(items, payrollType)
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.QueryEscape(month+".csv"))
+		fileName := month + "正式工工资.csv"
+		if payrollType == "part_time" {
+			fileName = month + "临时工工资.csv"
+		}
+		w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.QueryEscape(fileName))
 		writer := csv.NewWriter(w)
 		_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
+		if payrollType == "part_time" {
+			_ = writer.Write([]string{"员工姓名", "计薪方式", "本月工时", "奖金补贴", "应发工资", "其他扣款"})
+			for _, item := range items {
+				base, _ := strconv.ParseFloat(strings.TrimPrefix(item.BaseSalary, "¥"), 64)
+				bonus, _ := strconv.ParseFloat(strings.TrimPrefix(item.Bonus, "¥"), 64)
+				_ = writer.Write([]string{item.Name, payrollPayBasisLabel(item.PayBasis), item.WorkHours, item.Bonus, mysql.Money(base + bonus), item.OtherDeduction})
+			}
+			writer.Flush()
+			return
+		}
 		_ = writer.Write([]string{"序号", "员工", "入职时间", "应出勤天数", "请假天数", "公休天数", "入职时工资", "本月基本工资", "奖金补贴", "考勤扣款", "其他扣款", "社保", "个税", "实发工资"})
 		for i, item := range items {
 			_ = writer.Write([]string{strconv.Itoa(i + 1), item.Name, item.JoinedOn, strconv.Itoa(item.RequiredAttendanceDays), item.LeaveDays, item.PublicRestDays, item.EntrySalary, item.BaseSalary, item.Bonus, item.AttendanceDeduction, item.OtherDeduction, item.SocialSecurity, item.Tax, item.NetSalary})
 		}
 		writer.Flush()
+	}
+}
+
+func payrollPayBasisLabel(value string) string {
+	switch value {
+	case "hourly":
+		return "按小时"
+	case "daily":
+		return "按天"
+	case "half_daily":
+		return "按半天"
+	default:
+		return "按月"
 	}
 }
 func (h *Handler) PayrollAPI(payroll service.Payroll, tokens *token.Manager) http.HandlerFunc {

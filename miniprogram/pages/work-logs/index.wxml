@@ -1,0 +1,22 @@
+<view class="page">
+  <view class="row"><view><view class="eyebrow">薪资管理 / 临时工工时</view><view class="title">临时工工时</view></view><button wx:if="{{canCreate}}" class="primary small-button" bindtap="add">＋ 登记工时</button></view>
+  <view class="subtitle">每天记录实际上班时长；全天填 8 小时，半天填 4 小时，月度工资会自动汇总。</view>
+  <view class="work-notice card"><view class="section-title">按小时、按天、按半天都能统一登记</view><view class="muted">按小时直接计算；按天以 8 小时折算；按半天以 4 小时折算。</view></view>
+  <view class="toolbar card"><view class="toolbar-line"><text class="label">月份</text><picker mode="date" fields="month" value="{{month}}" bindchange="monthChange"><view class="control picker-value">{{month}}</view></picker></view><view class="search inline-search"><input placeholder="搜索临时工姓名或编号" value="{{q}}" bindinput="search" confirm-type="search"/></view></view>
+  <view wx:if="{{error}}" class="error">{{error}}<button class="link" bindtap="load">重新加载</button></view>
+  <view wx:if="{{loading}}" class="loading">正在加载工时记录…</view>
+  <view wx:for="{{records}}" wx:key="id" class="work-log-card card">
+    <view class="record-head"><view class="record-main"><view class="record-name">{{item.name}} <text class="pill">{{item.pay_basis_label}}</text></view><view class="muted">{{item.work_date}} · {{item.work_label}}</view></view><view class="record-actions"><text wx:if="{{canEdit}}" class="link" data-id="{{item.id}}" bindtap="edit">编辑</text><text wx:if="{{canDelete}}" class="danger" data-id="{{item.id}}" bindtap="remove">删除</text></view></view>
+    <view class="work-log-amount"><text>{{item.hours}} 小时</text><text>当天 ¥{{item.amount}}</text></view>
+    <view wx:if="{{item.remark}}" class="muted reason">{{item.remark}}</view>
+  </view>
+  <view wx:if="{{loaded && !records.length && !loading && !error}}" class="empty card"><view class="empty-mark">时</view><view class="empty-title">{{month}} 暂无工时记录</view><view>点击右上角直接登记临时工每天的出勤</view></view>
+
+  <view wx:if="{{showForm}}" class="mask"><view class="dialog"><view class="row"><view class="section-title">{{editingID ? '编辑工时' : '登记工时'}}</view><text class="close" bindtap="cancel">×</text></view>
+    <view class="field"><view class="label">临时工<text class="required">*</text></view><picker range="{{workers}}" range-key="name" value="{{workerIndex}}" bindchange="workerChange"><view class="control picker-value">{{workers.length ? workers[workerIndex].name : '暂无可登记的临时工'}}</view></picker><view class="hint">{{workerHint}}</view></view>
+    <view class="field"><view class="label">工作日期（可多选）<text class="required">*</text></view><view class="date-add"><picker mode="date" value="{{formDate}}" bindchange="dateChange"><view class="control picker-value">{{formDate}}</view></picker><button class="secondary small-button" bindtap="addDate">加入日期</button></view><view class="chips"><view wx:for="{{dates}}" wx:key="*this" class="chip">{{item}} <text data-date="{{item}}" bindtap="removeDate">×</text></view></view></view>
+    <view class="field"><view class="label">当天工时<text class="required">*</text></view><input class="control" type="digit" value="{{hours}}" bindinput="hoursChange"/><view class="presets"><button class="secondary small-button" data-hours="8" bindtap="preset">全天 8 小时</button><button class="secondary small-button" data-hours="4" bindtap="preset">半天 4 小时</button></view></view>
+    <view class="field"><view class="label">备注</view><textarea class="control reason-input" value="{{remark}}" bindinput="remarkChange" placeholder="选填，例如：上午班、晚班" maxlength="255"></textarea></view>
+    <view class="dialog-footer"><button class="secondary" bindtap="cancel">取消</button><button class="primary" loading="{{saving}}" bindtap="save">保存工时</button></view>
+  </view></view>
+</view>
