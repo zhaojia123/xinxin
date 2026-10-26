@@ -6,13 +6,17 @@ import (
 )
 
 func TestLedgerInputValidate(t *testing.T) {
-	v := LedgerInput{OccurredOn: "2026-09-07", AccountID: 1, Direction: "expense", Amount: "12.34", Summary: "日常采购"}
+	v := LedgerInput{OccurredOn: "2026-09-07", AccountID: 1, Direction: "expense", Amount: "12.34", Summary: "日常采购", Counterparty: "供货商微信"}
 	if err := v.Validate(); err != nil {
 		t.Fatalf("合法台账被拒绝：%v", err)
 	}
 	v.Amount = "0"
 	if err := v.Validate(); err == nil {
 		t.Fatal("零金额应被拒绝")
+	}
+	v.Amount, v.Counterparty = "12.34", ""
+	if err := v.Validate(); err == nil {
+		t.Fatal("手工台账缺少对方账户应被拒绝")
 	}
 }
 

@@ -323,6 +323,127 @@ func requirePayrollAccount(ctx context.Context, tx *sql.Tx, accountID uint64) er
 	return nil
 }
 
+// ensureSystemLedgerAccount 为自动生成的经营流水提供内部账户，不要求用户填写对方账户。
+func ensureSystemLedgerAccount(ctx context.Context, tx *sql.Tx) (uint64, error) {
+	result, err := tx.ExecContext(ctx, `INSERT INTO ledger_accounts(account_no,name,account_type,opening_balance,enabled,remark) VALUES('SYS-OPERATING','系统经营流水账户','other',0,1,'系统自动记录月度核算与工资汇总流水') ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id),enabled=1`)
+	if err != nil {
+		return 0, apperror.Wrap(err, "初始化系统经营账户失败")
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, apperror.Wrap(err, "读取系统经营账户失败")
+	}
+	return uint64(id), nil
+}
+
+func payrollSettlementLabel(payrollType string) string {
+	if payrollType == "part_time" {
+		return "临时工工资"
+	}
+	if payrollType == "special" {
+		return "特殊员工工资"
+	}
+	return "正式工工资"
+}
+
+func payrollCategoryID(ctx context.Context, tx *sql.Tx) (uint64, error) {
+	result, err := tx.ExecContext(ctx, `INSERT INTO ledger_categories(direction,name,enabled,sort_order) VALUES('expense','工资薪酬',1,10) ON DUPLICATE KEY UPDATE enabled=1,id=LAST_INSERT_ID(id)`)
+	if err != nil {
+		return 0, apperror.Wrap(err, "读取工资台账分类失败")
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, apperror.Wrap(err, "读取工资台账分类失败")
+	}
+	return uint64(id), nil
+}
+
+// SettlePayrollType 确认一种员工类型的工资，并仅生成一条月度汇总支出流水。
+func (s *Store) SettlePayrollType(ctx context.Context, actor uint64, input request.PayrollSettlementInput) (uint64, error) {
+	if err := s.ready(); err != nil {
+		return 0, err
+	}
+	if err := input.Validate(); err != nil {
+		return 0, err
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, apperror.Wrap(err, "开始工资汇总入账事务失败")
+	}
+	defer tx.Rollback()
+	var month, batchStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT DATE_FORMAT(payroll_month,'%Y-%m'),status FROM payroll_batches WHERE id=? FOR UPDATE`, input.BatchID).Scan(&month, &batchStatus); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrNotFound
+		}
+		return 0, apperror.Wrap(err, "读取工资批次失败")
+	}
+	if batchStatus == "cancelled" {
+		return 0, MiniInputError{"工资批次已作废，不能发放"}
+	}
+	var existing uint64
+	err = tx.QueryRowContext(ctx, `SELECT ledger_entry_id FROM payroll_settlement_entries WHERE payroll_month=? AND payroll_type=? FOR UPDATE`, month+"-01", input.PayrollType).Scan(&existing)
+	if err == nil {
+		return existing, tx.Commit()
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, apperror.Wrap(err, "读取工资汇总流水失败")
+	}
+	var amount float64
+	var count int
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(i.net_salary),0),COUNT(i.id) FROM payroll_items i JOIN employees e ON e.id=i.employee_id WHERE i.payroll_batch_id=? AND e.employment_type=? AND i.status<>'paid' FOR UPDATE`, input.BatchID, input.PayrollType).Scan(&amount, &count); err != nil {
+		return 0, apperror.Wrap(err, "统计待发工资失败")
+	}
+	if count == 0 {
+		return 0, MiniInputError{"当前类型没有待发工资，无法生成汇总流水"}
+	}
+	if amount <= 0 {
+		return 0, MiniInputError{"当前类型工资实发合计必须大于0"}
+	}
+	accountID, err := ensureSystemLedgerAccount(ctx, tx)
+	if err != nil {
+		return 0, err
+	}
+	categoryID, err := payrollCategoryID(ctx, tx)
+	if err != nil {
+		return 0, err
+	}
+	label := payrollSettlementLabel(input.PayrollType)
+	result, err := tx.ExecContext(ctx, `INSERT INTO ledger_entries(occurred_on,account_id,category_id,direction,amount,summary,counterparty,operator_id,remark) VALUES(?,?,?,'expense',?,?,?,?,'按员工类型汇总发放，可在详情查看人员明细')`, input.OccurredOn, accountID, categoryID, amount, month+label, "", actor)
+	if err != nil {
+		return 0, apperror.Wrap(err, "写入工资汇总台账失败")
+	}
+	ledgerID, err := result.LastInsertId()
+	if err != nil {
+		return 0, apperror.Wrap(err, "读取工资汇总台账ID失败")
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO payroll_settlement_entries(payroll_month,payroll_type,ledger_entry_id) VALUES(?,?,?)`, month+"-01", input.PayrollType, ledgerID); err != nil {
+		return 0, apperror.Wrap(err, "保存工资汇总关联失败")
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE payroll_items i JOIN employees e ON e.id=i.employee_id SET i.status='paid',i.ledger_entry_id=?,i.paid_at=NOW() WHERE i.payroll_batch_id=? AND e.employment_type=? AND i.status<>'paid'`, ledgerID, input.BatchID, input.PayrollType); err != nil {
+		return 0, apperror.Wrap(err, "更新工资发放状态失败")
+	}
+	var remaining int
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM payroll_items WHERE payroll_batch_id=? AND status<>'paid'`, input.BatchID).Scan(&remaining); err != nil {
+		return 0, apperror.Wrap(err, "读取剩余工资明细失败")
+	}
+	if remaining == 0 {
+		_, err = tx.ExecContext(ctx, `UPDATE payroll_batches SET status='paid',paid_at=NOW(),confirmed_at=COALESCE(confirmed_at,NOW()) WHERE id=?`, input.BatchID)
+	} else {
+		_, err = tx.ExecContext(ctx, `UPDATE payroll_batches SET status='confirmed',confirmed_at=COALESCE(confirmed_at,NOW()) WHERE id=?`, input.BatchID)
+	}
+	if err != nil {
+		return 0, apperror.Wrap(err, "更新工资批次状态失败")
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO audit_logs(admin_user_id,module,action,target_type,target_id,target_text,detail) VALUES(?,?,?,?,?,?,?)`, actor, "payroll", "确认并汇总入账", "payroll_batches", input.BatchID, month+label, "按员工类型生成一条工资支出流水"); err != nil {
+		return 0, apperror.Wrap(err, "写入工资操作日志失败")
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, apperror.Wrap(err, "提交工资汇总入账事务失败")
+	}
+	return uint64(ledgerID), nil
+}
+
 func (s *Store) GeneratePayroll(ctx context.Context, month string) (uint64, error) {
 	return s.generatePayroll(ctx, month, 0)
 }
@@ -397,16 +518,18 @@ func (s *Store) generatePayroll(ctx context.Context, month string, employeeID ui
 	}
 	// 统一按30天计薪，默认3天公休即27个计薪日；员工单独设置公休时按30减去个人公休计算。
 	employeeRequiredDaysExpr := `GREATEST(30-COALESCE(e.monthly_rest_days,` + strconv.Itoa(restDays) + `),1)`
-	// 入离职跨越部分月份时，实际在岗日数仍按当月在岗区间折算，但满勤基准固定为30减公休天数。
-	monthlyDaysExpr := `DATEDIFF(LEAST(COALESCE(DATE_SUB(e.left_on,INTERVAL 1 DAY),DATE_SUB(?,INTERVAL 1 DAY)),DATE_SUB(?,INTERVAL 1 DAY)),GREATEST(COALESCE(e.joined_on,?),?))+1`
+	// 离职日期当天仍属于在岗并计薪；满勤基准固定为30减公休天数。
+	monthlyDaysExpr := `DATEDIFF(LEAST(COALESCE(e.left_on,DATE_SUB(?,INTERVAL 1 DAY)),DATE_SUB(?,INTERVAL 1 DAY)),GREATEST(COALESCE(e.joined_on,?),?))+1`
 	monthCalendarDays := end.AddDate(0, 0, -1).Day()
 	// 月薪按“当月自然日-公休天数”作为应出勤天数；入离职跨越部分月份时按实际在岗日数折算。
-	partialPublicRestDays := `(SELECT COALESCE(SUM(COALESCE(a0.duration_days,0)),0) FROM attendance_records a0 WHERE a0.employee_id=e.id AND a0.record_type='公休' AND a0.active=1 AND a0.status IN ('pending','approved','recorded','confirmed') AND a0.occurred_on>=? AND a0.occurred_on<? AND (e.joined_on IS NULL OR a0.occurred_on>=e.joined_on) AND (e.left_on IS NULL OR a0.occurred_on<e.left_on))`
-	partialLeaveDays := `(SELECT COALESCE(SUM(COALESCE(a0.duration_days,0)),0) FROM attendance_records a0 WHERE a0.employee_id=e.id AND a0.category='leave' AND a0.record_type NOT IN ('公休','节假日') AND a0.active=1 AND a0.status IN ('pending','approved','recorded','confirmed') AND a0.occurred_on>=? AND a0.occurred_on<? AND (e.joined_on IS NULL OR a0.occurred_on>=e.joined_on) AND (e.left_on IS NULL OR a0.occurred_on<e.left_on))`
+	partialPublicRestDays := `(SELECT COALESCE(SUM(COALESCE(a0.duration_days,0)),0) FROM attendance_records a0 WHERE a0.employee_id=e.id AND a0.record_type='公休' AND a0.active=1 AND a0.status IN ('pending','approved','recorded','confirmed') AND a0.occurred_on>=? AND a0.occurred_on<? AND (e.joined_on IS NULL OR a0.occurred_on>=e.joined_on) AND (e.left_on IS NULL OR a0.occurred_on<=e.left_on))`
+	partialLeaveDays := `(SELECT COALESCE(SUM(COALESCE(a0.duration_days,0)),0) FROM attendance_records a0 WHERE a0.employee_id=e.id AND a0.category='leave' AND a0.record_type NOT IN ('公休','节假日') AND a0.active=1 AND a0.status IN ('pending','approved','recorded','confirmed') AND a0.occurred_on>=? AND a0.occurred_on<? AND (e.joined_on IS NULL OR a0.occurred_on>=e.joined_on) AND (e.left_on IS NULL OR a0.occurred_on<=e.left_on))`
 	partialRestDays := `(CASE WHEN (` + monthlyDaysExpr + `)>=` + employeeRequiredDaysExpr + ` THEN GREATEST(COALESCE(e.monthly_rest_days,` + strconv.Itoa(restDays) + `),` + partialPublicRestDays + `) ELSE ` + partialPublicRestDays + ` END)`
 	actualAttendanceDays := `GREATEST((` + monthlyDaysExpr + `)-` + partialRestDays + `-` + partialLeaveDays + `,0)`
 	fullMonthCondition := `(` + monthlyDaysExpr + `)>=` + strconv.Itoa(monthCalendarDays)
-	monthlyBaseExpr := `CASE WHEN e.pay_basis='monthly' THEN CASE WHEN ` + fullMonthCondition + ` THEN ROUND(COALESCE(e.current_salary,0),2) ELSE ROUND(COALESCE(e.current_salary,0)/` + employeeRequiredDaysExpr + `*` + actualAttendanceDays + `,2) END ELSE 0 END`
+	// 历史档案可能只填写了入职工资，计算时回退到入职工资，保证离职员工也能正常生成工资。
+	monthlySalaryExpr := `COALESCE(e.current_salary,e.entry_salary,0)`
+	monthlyBaseExpr := `CASE WHEN e.pay_basis='monthly' THEN CASE WHEN ` + fullMonthCondition + ` THEN ROUND(` + monthlySalaryExpr + `,2) ELSE ROUND(` + monthlySalaryExpr + `/` + employeeRequiredDaysExpr + `*` + actualAttendanceDays + `,2) END ELSE 0 END`
 	itemArgs := []any{batchID, end, end, start, start, end, end, start, start, end, end, start, start, start, end, start, end, start, end, start, end, start}
 	itemFilter := ""
 	if employeeID > 0 {
@@ -446,7 +569,7 @@ func (s *Store) generatePayroll(ctx context.Context, month string, employeeID ui
 		temporaryFilter = " AND i.employee_id=?"
 		temporaryArgs = append(temporaryArgs, employeeID)
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE payroll_items i JOIN employees e ON e.id=i.employee_id SET i.work_hours=COALESCE((SELECT SUM(w.hours) FROM employee_work_logs w WHERE w.employee_id=e.id AND w.active=1 AND w.work_date>=? AND w.work_date<? AND (e.joined_on IS NULL OR w.work_date>=e.joined_on) AND (e.left_on IS NULL OR w.work_date<e.left_on)),i.work_hours),i.base_salary=ROUND(COALESCE(e.current_salary,0)*COALESCE((SELECT SUM(w2.hours) FROM employee_work_logs w2 WHERE w2.employee_id=e.id AND w2.active=1 AND w2.work_date>=? AND w2.work_date<? AND (e.joined_on IS NULL OR w2.work_date>=e.joined_on) AND (e.left_on IS NULL OR w2.work_date<e.left_on)),i.work_hours)*CASE e.pay_basis WHEN 'daily' THEN 1/8 WHEN 'half_daily' THEN 1/4 ELSE 1 END,2) WHERE i.payroll_batch_id=? AND i.status<>'paid' AND e.employment_type='part_time' AND e.pay_basis IN ('hourly','daily','half_daily')`+temporaryFilter, temporaryArgs...)
+	_, err = tx.ExecContext(ctx, `UPDATE payroll_items i JOIN employees e ON e.id=i.employee_id SET i.work_hours=COALESCE((SELECT SUM(w.hours) FROM employee_work_logs w WHERE w.employee_id=e.id AND w.active=1 AND w.work_date>=? AND w.work_date<? AND (e.joined_on IS NULL OR w.work_date>=e.joined_on) AND (e.left_on IS NULL OR w.work_date<=e.left_on)),i.work_hours),i.base_salary=ROUND(COALESCE(e.current_salary,e.entry_salary,0)*COALESCE((SELECT SUM(w2.hours) FROM employee_work_logs w2 WHERE w2.employee_id=e.id AND w2.active=1 AND w2.work_date>=? AND w2.work_date<? AND (e.joined_on IS NULL OR w2.work_date>=e.joined_on) AND (e.left_on IS NULL OR w2.work_date<=e.left_on)),i.work_hours)*CASE e.pay_basis WHEN 'daily' THEN 1/8 WHEN 'half_daily' THEN 1/4 ELSE 1 END,2) WHERE i.payroll_batch_id=? AND i.status<>'paid' AND e.employment_type='part_time' AND e.pay_basis IN ('hourly','daily','half_daily')`+temporaryFilter, temporaryArgs...)
 	if err != nil {
 		return 0, apperror.Wrap(err, "同步小时工每日工时失败")
 	}
@@ -466,11 +589,11 @@ func (s *Store) generatePayroll(ctx context.Context, month string, employeeID ui
 	partialMonthCondition := `(` + monthlyDaysExpr + `)<` + strconv.Itoa(monthCalendarDays)
 	// 未满应出勤天数时，公休和请假已从实际出勤基数中扣除，这里不再重复扣款。
 	attendanceDays := `(CASE WHEN ` + partialMonthCondition + ` THEN 0 WHEN a.record_type='公休' THEN ` + publicRestExcess + ` WHEN a.record_type='节假日' THEN 0 WHEN a.category='leave' THEN a.duration_days ELSE 0 END)`
-	_, err = tx.ExecContext(ctx, `INSERT INTO payroll_adjustments(payroll_item_id,attendance_record_id,adjustment_type,amount,description) SELECT i.id,a.id,'deduction',CASE WHEN e.pay_basis='monthly' THEN ROUND(`+attendanceDays+`*COALESCE(e.current_salary,0)/`+employeeRequiredDaysExpr+`,2) ELSE 0 END,CONCAT('考勤扣款：',a.record_type,' ',IF(a.duration_days>0,CONCAT(a.duration_days,'天'),CONCAT(a.duration_minutes,'分钟'))) FROM payroll_items i JOIN employees e ON e.id=i.employee_id JOIN attendance_records a ON a.employee_id=i.employee_id AND a.occurred_on>=? AND a.occurred_on<? AND (e.joined_on IS NULL OR a.occurred_on>=e.joined_on) AND (e.left_on IS NULL OR a.occurred_on<e.left_on) AND a.status IN ('pending','approved','recorded','confirmed') AND a.active=1 WHERE i.payroll_batch_id=? AND i.status<>'paid' AND (?=0 OR i.employee_id=?) ON DUPLICATE KEY UPDATE amount=VALUES(amount),description=VALUES(description)`, end, end, start, start, start, end, start, end, start, end, batchID, employeeID, employeeID)
+	_, err = tx.ExecContext(ctx, `INSERT INTO payroll_adjustments(payroll_item_id,attendance_record_id,adjustment_type,amount,description) SELECT i.id,a.id,'deduction',CASE WHEN e.pay_basis='monthly' THEN ROUND(`+attendanceDays+`*`+monthlySalaryExpr+`/`+employeeRequiredDaysExpr+`,2) ELSE 0 END,CONCAT('考勤扣款：',a.record_type,' ',IF(a.duration_days>0,CONCAT(a.duration_days,'天'),CONCAT(a.duration_minutes,'分钟'))) FROM payroll_items i JOIN employees e ON e.id=i.employee_id JOIN attendance_records a ON a.employee_id=i.employee_id AND a.occurred_on>=? AND a.occurred_on<? AND (e.joined_on IS NULL OR a.occurred_on>=e.joined_on) AND (e.left_on IS NULL OR a.occurred_on<=e.left_on) AND a.status IN ('pending','approved','recorded','confirmed') AND a.active=1 WHERE i.payroll_batch_id=? AND i.status<>'paid' AND (?=0 OR i.employee_id=?) ON DUPLICATE KEY UPDATE amount=VALUES(amount),description=VALUES(description)`, end, end, start, start, start, end, start, end, start, end, batchID, employeeID, employeeID)
 	if err != nil {
 		return 0, apperror.Wrap(err, "关联请假与异常记录失败")
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO payroll_adjustments(payroll_item_id,attendance_record_id,adjustment_type,amount,description) SELECT i.id,a.id,'bonus',COALESCE(a.subsidy_amount,0),CONCAT('特殊请假补助：',a.record_type) FROM payroll_items i JOIN employees e ON e.id=i.employee_id JOIN attendance_records a ON a.employee_id=i.employee_id AND a.occurred_on>=? AND a.occurred_on<? AND (e.joined_on IS NULL OR a.occurred_on>=e.joined_on) AND (e.left_on IS NULL OR a.occurred_on<e.left_on) AND (a.salary_effect IN ('subsidy','deduct_and_subsidy') OR a.record_type='特殊休息') AND a.status IN ('pending','approved','recorded','confirmed') AND a.active=1 WHERE i.payroll_batch_id=? AND i.status<>'paid' AND (?=0 OR i.employee_id=?) ON DUPLICATE KEY UPDATE amount=VALUES(amount),description=VALUES(description)`, start, end, batchID, employeeID, employeeID)
+	_, err = tx.ExecContext(ctx, `INSERT INTO payroll_adjustments(payroll_item_id,attendance_record_id,adjustment_type,amount,description) SELECT i.id,a.id,'bonus',COALESCE(a.subsidy_amount,0),CONCAT('特殊请假补助：',a.record_type) FROM payroll_items i JOIN employees e ON e.id=i.employee_id JOIN attendance_records a ON a.employee_id=i.employee_id AND a.occurred_on>=? AND a.occurred_on<? AND (e.joined_on IS NULL OR a.occurred_on>=e.joined_on) AND (e.left_on IS NULL OR a.occurred_on<=e.left_on) AND (a.salary_effect IN ('subsidy','deduct_and_subsidy') OR a.record_type='特殊休息') AND a.status IN ('pending','approved','recorded','confirmed') AND a.active=1 WHERE i.payroll_batch_id=? AND i.status<>'paid' AND (?=0 OR i.employee_id=?) ON DUPLICATE KEY UPDATE amount=VALUES(amount),description=VALUES(description)`, start, end, batchID, employeeID, employeeID)
 	if err != nil {
 		return 0, apperror.Wrap(err, "关联异常补助失败")
 	}

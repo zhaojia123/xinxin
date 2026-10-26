@@ -69,7 +69,13 @@ Page({
     Object.keys(selections).forEach(key => { labels[key] = (selections[key].find(v => v.value === this.data.form[key]) || {}).name || '请选择' })
     this.setData({ departments, positions, labels, departmentName: formUtil.pick(departments, this.data.form.department_id), positionName: formUtil.pick(positions, this.data.form.position_id) })
   },
-  input: formUtil.input,
+  input(e) {
+    formUtil.input.call(this, e)
+    // 正式工首次填写入职工资时，同步带入当前工资；服务端也会做同样兜底。
+    if (e.currentTarget.dataset.field === 'entry_salary' && !this.data.form.current_salary) {
+      this.setData({ 'form.current_salary': e.detail.value })
+    }
+  },
   choice(e) {
     if (!this.data.ready || this.data.saving) return
     const key = e.currentTarget.dataset.field
@@ -117,6 +123,8 @@ Page({
   async save() {
     if (!this.data.ready || this.data.saving) return
     const form = { ...this.data.form, name: this.data.form.name.trim(), employee_no: this.data.form.employee_no.trim() }
+    if (!form.current_salary && form.entry_salary) form.current_salary = form.entry_salary
+    if (!form.entry_salary && form.current_salary) form.entry_salary = form.current_salary
     if (this.data.temporary) {
       form.gender = 'unknown'; form.employment_status = form.left_on ? 'left' : 'active'; form.employment_type = 'part_time'; form.department_id = 0; form.position_id = 0; form.monthly_rest_days = 0
     }

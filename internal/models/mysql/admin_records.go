@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"friends-records/api/request"
@@ -375,35 +376,85 @@ func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.Attenda
 }
 
 func (s *Store) DeleteAttendance(ctx context.Context, id, actor uint64) error {
+	_, err := s.DeleteAttendances(ctx, []uint64{id}, actor)
+	return err
+}
+
+// DeleteAttendances 会先校验全部记录，避免批量删除时出现只删了一部分的情况。
+func (s *Store) DeleteAttendances(ctx context.Context, ids []uint64, actor uint64) (int, error) {
 	if err := s.ready(); err != nil {
-		return err
+		return 0, err
+	}
+	uniqueIDs := make([]uint64, 0, len(ids))
+	seen := make(map[uint64]struct{}, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniqueIDs = append(uniqueIDs, id)
+	}
+	if len(uniqueIDs) == 0 {
+		return 0, MiniInputError{"请选择要删除的请假、公休或节假日记录"}
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback()
-	var recordType string
-	if err := tx.QueryRowContext(ctx, `SELECT record_type FROM attendance_records WHERE id=? AND active=1 FOR UPDATE`, id).Scan(&recordType); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(uniqueIDs)), ",")
+	args := make([]any, len(uniqueIDs))
+	for i, id := range uniqueIDs {
+		args[i] = id
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id,record_type FROM attendance_records WHERE id IN (`+placeholders+`) AND active=1 FOR UPDATE`, args...)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	types := make(map[uint64]string, len(uniqueIDs))
+	for rows.Next() {
+		var id uint64
+		var recordType string
+		if err := rows.Scan(&id, &recordType); err != nil {
+			return 0, err
 		}
-		return err
+		types[id] = recordType
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	if len(types) != len(uniqueIDs) {
+		return 0, ErrNotFound
 	}
 	var paidCount int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM payroll_adjustments a JOIN payroll_items i ON i.id=a.payroll_item_id WHERE a.attendance_record_id=? AND i.status='paid'`, id).Scan(&paidCount); err != nil {
-		return err
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM payroll_adjustments a JOIN payroll_items i ON i.id=a.payroll_item_id WHERE a.attendance_record_id IN (`+placeholders+`) AND i.status='paid'`, args...).Scan(&paidCount); err != nil {
+		return 0, err
 	}
 	if paidCount > 0 {
-		return MiniInputError{"该记录已经计入已发工资，不能删除"}
+		return 0, MiniInputError{"选中的记录中包含已计入已发工资的数据，不能删除"}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE attendance_records SET active=0,deleted_at=NOW(),deleted_by=?,status='cancelled' WHERE id=? AND active=1`, actor, id); err != nil {
-		return err
+	updateArgs := append([]any{actor}, args...)
+	result, err := tx.ExecContext(ctx, `UPDATE attendance_records SET active=0,deleted_at=NOW(),deleted_by=?,status='cancelled' WHERE id IN (`+placeholders+") AND active=1", updateArgs...)
+	if err != nil {
+		return 0, err
 	}
-	if err := miniAudit(ctx, tx, actor, "attendance", id, "删除记录："+recordType); err != nil {
-		return err
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
 	}
-	return tx.Commit()
+	for _, id := range uniqueIDs {
+		if err := miniAudit(ctx, tx, actor, "attendance", id, "删除记录："+types[id]); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int(deleted), nil
 }
 func (s *Store) SetAttendanceStatus(ctx context.Context, id uint64, status string) error {
 	if err := s.ready(); err != nil {

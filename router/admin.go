@@ -47,6 +47,8 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	mux.HandleFunc("/admin/stalls", h.StallsPage)
 	// GET /admin/stalls/monthly：指定月份的营业额和抽成计算。
 	mux.HandleFunc("/admin/stalls/monthly", h.StallsMonthlyPage)
+	// GET /admin/stall-costs：三个自营档口的月度成本。
+	mux.HandleFunc("/admin/stall-costs", h.StallCostsPage)
 	// GET /admin/menu：菜单菜品列表和维护页面。
 	mux.HandleFunc("/admin/menu", h.MenuPage)
 	// GET /admin/purchases：每日供货商采购清单。
@@ -78,10 +80,13 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	mux.HandleFunc("/api/admin/work-logs", h.WorkLogsAPI(tokens))
 	// POST /api/admin/payroll/generate：生成指定月份的员工工资快照，可选 employee_id 单独生成一人。
 	mux.HandleFunc("/api/admin/payroll/generate", h.PayrollGenerateAPI(payroll))
-	// POST /api/admin/payroll/pay：按批次或工资条发放，并自动生成关联台账支出。
+	// POST /api/admin/payroll/pay：保留旧地址并提示改由档口月度核算统一入账。
 	mux.HandleFunc("/api/admin/payroll/pay", h.PayrollPayAPI(payroll))
 	mux.HandleFunc("/api/admin/payroll/temporary-pay", h.TemporaryPayrollAPI(payroll))
 	mux.HandleFunc("/api/admin/payroll/confirm", h.PayrollConfirmAPI(payroll))
+	mux.HandleFunc("/api/admin/payroll/settlement", h.PayrollSettlementAPI(payroll, tokens))
+	mux.HandleFunc("/api/admin/special-payroll", h.SpecialPayrollAPI(payroll, tokens))
+	mux.HandleFunc("/api/admin/special-payroll/settlement", h.SpecialPayrollSettlementAPI(payroll, tokens))
 	// GET/POST/PUT/DELETE /api/admin/ledger：查询、新增、修改和删除普通台账记录。
 	mux.HandleFunc("/api/admin/ledger", h.AdminLedgerAPI(tokens))
 	// GET/POST/PUT/DELETE /api/admin/stalls：档口基础资料。
@@ -90,7 +95,10 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	mux.HandleFunc("/api/admin/stall-monthly-rules", h.StallMonthlyRuleAPI(tokens))
 	// POST/PUT/DELETE /api/admin/stall-turnovers：档口月度营业额。
 	mux.HandleFunc("/api/admin/stall-turnovers", h.StallTurnoverAPI(tokens))
-	mux.HandleFunc("/api/admin/stall-commission-ledger", h.StallCommissionLedgerAPI(tokens))
+	mux.HandleFunc("/api/admin/stall-costs", h.StallCostsAPI(tokens))
+	mux.HandleFunc("/api/admin/stall-costs/ledger", h.StallCostLedgerAPI(tokens))
+	mux.HandleFunc("/api/admin/stall-monthly-expenses", h.StallMonthlyExpenseAPI(tokens))
+	mux.HandleFunc("/api/admin/stall-monthly-expenses/ledger", h.StallMonthlyExpenseLedgerAPI(tokens))
 	// GET/POST/PUT/DELETE /api/admin/menu-items：菜单查询和增删改。
 	mux.HandleFunc("/api/admin/menu-items", h.MenuAPI(tokens))
 	// GET/POST/PUT/DELETE /api/admin/purchases：查询、新增、修改和假删除采购明细。

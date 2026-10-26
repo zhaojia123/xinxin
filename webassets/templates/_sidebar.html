@@ -21,6 +21,7 @@
     <a class="nav-item {{if eq .ActiveMenu "salary"}}active{{end}}" href="/admin/salary-adjustments"><span class="nav-icon">调</span><span>调薪记录</span></a>
     <a class="nav-item {{if eq .ActiveMenu "payroll-formal"}}active{{end}}" href="/admin/payroll?type=full_time"><span class="nav-icon">薪</span><span>正式工工资</span></a>
     <a class="nav-item {{if eq .ActiveMenu "payroll-temporary"}}active{{end}}" href="/admin/payroll?type=part_time"><span class="nav-icon">临</span><span>临时工工资</span></a>
+	<a class="nav-item {{if eq .ActiveMenu "payroll-special"}}active{{end}}" href="/admin/payroll?type=special"><span class="nav-icon">特</span><span>特殊员工工资</span></a>
     <a class="nav-item {{if eq .ActiveMenu "work-logs"}}active{{end}}" href="/admin/work-logs"><span class="nav-icon">时</span><span>登记临时工工时</span></a>
     <p class="nav-label">业务与系统</p>
     <a class="nav-item {{if eq .ActiveMenu "ledger"}}active{{end}}" href="/admin/ledger">
@@ -29,6 +30,7 @@
     </a>
 	<a class="nav-item {{if eq .ActiveMenu "stalls"}}active{{end}}" href="/admin/stalls"><span class="nav-icon">档</span><span>档口设置</span></a>
 	<a class="nav-item {{if eq .ActiveMenu "stall-monthly"}}active{{end}}" href="/admin/stalls/monthly"><span class="nav-icon">算</span><span>档口月度核算</span></a>
+	<a class="nav-item {{if eq .ActiveMenu "stall-costs"}}active{{end}}" href="/admin/stall-costs"><span class="nav-icon">本</span><span>档口成本</span></a>
 	<a class="nav-item {{if eq .ActiveMenu "menu"}}active{{end}}" href="/admin/menu"><span class="nav-icon">菜</span><span>菜单管理</span></a>
     <a class="nav-item {{if eq .ActiveMenu "purchases"}}active{{end}}" href="/admin/purchases"><span class="nav-icon">采</span><span>供货采购</span></a>
     <a class="nav-item {{if eq .ActiveMenu "audit"}}active{{end}}" href="/admin/audit-logs"><span class="nav-icon">志</span><span>操作日志</span></a>

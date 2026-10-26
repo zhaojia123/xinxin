@@ -407,6 +407,36 @@ CREATE TABLE ledger_entries (
     CONSTRAINT chk_ledger_entries_amount CHECK (amount > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='出纳台账流水';
 
+CREATE TABLE payroll_settlement_entries (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '工资汇总入账ID',
+    payroll_month DATE NOT NULL COMMENT '工资月份，固定存当月1日',
+    payroll_type ENUM('full_time','part_time','special') NOT NULL COMMENT '正式工/临时工/特殊员工',
+    ledger_entry_id BIGINT UNSIGNED NOT NULL COMMENT '汇总支出流水ID',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_payroll_settlement_month_type (payroll_month, payroll_type),
+    UNIQUE KEY uk_payroll_settlement_ledger (ledger_entry_id),
+    CONSTRAINT fk_payroll_settlement_ledger FOREIGN KEY (ledger_entry_id) REFERENCES ledger_entries(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工资按人员类型汇总入账关联';
+
+CREATE TABLE special_payroll_records (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '特殊员工工资ID',
+    payroll_month DATE NOT NULL COMMENT '工资月份，固定存当月1日',
+    employee_name VARCHAR(64) NOT NULL COMMENT '未建档员工姓名',
+    amount DECIMAL(12,2) NOT NULL COMMENT '实发金额',
+    remark VARCHAR(500) NOT NULL DEFAULT '',
+    status ENUM('draft','paid') NOT NULL DEFAULT 'draft',
+    ledger_entry_id BIGINT UNSIGNED NULL COMMENT '汇总工资台账流水ID',
+    paid_at DATETIME NULL COMMENT '确认发放时间',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_special_payroll_month (payroll_month, status),
+    KEY idx_special_payroll_ledger (ledger_entry_id),
+    CONSTRAINT fk_special_payroll_ledger FOREIGN KEY (ledger_entry_id) REFERENCES ledger_entries(id) ON DELETE SET NULL,
+    CONSTRAINT chk_special_payroll_amount CHECK (amount > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='未建档特殊员工工资明细';
+
 CREATE TABLE ledger_attachments (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '台账附件ID',
     ledger_entry_id BIGINT UNSIGNED NOT NULL COMMENT '所属台账流水ID',

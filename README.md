@@ -58,7 +58,7 @@ friends-records/
 
 1. 自行创建 MySQL 数据库。
 2. 在数据库中手动执行 `sql/schema.sql`。
-   已有数据库升级时，另外执行 `sql/migrations/ledger_attachments.sql`、`sql/migrations/employee_attachments.sql`、`sql/migrations/purchase_items.sql`、`sql/migrations/mini_user_permissions.sql`、`sql/migrations/employee_payroll_rules.sql` 和 `sql/migrations/20260918_payroll_accounts.sql`。
+   已有数据库升级时，另外执行 `sql/migrations/ledger_attachments.sql`、`sql/migrations/employee_attachments.sql`、`sql/migrations/purchase_items.sql`、`sql/migrations/mini_user_permissions.sql`、`sql/migrations/employee_payroll_rules.sql`、`sql/migrations/20260918_payroll_accounts.sql`、`sql/migrations/stall_monthly_expenses.sql`、`sql/migrations/stall_commission_v3.sql` 和 `sql/migrations/payroll_group_settlement.sql`。
 3. 如需导入员工资料，执行 `sql/import/employee_import_202609.sql`。该文件只导入主表人员，当前全部按月薪处理；空工资和空日期会保留为空，不会导入“钟点工”工作表。
    生成 2026-09 工资后，如需录入表格里的两笔已结算金额，再执行 `sql/import/payroll_settlements_202609.sql`。
 4. 复制 `config.local.example.toml` 为根目录 `config.local.toml`，再修改其中的 `mysql.dsn`。

@@ -17,7 +17,7 @@
       <view class="field"><view class="row"><view class="label">归属部门</view><button wx:if="{{!locked}}" class="link" data-kind="departments" bindtap="create">＋ 新建</button></view><picker range="{{departments}}" range-key="name" data-kind="departments" data-field="department_id" bindchange="select" disabled="{{locked || saving}}"><view class="control picker-row"><text>{{departmentName}}</text><text class="chevron">›</text></view></picker></view>
     </view>
     <view class="card"><view class="section-title">补充信息</view>
-      <view class="field"><view class="label">对方名称</view><input class="control" value="{{form.counterparty}}" data-field="counterparty" bindinput="input" placeholder="选填，对方姓名或单位" maxlength="128" disabled="{{locked || saving}}"/></view>
+      <view class="field"><view class="label">对方单位 / 资金账户<text class="required">*</text></view><input class="control" value="{{form.counterparty}}" data-field="counterparty" bindinput="input" placeholder="例如：供货商名称、微信号或银行卡号" maxlength="128" disabled="{{locked || saving}}"/></view>
       <view class="field"><view class="label">凭证号</view><input class="control" value="{{form.voucher_no}}" data-field="voucher_no" bindinput="input" placeholder="选填，发票或交易凭证编号" maxlength="64" disabled="{{locked || saving}}"/></view>
       <view class="field"><view class="label">备注</view><textarea class="control" value="{{form.remark}}" data-field="remark" bindinput="input" placeholder="还想记住些什么…" maxlength="500" disabled="{{locked || saving}}"/></view>
     </view>

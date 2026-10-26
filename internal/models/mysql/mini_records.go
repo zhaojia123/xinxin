@@ -203,7 +203,8 @@ func (s *Store) MiniOptions(ctx context.Context) (map[string][]MiniOption, error
 	}
 	result := map[string][]MiniOption{}
 	queries := map[string]string{
-		"accounts":    `SELECT id,name,'',0,account_type,remark FROM ledger_accounts WHERE enabled=1 ORDER BY id`,
+		// 系统经营流水账户仅供自动入账使用，手工台账不显示，避免误选为对方资金账户。
+		"accounts":    `SELECT id,name,'',0,account_type,remark FROM ledger_accounts WHERE enabled=1 AND account_no<>'SYS-OPERATING' ORDER BY id`,
 		"categories":  `SELECT id,name,direction,0,'','' FROM ledger_categories WHERE enabled=1 ORDER BY sort_order,id`,
 		"departments": `SELECT id,name,'',0,'','' FROM departments WHERE enabled=1 AND active=1 ORDER BY sort_order,id`,
 		"positions":   `SELECT p.id,p.name,'',p.department_id,'','' FROM positions p JOIN departments d ON d.id=p.department_id WHERE p.enabled=1 AND d.enabled=1 AND p.active=1 AND d.active=1 ORDER BY p.sort_order,p.id`,
@@ -250,6 +251,7 @@ type MiniLedger struct {
 	Category       string              `json:"category"`
 	Department     string              `json:"department"`
 	PayrollBatchID uint64              `json:"payroll_batch_id"`
+	PayrollType    string              `json:"payroll_type"`
 	Attachments    []LedgerAttachment  `json:"attachments"`
 	PayrollItems   []PayrollLedgerItem `json:"payroll_items"`
 }
@@ -259,11 +261,11 @@ type PayrollLedgerItem struct {
 	Amount       string `json:"amount"`
 }
 
-const miniLedgerSelect = `SELECT l.id,DATE_FORMAT(l.occurred_on,'%Y-%m-%d'),l.account_id,COALESCE(l.category_id,0),COALESCE(l.department_id,0),l.direction,CAST(l.amount AS CHAR),l.summary,l.counterparty,l.voucher_no,l.remark,a.name,COALESCE(c.name,''),COALESCE(d.name,''),COALESCE(pb.id,COALESCE((SELECT pi.payroll_batch_id FROM payroll_items pi WHERE pi.ledger_entry_id=l.id LIMIT 1),0)) FROM ledger_entries l JOIN ledger_accounts a ON a.id=l.account_id LEFT JOIN ledger_categories c ON c.id=l.category_id LEFT JOIN departments d ON d.id=l.department_id LEFT JOIN payroll_batches pb ON pb.ledger_entry_id=l.id`
+const miniLedgerSelect = `SELECT l.id,DATE_FORMAT(l.occurred_on,'%Y-%m-%d'),l.account_id,COALESCE(l.category_id,0),COALESCE(l.department_id,0),l.direction,CAST(l.amount AS CHAR),l.summary,l.counterparty,l.voucher_no,l.remark,a.name,COALESCE(c.name,''),COALESCE(d.name,''),COALESCE(pb.id,COALESCE((SELECT pi.payroll_batch_id FROM payroll_items pi WHERE pi.ledger_entry_id=l.id LIMIT 1),0)),COALESCE((SELECT pse.payroll_type FROM payroll_settlement_entries pse WHERE pse.ledger_entry_id=l.id LIMIT 1),'') FROM ledger_entries l JOIN ledger_accounts a ON a.id=l.account_id LEFT JOIN ledger_categories c ON c.id=l.category_id LEFT JOIN departments d ON d.id=l.department_id LEFT JOIN payroll_batches pb ON pb.ledger_entry_id=l.id`
 
 func scanMiniLedger(row scanner) (MiniLedger, error) {
 	var v MiniLedger
-	err := row.Scan(&v.ID, &v.OccurredOn, &v.AccountID, &v.CategoryID, &v.DepartmentID, &v.Direction, &v.Amount, &v.Summary, &v.Counterparty, &v.VoucherNo, &v.Remark, &v.Account, &v.Category, &v.Department, &v.PayrollBatchID)
+	err := row.Scan(&v.ID, &v.OccurredOn, &v.AccountID, &v.CategoryID, &v.DepartmentID, &v.Direction, &v.Amount, &v.Summary, &v.Counterparty, &v.VoucherNo, &v.Remark, &v.Account, &v.Category, &v.Department, &v.PayrollBatchID, &v.PayrollType)
 	return v, err
 }
 
@@ -285,7 +287,11 @@ func (s *Store) MiniLedger(ctx context.Context, id uint64) (MiniLedger, error) {
 }
 
 func (s *Store) PayrollLedgerItems(ctx context.Context, ledgerID uint64) ([]PayrollLedgerItem, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT e.name,CAST(i.net_salary AS CHAR) FROM payroll_items i JOIN employees e ON e.id=i.employee_id WHERE i.ledger_entry_id=? ORDER BY e.employee_no,e.id`, ledgerID)
+	rows, err := s.DB.QueryContext(ctx, `SELECT employee_name,amount FROM (
+		SELECT e.name AS employee_name,CAST(i.net_salary AS CHAR) AS amount,e.employee_no AS sort_no,i.id AS sort_id FROM payroll_items i JOIN employees e ON e.id=i.employee_id WHERE i.ledger_entry_id=?
+		UNION ALL
+		SELECT s.employee_name,CAST(s.amount AS CHAR),'',s.id FROM special_payroll_records s WHERE s.ledger_entry_id=?
+	) payroll_details ORDER BY sort_no,sort_id`, ledgerID, ledgerID)
 	if err != nil {
 		return nil, apperror.Wrap(err, "读取工资台账明细失败")
 	}
@@ -388,6 +394,14 @@ func (s *Store) SaveMiniLedger(ctx context.Context, id, actor uint64, v request.
 		if !errors.Is(err, sql.ErrNoRows) {
 			return 0, err
 		}
+		var settlement uint64
+		err = tx.QueryRowContext(ctx, `SELECT id FROM payroll_settlement_entries WHERE ledger_entry_id=? LIMIT 1 FOR UPDATE`, id).Scan(&settlement)
+		if err == nil {
+			return 0, MiniInputError{"工资发放产生的流水请在工资模块处理，不能直接修改"}
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return 0, err
+		}
 		var payrollItem uint64
 		err = tx.QueryRowContext(ctx, `SELECT id FROM payroll_items WHERE ledger_entry_id=? LIMIT 1 FOR UPDATE`, id).Scan(&payrollItem)
 		if err == nil {
@@ -457,7 +471,11 @@ func (s *Store) DeleteLedger(ctx context.Context, id, actor uint64) error {
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM payroll_items WHERE ledger_entry_id=?`, id).Scan(&payrollItemCount); err != nil {
 		return err
 	}
-	if payrollCount > 0 || payrollItemCount > 0 {
+	var payrollSettlementCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM payroll_settlement_entries WHERE ledger_entry_id=?`, id).Scan(&payrollSettlementCount); err != nil {
+		return err
+	}
+	if payrollCount > 0 || payrollItemCount > 0 || payrollSettlementCount > 0 {
 		return MiniInputError{"工资发放产生的流水不能删除"}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE ledger_entries SET active=0,deleted_at=NOW(),deleted_by=? WHERE id=? AND active=1`, actor, id); err != nil {
@@ -490,7 +508,7 @@ func (s *Store) MiniEmployee(ctx context.Context, id uint64) (MiniEmployee, erro
 	}
 	var v MiniEmployee
 	var days int
-	err := s.DB.QueryRowContext(ctx, `SELECT e.id,e.employee_no,e.name,e.gender,e.id_card,e.mobile,COALESCE(e.department_id,0),COALESCE(e.position_id,0),e.employment_status,e.employment_type,COALESCE(e.pay_basis,'monthly'),COALESCE(e.monthly_rest_days,0),COALESCE(DATE_FORMAT(e.joined_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.regularized_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.left_on,'%Y-%m-%d'),''),COALESCE(CAST(e.entry_salary AS CHAR),''),COALESCE(CAST(e.current_salary AS CHAR),''),e.education,e.hometown,e.remark,COALESCE(d.name,''),COALESCE(p.name,''),COALESCE(hc.id,0),COALESCE(hc.file_url,''),COALESCE(DATE_FORMAT(hc.issued_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(hc.expires_on,'%Y-%m-%d'),''),COALESCE(DATEDIFF(hc.expires_on,CURDATE()),0) FROM employees e LEFT JOIN departments d ON d.id=e.department_id LEFT JOIN positions p ON p.id=e.position_id LEFT JOIN employee_health_certificates hc ON hc.id=(SELECT current_hc.id FROM employee_health_certificates current_hc WHERE current_hc.employee_id=e.id AND current_hc.is_current=1 ORDER BY current_hc.expires_on DESC,current_hc.id DESC LIMIT 1) WHERE e.id=? AND e.active=1`, id).Scan(&v.ID, &v.EmployeeNo, &v.Name, &v.Gender, &v.IDCard, &v.Mobile, &v.DepartmentID, &v.PositionID, &v.EmploymentStatus, &v.EmploymentType, &v.PayBasis, &v.MonthlyRestDays, &v.JoinedOn, &v.RegularizedOn, &v.LeftOn, &v.EntrySalary, &v.CurrentSalary, &v.Education, &v.Hometown, &v.Remark, &v.Department, &v.Position, &v.HealthCertificateID, &v.HealthCertificateURL, &v.HealthCertificateIssuedOn, &v.HealthCertificateExpiresOn, &days)
+	err := s.DB.QueryRowContext(ctx, `SELECT e.id,e.employee_no,e.name,e.gender,e.id_card,e.mobile,COALESCE(e.department_id,0),COALESCE(e.position_id,0),e.employment_status,e.employment_type,COALESCE(e.pay_basis,'monthly'),COALESCE(e.monthly_rest_days,0),COALESCE(DATE_FORMAT(e.joined_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.regularized_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(e.left_on,'%Y-%m-%d'),''),COALESCE(CAST(e.entry_salary AS CHAR),''),COALESCE(CAST(COALESCE(e.current_salary,e.entry_salary) AS CHAR),''),e.education,e.hometown,e.remark,COALESCE(d.name,''),COALESCE(p.name,''),COALESCE(hc.id,0),COALESCE(hc.file_url,''),COALESCE(DATE_FORMAT(hc.issued_on,'%Y-%m-%d'),''),COALESCE(DATE_FORMAT(hc.expires_on,'%Y-%m-%d'),''),COALESCE(DATEDIFF(hc.expires_on,CURDATE()),0) FROM employees e LEFT JOIN departments d ON d.id=e.department_id LEFT JOIN positions p ON p.id=e.position_id LEFT JOIN employee_health_certificates hc ON hc.id=(SELECT current_hc.id FROM employee_health_certificates current_hc WHERE current_hc.employee_id=e.id AND current_hc.is_current=1 ORDER BY current_hc.expires_on DESC,current_hc.id DESC LIMIT 1) WHERE e.id=? AND e.active=1`, id).Scan(&v.ID, &v.EmployeeNo, &v.Name, &v.Gender, &v.IDCard, &v.Mobile, &v.DepartmentID, &v.PositionID, &v.EmploymentStatus, &v.EmploymentType, &v.PayBasis, &v.MonthlyRestDays, &v.JoinedOn, &v.RegularizedOn, &v.LeftOn, &v.EntrySalary, &v.CurrentSalary, &v.Education, &v.Hometown, &v.Remark, &v.Department, &v.Position, &v.HealthCertificateID, &v.HealthCertificateURL, &v.HealthCertificateIssuedOn, &v.HealthCertificateExpiresOn, &days)
 	v.HealthCertificateDaysRemaining = days
 	v.Gender = request.NormalizeGender(v.Gender)
 	v.HealthCertificateStatus, v.HealthCertificateStatusClass = healthCertificateStatus(v.HealthCertificateID, days)
@@ -563,11 +581,16 @@ func (s *Store) SaveEmployee(ctx context.Context, id, actor uint64, v request.Em
 	if entrySalary == "" {
 		entrySalary = v.CurrentSalary
 	}
+	// 新增员工时两项工资默认一致，避免只填写入职工资导致正式工工资无法计算。
+	currentSalary := v.CurrentSalary
+	if currentSalary == "" {
+		currentSalary = entrySalary
+	}
 	var restDays any
 	if v.MonthlyRestDays > 0 {
 		restDays = v.MonthlyRestDays
 	}
-	args := []any{v.EmployeeNo, v.Name, v.Gender, v.IDCard, v.Mobile, optionalID(v.DepartmentID), optionalID(v.PositionID), v.EmploymentStatus, v.EmploymentType, optionalDate(v.JoinedOn), optionalDate(v.RegularizedOn), optionalDate(v.LeftOn), optionalMoney(entrySalary), optionalMoney(v.CurrentSalary), v.PayBasis, restDays, v.Education, v.Hometown, v.Remark}
+	args := []any{v.EmployeeNo, v.Name, v.Gender, v.IDCard, v.Mobile, optionalID(v.DepartmentID), optionalID(v.PositionID), v.EmploymentStatus, v.EmploymentType, optionalDate(v.JoinedOn), optionalDate(v.RegularizedOn), optionalDate(v.LeftOn), optionalMoney(entrySalary), optionalMoney(currentSalary), v.PayBasis, restDays, v.Education, v.Hometown, v.Remark}
 	if id == 0 {
 		result, e := tx.ExecContext(ctx, `INSERT INTO employees(employee_no,name,gender,id_card,mobile,department_id,position_id,employment_status,employment_type,joined_on,regularized_on,left_on,entry_salary,current_salary,pay_basis,monthly_rest_days,education,hometown,remark) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args...)
 		if e != nil {

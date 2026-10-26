@@ -7,27 +7,38 @@ import (
 	"friends-records/internal/models/mysql"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 type LedgerPageData struct {
-	ActiveMenu string
-	Records    []response.LedgerRecord
-	Summary    response.LedgerSummary
-	Trend      []response.TrendMonth
-	Year       int
-	StartDate  string
-	EndDate    string
-	CategoryID uint64
-	Categories []mysql.MiniOption
+	ActiveMenu  string
+	Records     []response.LedgerRecord
+	Summary     response.LedgerSummary
+	Trend       []response.TrendMonth
+	Year        int
+	FilterMonth string
+	CategoryID  uint64
+	Categories  []mysql.MiniOption
 }
 
 func ledgerDateRange(r *http.Request) (string, string, error) {
 	query := r.URL.Query()
+	if query.Get("all") == "1" {
+		return "1000-01-01", "9998-12-31", nil
+	}
 	start, end := query.Get("start_date"), query.Get("end_date")
 	if start == "" && end == "" && query.Get("month") != "" {
 		start, end = mysql.MonthDateRange(query.Get("month"))
 	}
+	if start == "" && end == "" {
+		start, end = mysql.MonthDateRange(time.Now().Format("2006-01"))
+		return start, end, nil
+	}
 	return mysql.NormalizeDateRange(start, end)
+}
+
+func ledgerAllHistory(start, end string) bool {
+	return start == "1000-01-01" && end == "9998-12-31"
 }
 
 func ledgerCategoryID(r *http.Request) (uint64, error) {
@@ -66,7 +77,10 @@ func (h *Handler) LedgerPage(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "台账统计读取失败")
 		return
 	}
-	year := mysql.LedgerYear(start[:7])
+	year := time.Now().Year()
+	if !ledgerAllHistory(start, end) {
+		year = mysql.LedgerYear(start[:7])
+	}
 	trend, err := h.Store.LedgerTrendFiltered(r.Context(), year, categoryID)
 	if err != nil {
 		fail(w, err, "年度趋势读取失败")
@@ -78,7 +92,11 @@ func (h *Handler) LedgerPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	categories := options["categories"]
-	h.render(w, "ledger.html", LedgerPageData{ActiveMenu: "ledger", Records: records, Summary: summary, Trend: trend, Year: year, StartDate: start, EndDate: end, CategoryID: categoryID, Categories: categories})
+	filterMonth := r.URL.Query().Get("month")
+	if filterMonth == "" && !ledgerAllHistory(start, end) && r.URL.Query().Get("start_date") == "" && r.URL.Query().Get("end_date") == "" {
+		filterMonth = time.Now().Format("2006-01")
+	}
+	h.render(w, "ledger.html", LedgerPageData{ActiveMenu: "ledger", Records: records, Summary: summary, Trend: trend, Year: year, FilterMonth: filterMonth, CategoryID: categoryID, Categories: categories})
 }
 func (h *Handler) LedgerAPI(w http.ResponseWriter, r *http.Request) {
 	if !getOnly(w, r) {
@@ -104,7 +122,11 @@ func (h *Handler) LedgerAPI(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "台账统计读取失败")
 		return
 	}
-	trend, err := h.Store.LedgerTrendFiltered(r.Context(), mysql.LedgerYear(start[:7]), categoryID)
+	year := time.Now().Year()
+	if !ledgerAllHistory(start, end) {
+		year = mysql.LedgerYear(start[:7])
+	}
+	trend, err := h.Store.LedgerTrendFiltered(r.Context(), year, categoryID)
 	if err != nil {
 		fail(w, err, "年度趋势读取失败")
 		return

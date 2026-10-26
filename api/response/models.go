@@ -213,6 +213,25 @@ type PayrollSummary struct {
 	PaidCount       int    `json:"paid_count"`
 }
 
+// SpecialPayrollRecord 是未建档员工的单次工资结算记录。
+type SpecialPayrollRecord struct {
+	ID       uint64 `json:"id"`
+	Month    string `json:"month"`
+	Name     string `json:"name"`
+	Amount   string `json:"amount"`
+	Remark   string `json:"remark"`
+	Status   string `json:"status"`
+	LedgerID uint64 `json:"ledger_id"`
+}
+
+type SpecialPayrollSummary struct {
+	Month      string `json:"month"`
+	Amount     string `json:"amount"`
+	Count      int    `json:"count"`
+	PaidCount  int    `json:"paid_count"`
+	DraftCount int    `json:"draft_count"`
+}
+
 type Department struct {
 	Seq           int    `json:"seq,omitempty"`
 	ID            uint64 `json:"id"`
@@ -292,6 +311,7 @@ type Stall struct {
 	ResponsibleName         string `json:"responsible_name"`
 	ResponsibleMobile       string `json:"responsible_mobile"`
 	MonthlyRent             string `json:"monthly_rent"`
+	FixedCommissionAmount   string `json:"fixed_commission_amount"`
 	DefaultGuaranteedAmount string `json:"default_guaranteed_amount"`
 	AllocationMode          string `json:"allocation_mode"`
 	ProfitJiaRate           string `json:"profit_jia_rate"`
@@ -306,6 +326,7 @@ type Stall struct {
 	HuilaimiAmount          string `json:"huilaimi_amount"`
 	CostAmount              string `json:"cost_amount"`
 	GuaranteedAmount        string `json:"guaranteed_amount"`
+	CostDeductedTurnover    string `json:"cost_deducted_turnover"`
 	NetTurnover             string `json:"net_turnover"`
 	TotalTurnover           string `json:"total_turnover"`
 	ConradCommission        string `json:"conrad_commission"`
@@ -325,17 +346,72 @@ type Stall struct {
 }
 
 type StallSummary struct {
-	StallCount        int    `json:"stall_count"`
-	TotalCardTurnover string `json:"total_card_turnover"`
-	TotalHuilaimi     string `json:"total_huilaimi"`
-	TotalTurnover     string `json:"total_turnover"`
-	TotalCost         string `json:"total_cost"`
-	ConradCommission  string `json:"conrad_commission"`
-	JiaCommission     string `json:"jia_commission"`
-	YiCommission      string `json:"yi_commission"`
-	OwnCommission     string `json:"own_commission"`
-	TotalCommission   string `json:"total_commission"`
-	Remaining         string `json:"remaining"`
+	StallCount            int    `json:"stall_count"`
+	TotalCardTurnover     string `json:"total_card_turnover"`
+	TotalCardAfterConrad  string `json:"total_card_after_conrad"`
+	TotalHuilaimi         string `json:"total_huilaimi"`
+	TotalTurnover         string `json:"total_turnover"`
+	TotalCost             string `json:"total_cost"`
+	ConradCommission      string `json:"conrad_commission"`
+	JiaCommission         string `json:"jia_commission"`
+	YiCommission          string `json:"yi_commission"`
+	OwnCommission         string `json:"own_commission"`
+	TotalCommission       string `json:"total_commission"`
+	Remaining             string `json:"remaining"`
+	BalanceBeforeExpenses string `json:"balance_before_expenses"`
+	OperatingExpense      string `json:"operating_expense"`
+	DistributableBalance  string `json:"distributable_balance"`
+	SpecialProfitPool     string `json:"special_profit_pool"`
+	SpecialStallCost      string `json:"special_stall_cost"`
+	// SelfOperatedCardNet 是自营档口学校卡机扣除康莱德抽点后的金额。
+	SelfOperatedCardNet string `json:"self_operated_card_net"`
+	// SelfOperatedHuilaimi 是自营档口汇来米营业额，汇来米不扣康莱德抽点。
+	SelfOperatedHuilaimi string `json:"self_operated_huilaimi"`
+	// SelfOperatedRevenueAfterConrad 是自营档口扣康莱德后、扣自身成本前的营业额。
+	SelfOperatedRevenueAfterConrad string `json:"self_operated_revenue_after_conrad"`
+	// OtherStallRevenueAfterConrad 是其他档口扣康莱德后、按抽点规则前的营业额。
+	OtherStallRevenueAfterConrad string `json:"other_stall_revenue_after_conrad"`
+	// SelfOperatedCommission 是自营档口扣成本、房租等规则后进入甲乙分配的金额。
+	SelfOperatedCommission string `json:"self_operated_commission"`
+	// OtherStallCommission 是非自营档口按规则或手动填写后的我方抽成。
+	OtherStallCommission string `json:"other_stall_commission"`
+	// CommissionBeforeOperatingExpense 是水电和人工成本扣除前，甲乙可分配的档口抽成合计。
+	CommissionBeforeOperatingExpense string `json:"commission_before_operating_expense"`
+	// MonthlyLoss 是当月支出超过甲乙可抽成金额时的亏损额度。
+	MonthlyLoss    string `json:"monthly_loss"`
+	HasMonthlyLoss bool   `json:"has_monthly_loss"`
+}
+
+// StallMonthlyExpense 是档口月度核算使用的水电与工资经营支出。
+type StallMonthlyExpense struct {
+	Month                  string `json:"month"`
+	WaterAmount            string `json:"water_amount"`
+	ElectricityAmount      string `json:"electricity_amount"`
+	AutomaticPayrollAmount string `json:"automatic_payroll_amount"`
+	ManualPayrollAmount    string `json:"manual_payroll_amount"`
+	ManualPayrollAmountSet bool   `json:"manual_payroll_amount_set"`
+	PayrollAmount          string `json:"payroll_amount"`
+	TotalAmount            string `json:"total_amount"`
+	ConradAmount           string `json:"conrad_amount"`
+	CardIncomeAmount       string `json:"card_income_amount"`
+	HuilaimiIncomeAmount   string `json:"huilaimi_income_amount"`
+	LedgerPosted           bool   `json:"ledger_posted"`
+}
+
+// StallCostEntry 是自营档口成本页面的一行明细。
+type StallCostEntry struct {
+	ID              uint64 `json:"id"`
+	Seq             int    `json:"seq,omitempty"`
+	Month           string `json:"month"`
+	StallID         uint64 `json:"stall_id"`
+	StallName       string `json:"stall_name"`
+	CostType        string `json:"cost_type"`
+	CostTypeLabel   string `json:"cost_type_label"`
+	Amount          string `json:"amount"`
+	Remark          string `json:"remark"`
+	LedgerPosted    bool   `json:"ledger_posted"`
+	SelfOperated    bool   `json:"self_operated"`
+	AllSelfOperated bool   `json:"all_self_operated"`
 }
 
 type StallSettings struct {
@@ -360,6 +436,7 @@ type LedgerRecord struct {
 	Expense        string `json:"expense"`
 	Balance        string `json:"balance"`
 	PayrollBatchID uint64 `json:"payroll_batch_id"`
+	PayrollType    string `json:"payroll_type"`
 }
 type LedgerSummary struct {
 	Month          string `json:"month"`

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>特殊员工工资 · 好友记录</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script defer src="/assets/app.js"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    {{template "sidebar" .}}
+    <main class="admin-main" data-special-payroll data-month="{{.Month}}">
+      <header class="admin-topbar">
+        <div><p class="breadcrumb">薪资管理 / 特殊员工工资</p><h1>特殊员工工资</h1><p class="page-description">适用于尚未来得及建立员工档案、已离开但仍需结算工资的人员。</p></div>
+        <div class="header-actions">{{if eq .Summary.PaidCount 0}}<button class="ghost-button" type="button" data-special-payroll-add>＋ 新增特殊工资</button>{{end}}{{if gt .Summary.DraftCount 0}}<button class="primary-button" type="button" data-special-payroll-settle>确认并汇总入账</button>{{end}}</div>
+      </header>
+      <nav class="payroll-type-tabs" aria-label="工资类型">
+        <a href="/admin/payroll?type=full_time&amp;month={{.Month}}">正式工工资</a>
+        <a href="/admin/payroll?type=part_time&amp;month={{.Month}}">临时工工资</a>
+        <a class="active" href="/admin/payroll?type=special&amp;month={{.Month}}">特殊员工工资</a>
+      </nav>
+      <section class="stat-grid three-cols">
+        <article class="stat-card"><span>{{.Month}} 特殊工资合计</span><strong>{{.Summary.Amount}}</strong><small>共 {{.Summary.Count}} 条记录</small></article>
+        <article class="stat-card"><span>待确认</span><strong>{{.Summary.DraftCount}}</strong><small>确认后与其他工资分开汇总入账</small></article>
+        <article class="stat-card"><span>已汇总入账</span><strong>{{.Summary.PaidCount}}</strong><small>台账详情可查看人员与金额</small></article>
+      </section>
+      <section class="notice-card"><span>特</span><div><strong>不需要先建立员工档案</strong><p>填写姓名、金额和备注后暂存本月；点击“确认并汇总入账”会生成一条“特殊员工工资”支出，且不需要填写对方账户。</p></div></section>
+      <section class="table-card"><div class="table-toolbar"><form method="get"><input type="hidden" name="type" value="special"><input type="month" name="month" value="{{.Month}}" onchange="this.form.submit()"></form></div><div class="table-header"><div><h2>{{.Month}} 特殊工资明细</h2><p>已汇总入账的记录不可修改或删除，避免台账与工资明细不一致。</p></div><span class="count-badge">{{.Summary.Count}} 条</span></div><div class="table-wrap"><table><thead><tr><th>姓名</th><th>实发金额</th><th>备注</th><th>状态</th><th>操作</th></tr></thead><tbody>{{range .Items}}<tr data-special-payroll-row data-id="{{.ID}}" data-name="{{.Name}}" data-amount="{{.Amount}}" data-remark="{{.Remark}}"><td><strong>{{.Name}}</strong></td><td class="salary">¥{{.Amount}}</td><td>{{if .Remark}}{{.Remark}}{{else}}—{{end}}</td><td><span class="status {{if eq .Status "paid"}}success{{else}}pending{{end}}">{{if eq .Status "paid"}}已汇总入账{{else}}待确认{{end}}</span></td><td><div class="row-actions">{{if eq .Status "draft"}}<button type="button" data-special-payroll-edit>编辑</button><button type="button" class="danger-link" data-special-payroll-delete>删除</button>{{else}}<span>已锁定</span>{{end}}</div></td></tr>{{else}}<tr><td colspan="5" class="empty-cell">本月暂无特殊员工工资记录</td></tr>{{end}}</tbody></table></div></section>
+    </main>
+  </div>
+  <div class="demo-toast" role="status"></div>
+</body>
+</html>

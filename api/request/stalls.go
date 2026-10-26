@@ -14,6 +14,7 @@ type StallInput struct {
 	ResponsibleName         string `json:"responsible_name"`
 	ResponsibleMobile       string `json:"responsible_mobile"`
 	MonthlyRent             string `json:"monthly_rent"`
+	FixedCommissionAmount   string `json:"fixed_commission_amount"`
 	DefaultGuaranteedAmount string `json:"default_guaranteed_amount"`
 	AllocationMode          string `json:"allocation_mode"`
 	ProfitJiaRate           string `json:"profit_jia_rate"`
@@ -52,6 +53,7 @@ type StallMonthlyRuleInput struct {
 	StallID                 uint64 `json:"stall_id"`
 	Month                   string `json:"month"`
 	MonthlyRent             string `json:"monthly_rent"`
+	FixedCommissionAmount   string `json:"fixed_commission_amount"`
 	DefaultGuaranteedAmount string `json:"default_guaranteed_amount"`
 	AllocationMode          string `json:"allocation_mode"`
 	ProfitJiaRate           string `json:"profit_jia_rate"`
@@ -77,15 +79,27 @@ func (v *StallMonthlyRuleInput) Validate() error {
 	if v.AllocationMode != "custom" && v.AllocationMode != "profit_share" && v.AllocationMode != "none" {
 		return fmt.Errorf("抽成模式不正确")
 	}
+	// 甲乙分成是全局固定口径，不由单个档口或当月规则配置。
+	v.ProfitJiaRate, v.ProfitYiRate = "90", "10"
 	if len([]rune(v.Remark)) > 500 {
 		return fmt.Errorf("备注不能超过500字")
 	}
 	for _, item := range []struct {
 		value, label string
-	}{{v.MonthlyRent, "月租"}, {v.DefaultGuaranteedAmount, "保底金额"}} {
+	}{{v.MonthlyRent, "月租"}, {v.FixedCommissionAmount, "固定抽成金额"}, {v.DefaultGuaranteedAmount, "保底金额"}} {
 		if err := validateDecimal(item.value, item.label, 100000000); err != nil {
 			return err
 		}
+	}
+	// 月度规则中的金额列为非空 DECIMAL，留空代表未设置，按0保存。
+	if strings.TrimSpace(v.MonthlyRent) == "" {
+		v.MonthlyRent = "0"
+	}
+	if strings.TrimSpace(v.FixedCommissionAmount) == "" {
+		v.FixedCommissionAmount = "0"
+	}
+	if strings.TrimSpace(v.DefaultGuaranteedAmount) == "" {
+		v.DefaultGuaranteedAmount = "0"
 	}
 	for _, item := range []*struct {
 		value *string
@@ -98,12 +112,78 @@ func (v *StallMonthlyRuleInput) Validate() error {
 	return nil
 }
 
-// StallLedgerInput 是把档口当月抽成写入收入台账所需的信息。
-type StallLedgerInput struct {
-	StallID    uint64 `json:"stall_id"`
+// StallMonthlyExpenseInput 保存指定月份的水电与工资核算金额；工资留空时沿用工资模块自动汇总。
+type StallMonthlyExpenseInput struct {
+	Month               string `json:"month"`
+	WaterAmount         string `json:"water_amount"`
+	ElectricityAmount   string `json:"electricity_amount"`
+	ManualPayrollAmount string `json:"manual_payroll_amount"`
+}
+
+// StallMonthlyExpenseLedgerInput 确认月度核算产生的水电、康莱德及营业收支流水。
+type StallMonthlyExpenseLedgerInput struct {
 	Month      string `json:"month"`
 	AccountID  uint64 `json:"account_id"`
 	OccurredOn string `json:"occurred_on"`
+}
+
+// StallCostInput 是档口月度成本；非自营成本仅记录和入账，不参与甲乙分配。
+type StallCostInput struct {
+	StallID         uint64 `json:"stall_id"`
+	Month           string `json:"month"`
+	CostType        string `json:"cost_type"`
+	Amount          string `json:"amount"`
+	Remark          string `json:"remark"`
+	AllSelfOperated bool   `json:"all_self_operated"`
+}
+
+// StallCostLedgerInput 将一条自营档口成本写入台账支出。
+type StallCostLedgerInput struct {
+	CostID     uint64 `json:"cost_id"`
+	AccountID  uint64 `json:"account_id"`
+	OccurredOn string `json:"occurred_on"`
+}
+
+func (v *StallCostLedgerInput) Validate() error {
+	if v.CostID == 0 || v.AccountID == 0 {
+		return fmt.Errorf("成本和账户不能为空")
+	}
+	if _, err := time.Parse("2006-01-02", strings.TrimSpace(v.OccurredOn)); err != nil {
+		return fmt.Errorf("入账日期格式不正确")
+	}
+	return nil
+}
+
+func (v *StallCostInput) Validate() error {
+	if v.StallID == 0 && !v.AllSelfOperated {
+		return fmt.Errorf("档口不能为空")
+	}
+	if _, err := time.Parse("2006-01", strings.TrimSpace(v.Month)); err != nil {
+		return fmt.Errorf("成本月份格式必须是YYYY-MM")
+	}
+	v.Month = strings.TrimSpace(v.Month)
+	v.CostType = strings.TrimSpace(v.CostType)
+	if v.CostType == "" {
+		v.CostType = "other"
+	}
+	switch v.CostType {
+	case "ingredient", "water", "electricity", "labor", "other":
+	default:
+		return fmt.Errorf("成本类型不正确")
+	}
+	if v.AllSelfOperated && v.CostType != "water" && v.CostType != "electricity" {
+		return fmt.Errorf("全部自营档口仅可登记水费或电费")
+	}
+	if err := validateDecimal(v.Amount, "成本金额", 100000000); err != nil {
+		return err
+	}
+	if strings.TrimSpace(v.Amount) == "" {
+		return fmt.Errorf("成本金额不能为空")
+	}
+	if len([]rune(v.Remark)) > 255 {
+		return fmt.Errorf("备注不能超过255字")
+	}
+	return nil
 }
 
 func validateDecimal(value, label string, max float64) error {
@@ -153,12 +233,24 @@ func (v *StallInput) Validate() error {
 	if v.AllocationMode != "custom" && v.AllocationMode != "profit_share" && v.AllocationMode != "none" {
 		return fmt.Errorf("抽成模式不正确")
 	}
+	// 甲乙分成是全局固定口径，不由单个档口长期资料配置。
+	v.ProfitJiaRate, v.ProfitYiRate = "90", "10"
 	for _, item := range []struct {
 		value, label string
-	}{{v.MonthlyRent, "月租"}, {v.DefaultGuaranteedAmount, "默认保底金额"}} {
+	}{{v.MonthlyRent, "月租"}, {v.FixedCommissionAmount, "固定抽成金额"}, {v.DefaultGuaranteedAmount, "默认保底金额"}} {
 		if err := validateDecimal(item.value, item.label, 100000000); err != nil {
 			return err
 		}
+	}
+	// 档口长期规则的金额列同样统一归零，避免浏览器留空时写入空字符串。
+	if strings.TrimSpace(v.MonthlyRent) == "" {
+		v.MonthlyRent = "0"
+	}
+	if strings.TrimSpace(v.FixedCommissionAmount) == "" {
+		v.FixedCommissionAmount = "0"
+	}
+	if strings.TrimSpace(v.DefaultGuaranteedAmount) == "" {
+		v.DefaultGuaranteedAmount = "0"
 	}
 	for _, item := range []*struct {
 		value *string
@@ -214,15 +306,35 @@ func (v *StallSettingsInput) Validate() error {
 	if len([]rune(v.CanteenName)) > 128 || len([]rune(v.Remark)) > 500 {
 		return fmt.Errorf("食堂设置内容过长")
 	}
-	return normalizePercentage(&v.ConradRate, "康莱德抽成比例")
+	if err := normalizePercentage(&v.ConradRate, "康莱德抽成比例"); err != nil {
+		return err
+	}
+	return nil
 }
 
-func (v *StallLedgerInput) Validate() error {
-	if v.StallID == 0 || v.AccountID == 0 {
-		return fmt.Errorf("档口和入账账户不能为空")
-	}
+func (v *StallMonthlyExpenseInput) Validate() error {
 	if _, err := time.Parse("2006-01", strings.TrimSpace(v.Month)); err != nil {
-		return fmt.Errorf("营业额月份格式必须是YYYY-MM")
+		return fmt.Errorf("经营支出月份格式必须是YYYY-MM")
+	}
+	v.Month = strings.TrimSpace(v.Month)
+	for _, item := range []struct{ value, label string }{{v.WaterAmount, "水费"}, {v.ElectricityAmount, "电费"}, {v.ManualPayrollAmount, "手动工资"}} {
+		if err := validateDecimal(item.value, item.label, 1000000000); err != nil {
+			return err
+		}
+	}
+	// 水费和电费是非空金额列；页面留空代表本月未发生，统一写入0。
+	if strings.TrimSpace(v.WaterAmount) == "" {
+		v.WaterAmount = "0"
+	}
+	if strings.TrimSpace(v.ElectricityAmount) == "" {
+		v.ElectricityAmount = "0"
+	}
+	return nil
+}
+
+func (v *StallMonthlyExpenseLedgerInput) Validate() error {
+	if _, err := time.Parse("2006-01", strings.TrimSpace(v.Month)); err != nil {
+		return fmt.Errorf("经营支出月份格式必须是YYYY-MM")
 	}
 	if v.OccurredOn == "" {
 		v.OccurredOn = strings.TrimSpace(v.Month) + "-01"
@@ -230,5 +342,6 @@ func (v *StallLedgerInput) Validate() error {
 	if _, err := time.Parse("2006-01-02", v.OccurredOn); err != nil {
 		return fmt.Errorf("入账日期格式必须是YYYY-MM-DD")
 	}
+	v.Month = strings.TrimSpace(v.Month)
 	return nil
 }

@@ -29,11 +29,27 @@ type PayrollPageData struct {
 	PageDescription string
 }
 
+type SpecialPayrollPageData struct {
+	ActiveMenu string
+	Month      string
+	Items      []response.SpecialPayrollRecord
+	Summary    response.SpecialPayrollSummary
+}
+
 func (h *Handler) PayrollPage(w http.ResponseWriter, r *http.Request) {
 	if !getOnly(w, r) {
 		return
 	}
 	month := mysql.NormalizeMonth(r.URL.Query().Get("month"))
+	if r.URL.Query().Get("type") == "special" {
+		items, summary, err := h.Store.SpecialPayrolls(r.Context(), month)
+		if err != nil {
+			fail(w, err, "特殊员工工资读取失败")
+			return
+		}
+		h.render(w, "special_payroll.html", SpecialPayrollPageData{ActiveMenu: "payroll-special", Month: month, Items: items, Summary: summary})
+		return
+	}
 	items, err := h.Store.Payroll(r.Context(), month)
 	if err != nil {
 		fail(w, err, "工资记录读取失败")
@@ -63,7 +79,7 @@ func (h *Handler) PayrollPage(w http.ResponseWriter, r *http.Request) {
 		workDays = 1
 	}
 	summary = payrollSummaryForType(summary, items)
-	pageTitle, pageDescription, activeMenu := "正式工工资", "请假、公休和入职日期会自动参与正式工月度工资计算", "payroll-formal"
+	pageTitle, pageDescription, activeMenu := "正式工工资", "请假、公休、入职及离职日期会自动参与正式工月度工资计算（离职当天计薪）", "payroll-formal"
 	if payrollType == "part_time" {
 		pageTitle, pageDescription, activeMenu = "临时工工资", "先登记每日工时，再按时薪、日薪或半天工资自动汇总本月工资", "payroll-temporary"
 	}
@@ -269,24 +285,7 @@ func (h *Handler) PayrollPayAPI(payroll service.Payroll) http.HandlerFunc {
 			httpx.MethodNotAllowed(w, http.MethodPost)
 			return
 		}
-		var input request.PayrollPay
-		if !decodeJSON(w, r, &input) {
-			return
-		}
-		var entryID uint64
-		var err error
-		if len(input.ItemIDs) > 0 {
-			entryID, err = payroll.PayEmployees(r.Context(), input)
-		} else if input.ItemID > 0 {
-			entryID, err = payroll.PayEmployee(r.Context(), input)
-		} else {
-			entryID, err = payroll.Pay(r.Context(), input)
-		}
-		if err != nil {
-			fail(w, err, "工资发放失败")
-			return
-		}
-		httpx.JSON(w, http.StatusOK, map[string]any{"ledger_entry_id": entryID})
+		httpx.Error(w, http.StatusConflict, "请在正式工工资或临时工工资页面点击“确认并汇总入账”")
 	}
 }
 
@@ -296,20 +295,7 @@ func (h *Handler) TemporaryPayrollAPI(payroll service.Payroll) http.HandlerFunc 
 			httpx.MethodNotAllowed(w, http.MethodPost)
 			return
 		}
-		var input request.TemporaryPayrollInput
-		if !decodeJSON(w, r, &input) {
-			return
-		}
-		if err := input.Validate(); err != nil {
-			httpx.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		id, err := payroll.PayTemporary(r.Context(), input)
-		if err != nil {
-			fail(w, err, "临时工工资发放失败")
-			return
-		}
-		httpx.JSON(w, http.StatusCreated, map[string]any{"ledger_entry_id": id})
+		httpx.Error(w, http.StatusConflict, "请在临时工工资页面点击“确认并汇总入账”")
 	}
 }
 func (h *Handler) PayrollConfirmAPI(payroll service.Payroll) http.HandlerFunc {
@@ -340,5 +326,114 @@ func (h *Handler) PayrollConfirmAPI(payroll service.Payroll) http.HandlerFunc {
 			return
 		}
 		httpx.JSON(w, http.StatusOK, map[string]any{"batch_id": input.BatchID, "item_id": input.ItemID})
+	}
+}
+
+// PayrollSettlementAPI 按正式工或临时工类型确认本月工资，并生成一条汇总支出流水。
+func (h *Handler) PayrollSettlementAPI(payroll service.Payroll, tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			httpx.MethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		actor, ok := adminActor(w, r, tokens)
+		if !ok {
+			return
+		}
+		var input request.PayrollSettlementInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if err := input.Validate(); err != nil {
+			httpx.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		ledgerID, err := payroll.SettleType(r.Context(), actor, input)
+		if err != nil {
+			adminWriteError(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"ledger_id": ledgerID})
+	}
+}
+
+// SpecialPayrollAPI 维护未建档员工的特殊工资，并按月汇总入账。
+func (h *Handler) SpecialPayrollAPI(payroll service.Payroll, tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			items, summary, err := payroll.SpecialList(r.Context(), mysql.NormalizeMonth(r.URL.Query().Get("month")))
+			if err != nil {
+				fail(w, err, "特殊员工工资读取失败")
+				return
+			}
+			httpx.JSON(w, http.StatusOK, map[string]any{"items": items, "summary": summary})
+		case http.MethodPost, http.MethodPut:
+			actor, ok := adminActor(w, r, tokens)
+			if !ok {
+				return
+			}
+			id, ok := adminID(w, r, r.Method == http.MethodPut)
+			if !ok {
+				return
+			}
+			var input request.SpecialPayrollInput
+			if !decodeJSON(w, r, &input) {
+				return
+			}
+			if err := input.Validate(); err != nil {
+				httpx.Error(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			saved, err := payroll.SaveSpecial(r.Context(), id, actor, input)
+			if err != nil {
+				adminWriteError(w, err)
+				return
+			}
+			httpx.JSON(w, createdStatus(r.Method), map[string]any{"id": saved})
+		case http.MethodDelete:
+			actor, ok := adminActor(w, r, tokens)
+			if !ok {
+				return
+			}
+			id, ok := adminID(w, r, true)
+			if !ok {
+				return
+			}
+			if err := payroll.DeleteSpecial(r.Context(), id, actor); err != nil {
+				adminWriteError(w, err)
+				return
+			}
+			httpx.JSON(w, http.StatusOK, map[string]any{"id": id})
+		default:
+			httpx.MethodNotAllowed(w, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete)
+		}
+	}
+}
+
+func (h *Handler) SpecialPayrollSettlementAPI(payroll service.Payroll, tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			httpx.MethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		actor, ok := adminActor(w, r, tokens)
+		if !ok {
+			return
+		}
+		var input request.SpecialPayrollSettlementInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if err := input.Validate(); err != nil {
+			httpx.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		ledgerID, err := payroll.SettleSpecial(r.Context(), actor, input)
+		if err != nil {
+			adminWriteError(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"ledger_id": ledgerID})
 	}
 }

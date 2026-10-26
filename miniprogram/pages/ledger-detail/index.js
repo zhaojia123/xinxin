@@ -19,7 +19,7 @@ Page({
       if (!this.destroyed) this.setData({ record, ready: true })
     } catch (error) { if (!this.destroyed) this.setData({ error: error.message }) }
   },
-  edit() { if (!this.data.record.payroll_batch_id) wx.navigateTo({ url: '/pages/ledger-edit/index?id=' + this.data.id }) },
+  edit() { if (!this.data.record.payroll_batch_id && !this.data.record.payroll_type) wx.navigateTo({ url: '/pages/ledger-edit/index?id=' + this.data.id }) },
   uploadProof() {
     if (this.data.uploading) return
     const options = {

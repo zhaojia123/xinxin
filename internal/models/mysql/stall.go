@@ -11,12 +11,45 @@ import (
 	"friends-records/internal/apperror"
 )
 
+const defaultConradRate = 0.03
+
 func stallNumber(value string) float64 {
 	n, _ := strconv.ParseFloat(strings.TrimSpace(value), 64)
 	return n
 }
 
 func stallRate(value float64) string { return Decimal(value * 100) }
+
+// conradRateForMonth 读取当月统一康莱德卡机抽点；未配置时默认3%。
+func conradRateForMonth(ctx context.Context, queryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, month string) (float64, error) {
+	var rate sql.NullFloat64
+	err := queryer.QueryRowContext(ctx, `SELECT conrad_rate FROM stall_commission_settings WHERE turnover_month=?`, month+"-01").Scan(&rate)
+	if err == sql.ErrNoRows {
+		return defaultConradRate, nil
+	}
+	if err != nil {
+		return 0, apperror.Wrap(err, "读取康莱德抽点比例失败")
+	}
+	return rate.Float64, nil
+}
+
+// hasStallAutomaticCommissionRule 判断当前档口是否已配置自动抽成规则。
+func hasStallAutomaticCommissionRule(item *response.Stall) bool {
+	switch item.AllocationMode {
+	case "profit_share":
+		return stallNumber(item.ProfitJiaRate) != 0 || stallNumber(item.ProfitYiRate) != 0
+	case "custom":
+		return stallNumber(item.MonthlyRent) != 0 ||
+			stallNumber(item.FixedCommissionAmount) != 0 ||
+			stallNumber(item.GuaranteedRate) != 0 ||
+			(stallNumber(item.BaseAmountRate) != 0 && stallNumber(item.BaseAmountFactor) != 0) ||
+			stallNumber(item.TotalAmountRate) != 0
+	default:
+		return false
+	}
+}
 
 // calculateStall 按三方规则计算单个档口：康莱德只看学校卡机，其他规则看卡机+汇来米。
 func calculateStall(item *response.Stall, conradRate float64) {
@@ -28,38 +61,78 @@ func calculateStall(item *response.Stall, conradRate float64) {
 		cost = 0
 	}
 	conrad := card * conradRate
-	net := total - cost - conrad
-	jia, yi, rent, guaranteed, base, totalRate := 0.0, 0.0, stallNumber(item.MonthlyRent), 0.0, 0.0, 0.0
+	net := total - conrad
+	jia, yi, rent, fixed, guaranteed, base, totalRate := 0.0, 0.0, stallNumber(item.MonthlyRent), stallNumber(item.FixedCommissionAmount), 0.0, 0.0, 0.0
 	if item.AllocationMode == "profit_share" {
+		// 自营档口先扣自身成本、房租和固定扣减，再把剩余金额按甲乙固定比例分配。
+		net -= cost + rent + fixed
+		// 甲乙净额分成是全局固定规则，不使用历史档口中可变的比例。
+		item.ProfitJiaRate, item.ProfitYiRate = "90.00", "10.00"
 		if net < 0 {
 			net = 0
 		}
-		jia = net * stallNumber(item.ProfitJiaRate) / 100
-		yi = net * stallNumber(item.ProfitYiRate) / 100
+		jia = net * 0.9
+		yi = net * 0.1
 	} else if item.AllocationMode == "custom" {
 		guaranteed = stallNumber(item.GuaranteedAmount) * stallNumber(item.GuaranteedRate) / 100
-		base = total * stallNumber(item.BaseAmountRate) / 100 * stallNumber(item.BaseAmountFactor) / 100
-		totalRate = total * stallNumber(item.TotalAmountRate) / 100
+		// 非自营档口的比例抽成也以学校卡机先扣康莱德3%后的可用营业额为基数。
+		base = net * stallNumber(item.BaseAmountRate) / 100 * stallNumber(item.BaseAmountFactor) / 100
+		totalRate = net * stallNumber(item.TotalAmountRate) / 100
+		jia = (rent + fixed + guaranteed + base + totalRate) * 0.9
+		yi = (rent + fixed + guaranteed + base + totalRate) * 0.1
 	}
-	calculatedOwn := jia + yi + rent + guaranteed + base + totalRate
+	calculatedOwn := jia + yi
 	own := calculatedOwn
-	// 没有单独配置抽成规则时，允许对当前月份手动填写我方抽成。
-	if item.ManualOwnCommissionSet {
-		own = stallNumber(item.ManualOwnCommission)
+	// 非自营档口没有单独抽点规则时，默认将扣康莱德后的可计算额全额按甲乙分配；
+	// 当月手填金额视为该月覆盖规则，优先于默认全额分配。
+	canManualOwnCommission := item.AllocationMode == "custom" && !hasStallAutomaticCommissionRule(item)
+	if canManualOwnCommission {
+		own = net
+		if item.ManualOwnCommissionSet {
+			own = stallNumber(item.ManualOwnCommission)
+		}
+		jia, yi = own*0.9, own*0.1
 	}
 	item.NetTurnover = Decimal(net)
+	costDeducted := total
+	if item.AllocationMode == "profit_share" {
+		costDeducted -= cost
+	}
+	item.CostDeductedTurnover = Decimal(costDeducted)
 	item.TotalTurnover = Decimal(total)
 	item.ConradCommission = Decimal(conrad)
 	item.JiaCommission = Decimal(jia)
 	item.YiCommission = Decimal(yi)
 	item.OwnCommission = Decimal(own)
-	item.CanManualOwnCommission = calculatedOwn == 0 || item.ManualOwnCommissionSet
-	item.RentCommission = Decimal(rent)
+	item.CanManualOwnCommission = canManualOwnCommission
+	item.RentCommission = Decimal(rent + fixed)
 	item.GuaranteedCommission = Decimal(guaranteed)
 	item.BaseCommission = Decimal(base)
 	item.TotalRateCommission = Decimal(totalRate)
 	item.TotalCommission = Decimal(conrad + own)
-	item.Remaining = Decimal(total - cost - conrad - own)
+	item.Remaining = Decimal(net - own)
+}
+
+// ApplyMonthlyOperatingExpense 以各档口已计算出的甲乙可抽成金额为基数，扣除水电和人工后统一分配。
+func ApplyMonthlyOperatingExpense(summary *response.StallSummary, expense response.StallMonthlyExpense) {
+	// 自营档口的金额已扣自身成本、房租等；其他档口的金额已按其抽点规则计算。
+	operating := stallNumber(expense.TotalAmount)
+	commissionBeforeExpense := stallNumber(summary.SelfOperatedCommission) + stallNumber(summary.OtherStallCommission)
+	// 自营成本已在单档口计算时扣除；这里继续扣水电和人工等当月经营支出。
+	result := commissionBeforeExpense - operating
+	summary.OperatingExpense = Decimal(operating)
+	summary.CommissionBeforeOperatingExpense = Decimal(commissionBeforeExpense)
+	summary.BalanceBeforeExpenses = Decimal(commissionBeforeExpense)
+	summary.DistributableBalance = Decimal(result)
+	summary.MonthlyLoss, summary.HasMonthlyLoss = "0.00", result < 0
+	if result < 0 {
+		summary.MonthlyLoss = Decimal(-result)
+		summary.JiaCommission, summary.YiCommission, summary.OwnCommission = "0.00", "0.00", "0.00"
+		return
+	}
+	summary.JiaCommission, summary.YiCommission = Decimal(result*0.9), Decimal(result*0.1)
+	summary.OwnCommission = Decimal(result)
+	summary.TotalCommission = Decimal(stallNumber(summary.ConradCommission) + result)
 }
 
 func scanStall(row interface{ Scan(...any) error }, conradRate float64) (response.Stall, error) {
@@ -67,12 +140,13 @@ func scanStall(row interface{ Scan(...any) error }, conradRate float64) (respons
 	var turnoverID sql.NullInt64
 	var month sql.NullString
 	var mode sql.NullString
-	var rent, defaultGuaranteed, jiaRate, yiRate, guaranteedRate, baseRate, baseFactor, totalRate sql.NullFloat64
+	var rent, fixed, defaultGuaranteed, jiaRate, yiRate, guaranteedRate, baseRate, baseFactor, totalRate sql.NullFloat64
 	var card, huilaimi, cost, guaranteedAmount, manualOwnCommission sql.NullFloat64
-	if err := row.Scan(&item.ID, &item.StallNo, &item.Name, &item.ResponsibleName, &item.ResponsibleMobile, &rent, &defaultGuaranteed, &mode, &jiaRate, &yiRate, &guaranteedRate, &baseRate, &baseFactor, &totalRate, &item.Remark, &turnoverID, &month, &card, &huilaimi, &cost, &guaranteedAmount, &manualOwnCommission); err != nil {
+	if err := row.Scan(&item.ID, &item.StallNo, &item.Name, &item.ResponsibleName, &item.ResponsibleMobile, &rent, &fixed, &defaultGuaranteed, &mode, &jiaRate, &yiRate, &guaranteedRate, &baseRate, &baseFactor, &totalRate, &item.Remark, &turnoverID, &month, &card, &huilaimi, &cost, &guaranteedAmount, &manualOwnCommission); err != nil {
 		return response.Stall{}, err
 	}
 	item.MonthlyRent = Decimal(rent.Float64)
+	item.FixedCommissionAmount = Decimal(fixed.Float64)
 	item.DefaultGuaranteedAmount = Decimal(defaultGuaranteed.Float64)
 	item.AllocationMode = mode.String
 	if item.AllocationMode == "" {
@@ -100,20 +174,20 @@ func scanStall(row interface{ Scan(...any) error }, conradRate float64) (respons
 }
 
 func stallSelect() string {
-	return `SELECT s.id,s.stall_no,s.name,s.responsible_name,s.responsible_mobile,s.monthly_rent,s.default_guaranteed_amount,
+	return `SELECT s.id,s.stall_no,s.name,s.responsible_name,s.responsible_mobile,s.monthly_rent,s.fixed_commission_amount,s.default_guaranteed_amount,
  s.allocation_mode,s.profit_jia_rate,s.profit_yi_rate,s.guaranteed_rate,s.base_amount_rate,s.base_amount_factor,s.total_amount_rate,s.remark,
- t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE(t.cost_amount,0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
+	 t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE((SELECT SUM(c.amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
 }
 
 func stallMonthlySelect() string {
 	return `SELECT s.id,s.stall_no,s.name,s.responsible_name,s.responsible_mobile,
- COALESCE(r.monthly_rent,s.monthly_rent),COALESCE(r.default_guaranteed_amount,s.default_guaranteed_amount),
+	 COALESCE(r.monthly_rent,s.monthly_rent),COALESCE(r.fixed_commission_amount,s.fixed_commission_amount),COALESCE(r.default_guaranteed_amount,s.default_guaranteed_amount),
  COALESCE(r.allocation_mode,s.allocation_mode),COALESCE(r.profit_jia_rate,s.profit_jia_rate),COALESCE(r.profit_yi_rate,s.profit_yi_rate),
  COALESCE(r.guaranteed_rate,s.guaranteed_rate),COALESCE(r.base_amount_rate,s.base_amount_rate),COALESCE(r.base_amount_factor,s.base_amount_factor),COALESCE(r.total_amount_rate,s.total_amount_rate),s.remark,
- t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE(t.cost_amount,0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
+	 t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE((SELECT SUM(c.amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
 }
 
-// StallSettings 查询指定月份的康莱德公司抽成比例；未设置时返回0。
+// StallSettings 查询指定月份的康莱德公司抽成比例；未设置时默认3%。
 func (s *Store) StallSettings(ctx context.Context, month string) (response.StallSettings, error) {
 	if err := s.ready(); err != nil {
 		return response.StallSettings{}, err
@@ -121,7 +195,7 @@ func (s *Store) StallSettings(ctx context.Context, month string) (response.Stall
 	var item response.StallSettings
 	var rate sql.NullFloat64
 	if err := s.DB.QueryRowContext(ctx, `SELECT DATE_FORMAT(turnover_month,'%Y-%m'),canteen_name,conrad_rate,remark FROM stall_commission_settings WHERE turnover_month=?`, month+"-01").Scan(&item.Month, &item.CanteenName, &rate, &item.Remark); err == sql.ErrNoRows {
-		return response.StallSettings{Month: month, CanteenName: "厦门理工知行2食堂", ConradRate: "0"}, nil
+		return response.StallSettings{Month: month, CanteenName: "厦门理工知行2食堂", ConradRate: "3.00"}, nil
 	} else if err != nil {
 		return response.StallSettings{}, apperror.Wrap(err, "查询档口抽成设置失败")
 	}
@@ -181,7 +255,7 @@ func (s *Store) SaveStallMonthlyRule(ctx context.Context, actor uint64, v reques
 	if err := s.ready(); err != nil {
 		return err
 	}
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO stall_monthly_rules(stall_id,turnover_month,monthly_rent,default_guaranteed_amount,allocation_mode,profit_jia_rate,profit_yi_rate,guaranteed_rate,base_amount_rate,base_amount_factor,total_amount_rate,remark) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE monthly_rent=VALUES(monthly_rent),default_guaranteed_amount=VALUES(default_guaranteed_amount),allocation_mode=VALUES(allocation_mode),profit_jia_rate=VALUES(profit_jia_rate),profit_yi_rate=VALUES(profit_yi_rate),guaranteed_rate=VALUES(guaranteed_rate),base_amount_rate=VALUES(base_amount_rate),base_amount_factor=VALUES(base_amount_factor),total_amount_rate=VALUES(total_amount_rate),remark=VALUES(remark)`, v.StallID, v.Month+"-01", v.MonthlyRent, v.DefaultGuaranteedAmount, v.AllocationMode, v.ProfitJiaRate, v.ProfitYiRate, v.GuaranteedRate, v.BaseAmountRate, v.BaseAmountFactor, v.TotalAmountRate, v.Remark)
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO stall_monthly_rules(stall_id,turnover_month,monthly_rent,fixed_commission_amount,default_guaranteed_amount,allocation_mode,profit_jia_rate,profit_yi_rate,guaranteed_rate,base_amount_rate,base_amount_factor,total_amount_rate,remark) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE monthly_rent=VALUES(monthly_rent),fixed_commission_amount=VALUES(fixed_commission_amount),default_guaranteed_amount=VALUES(default_guaranteed_amount),allocation_mode=VALUES(allocation_mode),profit_jia_rate=VALUES(profit_jia_rate),profit_yi_rate=VALUES(profit_yi_rate),guaranteed_rate=VALUES(guaranteed_rate),base_amount_rate=VALUES(base_amount_rate),base_amount_factor=VALUES(base_amount_factor),total_amount_rate=VALUES(total_amount_rate),remark=VALUES(remark)`, v.StallID, v.Month+"-01", v.MonthlyRent, v.FixedCommissionAmount, v.DefaultGuaranteedAmount, v.AllocationMode, v.ProfitJiaRate, v.ProfitYiRate, v.GuaranteedRate, v.BaseAmountRate, v.BaseAmountFactor, v.TotalAmountRate, v.Remark)
 	if err != nil {
 		return apperror.Wrap(err, "保存档口当月规则失败")
 	}
@@ -194,11 +268,10 @@ func (s *Store) StallsWithTurnover(ctx context.Context, month, keyword string) (
 	if err := s.ready(); err != nil {
 		return nil, response.StallSummary{}, err
 	}
-	settings, err := s.StallSettings(ctx, month)
+	conradRate, err := conradRateForMonth(ctx, s.DB, month)
 	if err != nil {
 		return nil, response.StallSummary{}, err
 	}
-	conradRate := stallNumber(settings.ConradRate) / 100
 	keyword = strings.TrimSpace(keyword)
 	query := stallMonthlySelect() + ` FROM stall_accounts s LEFT JOIN stall_turnovers t ON t.stall_id=s.id AND t.turnover_month=? AND t.active=1 LEFT JOIN stall_monthly_rules r ON r.stall_id=s.id AND r.turnover_month=? WHERE s.active=1`
 	args := []any{month + "-01", month + "-01"}
@@ -233,6 +306,21 @@ func (s *Store) StallsWithTurnover(ctx context.Context, month, keyword string) (
 		summary.OwnCommission = Decimal(stallNumber(summary.OwnCommission) + stallNumber(item.OwnCommission))
 		summary.TotalCommission = Decimal(stallNumber(summary.TotalCommission) + stallNumber(item.TotalCommission))
 		summary.Remaining = Decimal(stallNumber(summary.Remaining) + stallNumber(item.Remaining))
+		if item.AllocationMode == "profit_share" {
+			summary.SpecialProfitPool = Decimal(stallNumber(summary.SpecialProfitPool) + stallNumber(item.NetTurnover))
+			summary.SpecialStallCost = Decimal(stallNumber(summary.SpecialStallCost) + stallNumber(item.CostAmount))
+			summary.BalanceBeforeExpenses = Decimal(stallNumber(summary.BalanceBeforeExpenses) + stallNumber(item.NetTurnover))
+			summary.SelfOperatedCardNet = Decimal(stallNumber(summary.SelfOperatedCardNet) + stallNumber(item.SchoolCardAmount) - stallNumber(item.ConradCommission))
+			summary.SelfOperatedHuilaimi = Decimal(stallNumber(summary.SelfOperatedHuilaimi) + stallNumber(item.HuilaimiAmount))
+			summary.SelfOperatedRevenueAfterConrad = Decimal(stallNumber(summary.SelfOperatedRevenueAfterConrad) + stallNumber(item.SchoolCardAmount) - stallNumber(item.ConradCommission) + stallNumber(item.HuilaimiAmount))
+			summary.SelfOperatedCommission = Decimal(stallNumber(summary.SelfOperatedCommission) + stallNumber(item.OwnCommission))
+		} else {
+			summary.BalanceBeforeExpenses = Decimal(stallNumber(summary.BalanceBeforeExpenses) + stallNumber(item.Remaining))
+			summary.OtherStallRevenueAfterConrad = Decimal(stallNumber(summary.OtherStallRevenueAfterConrad) + stallNumber(item.NetTurnover))
+			// 非自营档口只把本方实际抽成加入甲乙可分配额，营业额本身不重复计入。
+			summary.OtherStallCommission = Decimal(stallNumber(summary.OtherStallCommission) + stallNumber(item.OwnCommission))
+		}
+		summary.TotalCardAfterConrad = Decimal(stallNumber(summary.TotalCardTurnover) - stallNumber(summary.ConradCommission))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, response.StallSummary{}, apperror.Wrap(err, "遍历档口列表失败")
@@ -264,9 +352,9 @@ func (s *Store) SaveStall(ctx context.Context, id, actor uint64, v request.Stall
 		return 0, apperror.Wrap(err, "开始保存档口事务失败")
 	}
 	defer tx.Rollback()
-	values := []any{v.StallNo, v.Name, v.ResponsibleName, v.ResponsibleMobile, v.MonthlyRent, v.DefaultGuaranteedAmount, v.AllocationMode, v.ProfitJiaRate, v.ProfitYiRate, v.GuaranteedRate, v.BaseAmountRate, v.BaseAmountFactor, v.TotalAmountRate, v.Remark}
+	values := []any{v.StallNo, v.Name, v.ResponsibleName, v.ResponsibleMobile, v.MonthlyRent, v.FixedCommissionAmount, v.DefaultGuaranteedAmount, v.AllocationMode, v.ProfitJiaRate, v.ProfitYiRate, v.GuaranteedRate, v.BaseAmountRate, v.BaseAmountFactor, v.TotalAmountRate, v.Remark}
 	if id == 0 {
-		result, err := tx.ExecContext(ctx, `INSERT INTO stall_accounts(stall_no,name,responsible_name,responsible_mobile,monthly_rent,default_guaranteed_amount,allocation_mode,profit_jia_rate,profit_yi_rate,guaranteed_rate,base_amount_rate,base_amount_factor,total_amount_rate,remark) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, values...)
+		result, err := tx.ExecContext(ctx, `INSERT INTO stall_accounts(stall_no,name,responsible_name,responsible_mobile,monthly_rent,fixed_commission_amount,default_guaranteed_amount,allocation_mode,profit_jia_rate,profit_yi_rate,guaranteed_rate,base_amount_rate,base_amount_factor,total_amount_rate,remark) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, values...)
 		if err != nil {
 			return 0, err
 		}
@@ -276,7 +364,7 @@ func (s *Store) SaveStall(ctx context.Context, id, actor uint64, v request.Stall
 		}
 		id = uint64(last)
 	} else {
-		result, err := tx.ExecContext(ctx, `UPDATE stall_accounts SET stall_no=?,name=?,responsible_name=?,responsible_mobile=?,monthly_rent=?,default_guaranteed_amount=?,allocation_mode=?,profit_jia_rate=?,profit_yi_rate=?,guaranteed_rate=?,base_amount_rate=?,base_amount_factor=?,total_amount_rate=?,remark=? WHERE id=? AND active=1`, append(values, id)...)
+		result, err := tx.ExecContext(ctx, `UPDATE stall_accounts SET stall_no=?,name=?,responsible_name=?,responsible_mobile=?,monthly_rent=?,fixed_commission_amount=?,default_guaranteed_amount=?,allocation_mode=?,profit_jia_rate=?,profit_yi_rate=?,guaranteed_rate=?,base_amount_rate=?,base_amount_factor=?,total_amount_rate=?,remark=? WHERE id=? AND active=1`, append(values, id)...)
 		if err != nil {
 			return 0, err
 		}
@@ -318,104 +406,43 @@ func (s *Store) SaveStallTurnover(ctx context.Context, id, actor uint64, v reque
 	if err := s.ready(); err != nil {
 		return 0, err
 	}
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO stall_turnovers(stall_id,turnover_month,school_amount,card_amount,huilaimi_amount,cost_amount,guaranteed_amount,manual_own_commission,remark) VALUES(?,?,?,?,?,?,?,NULLIF(?,''),?) ON DUPLICATE KEY UPDATE school_amount=VALUES(school_amount),card_amount=VALUES(card_amount),huilaimi_amount=VALUES(huilaimi_amount),cost_amount=VALUES(cost_amount),guaranteed_amount=VALUES(guaranteed_amount),manual_own_commission=VALUES(manual_own_commission),remark=VALUES(remark),active=1,deleted_at=NULL,deleted_by=NULL`, v.StallID, v.Month+"-01", v.CardAmount, v.CardAmount, v.HuilaimiAmount, v.CostAmount, v.GuaranteedAmount, v.ManualOwnCommission, v.Remark)
+	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
-	if err := s.DB.QueryRowContext(ctx, `SELECT id FROM stall_turnovers WHERE stall_id=? AND turnover_month=?`, v.StallID, v.Month+"-01").Scan(&id); err != nil {
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO stall_turnovers(stall_id,turnover_month,school_amount,card_amount,huilaimi_amount,cost_amount,guaranteed_amount,manual_own_commission,remark) VALUES(?,?,?,?,?,?,?,NULLIF(?,''),?) ON DUPLICATE KEY UPDATE school_amount=VALUES(school_amount),card_amount=VALUES(card_amount),huilaimi_amount=VALUES(huilaimi_amount),cost_amount=VALUES(cost_amount),guaranteed_amount=VALUES(guaranteed_amount),manual_own_commission=VALUES(manual_own_commission),remark=VALUES(remark),active=1,deleted_at=NULL,deleted_by=NULL`, v.StallID, v.Month+"-01", v.CardAmount, v.CardAmount, v.HuilaimiAmount, v.CostAmount, v.GuaranteedAmount, v.ManualOwnCommission, v.Remark); err != nil {
+		return 0, err
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM stall_turnovers WHERE stall_id=? AND turnover_month=?`, v.StallID, v.Month+"-01").Scan(&id); err != nil {
 		return 0, apperror.Wrap(err, "读取营业额记录失败")
 	}
-	_, err = s.DB.ExecContext(ctx, `INSERT INTO audit_logs(admin_user_id,module,action,target_type,target_id,target_text,detail) VALUES(?,?,?,?,?,?,?)`, actor, "stalls", "保存营业额", "stall_turnovers", id, v.Month, "档口月度营业额")
-	return id, err
+	if _, err := tx.ExecContext(ctx, `INSERT INTO audit_logs(admin_user_id,module,action,target_type,target_id,target_text,detail) VALUES(?,?,?,?,?,?,?)`, actor, "stalls", "保存营业额", "stall_turnovers", id, v.Month, "档口月度营业额"); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 func (s *Store) DeleteStallTurnover(ctx context.Context, id, actor uint64) error {
 	if err := s.ready(); err != nil {
 		return err
 	}
-	result, err := s.DB.ExecContext(ctx, `UPDATE stall_turnovers SET active=0,deleted_at=NOW(),deleted_by=? WHERE id=? AND active=1`, actor, id)
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE stall_turnovers SET active=0,deleted_at=NOW(),deleted_by=? WHERE id=? AND active=1`, actor, id)
 	if err != nil {
 		return err
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
 		return ErrNotFound
 	}
-	_, err = s.DB.ExecContext(ctx, `INSERT INTO audit_logs(admin_user_id,module,action,target_type,target_id,target_text,detail) VALUES(?,?,?,?,?,?,?)`, actor, "stalls", "删除营业额", "stall_turnovers", id, "营业额记录", "档口月度营业额")
-	return err
-}
-
-// PostStallCommissionLedger 将档口自营抽成写入收入台账；康莱德是外部抽成方，不计入本方收入。
-func (s *Store) PostStallCommissionLedger(ctx context.Context, actor uint64, v request.StallLedgerInput) error {
-	if err := s.ready(); err != nil {
-		return err
-	}
-	tx, err := s.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return apperror.Wrap(err, "开始档口抽成入账事务失败")
-	}
-	defer tx.Rollback()
-	var stallID uint64
-	var stallName, responsible, mode string
-	var rent, defaultGuaranteed, jiaRate, yiRate, guaranteedRate, baseRate, baseFactor, totalRate, card, huilaimi, cost, guaranteedAmount float64
-	var manualOwnCommission sql.NullFloat64
-	if err := tx.QueryRowContext(ctx, `SELECT s.id,s.name,s.responsible_name,COALESCE(r.allocation_mode,s.allocation_mode),COALESCE(r.monthly_rent,s.monthly_rent),COALESCE(r.default_guaranteed_amount,s.default_guaranteed_amount),COALESCE(r.profit_jia_rate,s.profit_jia_rate),COALESCE(r.profit_yi_rate,s.profit_yi_rate),COALESCE(r.guaranteed_rate,s.guaranteed_rate),COALESCE(r.base_amount_rate,s.base_amount_rate),COALESCE(r.base_amount_factor,s.base_amount_factor),COALESCE(r.total_amount_rate,s.total_amount_rate),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE(t.cost_amount,0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission FROM stall_accounts s LEFT JOIN stall_turnovers t ON t.stall_id=s.id AND t.turnover_month=? AND t.active=1 LEFT JOIN stall_monthly_rules r ON r.stall_id=s.id AND r.turnover_month=? WHERE s.id=? AND s.active=1`, v.Month+"-01", v.Month+"-01", v.StallID).Scan(&stallID, &stallName, &responsible, &mode, &rent, &defaultGuaranteed, &jiaRate, &yiRate, &guaranteedRate, &baseRate, &baseFactor, &totalRate, &card, &huilaimi, &cost, &guaranteedAmount, &manualOwnCommission); err == sql.ErrNoRows {
-		return ErrNotFound
-	} else if err != nil {
-		return apperror.Wrap(err, "读取档口抽成数据失败")
-	}
-	if guaranteedAmount == 0 {
-		guaranteedAmount = defaultGuaranteed
-	}
-	var conradRate float64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(conrad_rate,0) FROM stall_commission_settings WHERE turnover_month=?`, v.Month+"-01").Scan(&conradRate); err != nil && err != sql.ErrNoRows {
-		return apperror.Wrap(err, "读取康莱德抽成比例失败")
-	}
-	item := response.Stall{AllocationMode: mode, MonthlyRent: Decimal(rent), DefaultGuaranteedAmount: Decimal(defaultGuaranteed), ProfitJiaRate: stallRate(jiaRate), ProfitYiRate: stallRate(yiRate), GuaranteedRate: stallRate(guaranteedRate), BaseAmountRate: stallRate(baseRate), BaseAmountFactor: stallRate(baseFactor), TotalAmountRate: stallRate(totalRate), SchoolCardAmount: Decimal(card), HuilaimiAmount: Decimal(huilaimi), CostAmount: Decimal(cost), GuaranteedAmount: Decimal(guaranteedAmount), ManualOwnCommission: Decimal(manualOwnCommission.Float64), ManualOwnCommissionSet: manualOwnCommission.Valid}
-	calculateStall(&item, conradRate)
-	amount := stallNumber(item.OwnCommission)
-	if amount <= 0 {
-		return apperror.New("当前档口本方抽成金额为0，无需写入台账")
-	}
-	var accountID uint64
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM ledger_accounts WHERE id=? AND enabled=1 FOR UPDATE`, v.AccountID).Scan(&accountID); err == sql.ErrNoRows {
-		return apperror.New("入账账户不存在或已停用")
-	} else if err != nil {
-		return apperror.Wrap(err, "读取入账账户失败")
-	}
-	var categoryID uint64
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM ledger_categories WHERE direction='income' AND name='档口抽成' LIMIT 1`).Scan(&categoryID); err == sql.ErrNoRows {
-		result, insertErr := tx.ExecContext(ctx, `INSERT INTO ledger_categories(direction,name,enabled,sort_order) VALUES('income','档口抽成',1,999)`)
-		if insertErr != nil {
-			return apperror.Wrap(insertErr, "创建档口抽成分类失败")
-		}
-		categoryID64, idErr := result.LastInsertId()
-		if idErr != nil {
-			return apperror.Wrap(idErr, "读取档口抽成分类失败")
-		}
-		categoryID = uint64(categoryID64)
-	} else if err != nil {
-		return apperror.Wrap(err, "读取档口抽成分类失败")
-	}
-	voucher := "STALL-" + strconv.FormatUint(stallID, 10) + "-" + v.Month
-	summary := v.Month + "档口自营抽成-" + stallName
-	remark := "本方抽成=" + item.OwnCommission + "；甲=" + item.JiaCommission + "，乙=" + item.YiCommission + "；康莱德另计=" + item.ConradCommission
-	var entryID uint64
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM ledger_entries WHERE voucher_no=? AND active=1 FOR UPDATE`, voucher).Scan(&entryID); err == sql.ErrNoRows {
-		result, insertErr := tx.ExecContext(ctx, `INSERT INTO ledger_entries(occurred_on,account_id,category_id,direction,amount,summary,counterparty,voucher_no,remark) VALUES(?,?,?,'income',?,?,?,?,?)`, v.OccurredOn, accountID, categoryID, amount, summary, responsible, voucher, remark)
-		if insertErr != nil {
-			return apperror.Wrap(insertErr, "写入档口抽成台账失败")
-		}
-		id, idErr := result.LastInsertId()
-		if idErr != nil {
-			return apperror.Wrap(idErr, "读取档口抽成台账编号失败")
-		}
-		entryID = uint64(id)
-	} else if err != nil {
-		return apperror.Wrap(err, "查询档口抽成台账失败")
-	} else if _, err := tx.ExecContext(ctx, `UPDATE ledger_entries SET occurred_on=?,account_id=?,category_id=?,amount=?,summary=?,counterparty=?,remark=? WHERE id=? AND active=1`, v.OccurredOn, accountID, categoryID, amount, summary, responsible, remark, entryID); err != nil {
-		return apperror.Wrap(err, "更新档口抽成台账失败")
-	}
-	if err := miniAudit(ctx, tx, actor, "stalls", entryID, "档口自营抽成入账："+stallName); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO audit_logs(admin_user_id,module,action,target_type,target_id,target_text,detail) VALUES(?,?,?,?,?,?,?)`, actor, "stalls", "删除营业额", "stall_turnovers", id, "营业额记录", "档口月度营业额"); err != nil {
 		return err
 	}
 	return tx.Commit()

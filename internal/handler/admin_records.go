@@ -318,15 +318,26 @@ func (h *Handler) AdminAttendanceAPI(tokens *token.Manager) http.HandlerFunc {
 			if !ok {
 				return
 			}
-			id, ok := adminID(w, r, true)
+			id, ok := adminID(w, r, false)
 			if !ok {
 				return
 			}
-			if err := h.Store.DeleteAttendance(r.Context(), id, actor); err != nil {
+			ids := []uint64{id}
+			if id == 0 {
+				var input struct {
+					IDs []uint64 `json:"ids"`
+				}
+				if !decodeJSON(w, r, &input) {
+					return
+				}
+				ids = input.IDs
+			}
+			deleted, err := h.Store.DeleteAttendances(r.Context(), ids, actor)
+			if err != nil {
 				adminWriteError(w, err)
 				return
 			}
-			httpx.JSON(w, http.StatusOK, map[string]any{"id": id})
+			httpx.JSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 		default:
 			httpx.MethodNotAllowed(w, "GET", "POST", "PUT", "DELETE")
 		}

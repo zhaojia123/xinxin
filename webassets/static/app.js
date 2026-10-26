@@ -94,7 +94,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ]},
     ledger: { title: "台账收支", fields: [
       ["direction","收支方向","direction",true],["amount","金额","number",true],["occurred_on","发生日期","date",true],["account_id","资金账户","accounts",true],
-      ["category_id","收支分类","categories"],["department_id","归属部门","departments"],["summary","摘要","text",true],["counterparty","对方名称","text"],["voucher_no","凭证号","text"],["remark","备注","textarea"]
+      ["category_id","收支分类","categories"],["department_id","归属部门","departments"],["summary","摘要","text",true],["counterparty","对方单位 / 资金账户","text",true],["voucher_no","凭证号","text"],["remark","备注","textarea"]
     ]},
     purchase: { title: "供货采购", fields: [
       ["date","采购日期","date",true],["supplier_name","供货商","text",true],["category","采购品类","purchase_category",true],["product_name","菜品或物料","text",true],
@@ -355,11 +355,11 @@ document.addEventListener("DOMContentLoaded", () => {
         data.occurred_ons = data.occurred_on ? [data.occurred_on] : [];
         data.attendance_kind = data.record_type === "公休" ? "public_rest" : data.record_type === "节假日" ? "holiday" : data.record_type === "特殊请假" ? "special_leave" : "leave";
       }
-      if (kind === "ledger" && data.payroll_batch_id) readonly = true;
+      if (kind === "ledger" && (data.payroll_batch_id || data.payroll_type)) readonly = true;
       if (data.enabled === undefined) data.enabled = true;
       const ledgerProofs = kind === "ledger" ? `<section class="ledger-proof-panel"><div class="record-label-row"><strong>转账凭证</strong><small>支持 JPG、PNG、WebP，单张大小以服务端配置为准</small></div>${data.attachments?.length ? `<div class="ledger-proof-list">${data.attachments.map(item => `<a href="${escapeHTML(item.file_url)}" target="_blank" rel="noopener"><img src="${escapeHTML(item.file_url)}" alt="${escapeHTML(item.original_name || "转账凭证")}"><span>${escapeHTML(item.original_name || "查看图片")}</span></a>`).join("")}</div>` : `<p class="ledger-proof-empty">暂无转账凭证</p>`}<div class="upload-dropzone" data-ledger-proof-upload><input type="file" data-ledger-proof-files accept="image/jpeg,image/png,image/webp" multiple><span class="upload-dropzone-plus">＋</span><strong>拖入或选择转账凭证</strong><small>可上传银行回单、转账截图，支持多张图片</small><em data-ledger-proof-names>尚未选择文件</em></div><button type="button" class="ghost-button ledger-proof-upload-button" data-ledger-proof-submit ${id ? "" : "disabled"}>上传凭证图片</button>${id ? "" : `<p class="ledger-proof-empty">保存台账后会自动上传已选择的图片</p>`}</section>` : "";
       const payrollBreakdown = kind === "ledger" && data.payroll_items?.length ? `<section class="ledger-payroll-breakdown"><div class="record-label-row"><strong>工资发放明细</strong><small>每名员工对应一条工资金额</small></div><div class="ledger-payroll-items">${data.payroll_items.map(item => `<div><span>${escapeHTML(item.employee_name)}</span><strong>¥${escapeHTML(item.amount)}</strong></div>`).join("")}</div></section>` : "";
-      const detailActions = readonly && id && kind === "ledger" && !data.payroll_batch_id ? `<button type="button" class="ghost-button" data-detail-edit>编辑</button><button type="button" class="primary-button danger-button" data-detail-delete>删除</button>` : "";
+      const detailActions = readonly && id && kind === "ledger" && !data.payroll_batch_id && !data.payroll_type ? `<button type="button" class="ghost-button" data-detail-edit>编辑</button><button type="button" class="primary-button danger-button" data-detail-delete>删除</button>` : "";
       closeRecordDialog();
       const overlay = document.createElement("div");
       overlay.className = "record-dialog";
@@ -610,20 +610,18 @@ document.addEventListener("DOMContentLoaded", () => {
       button.disabled = false;
     }
   }));
+  document.querySelector("[data-payroll-settle]")?.addEventListener("click", async event => {
+    const button = event.currentTarget;
+    const typeLabel = button.dataset.payrollType === "part_time" ? "临时工" : "正式工";
+    if (!window.confirm(`确认将本月${typeLabel}工资汇总入账吗？会生成一条工资支出，入账后不能再修改工资明细。`)) return;
+    button.disabled = true;
+    try {
+      await fetchJSON("/api/admin/payroll/settlement", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({batch_id:Number(button.dataset.batchId), payroll_type:button.dataset.payrollType, occurred_on:`${button.dataset.month}-01`})});
+      window.location.reload();
+    } catch (error) { showMessage(error.message); button.disabled = false; }
+  });
   const payrollSelectAll = document.querySelector("[data-payroll-select-all]");
-  const payrollSelectedButton = document.querySelector("[data-pay-selected]");
   const payrollDeleteSelectedButton = document.querySelector("[data-payroll-delete-selected]");
-  const paymentAccountOptions = () => adminOptions.accounts.map(v => `<option value="${v.id}" data-account-remark="${escapeHTML(v.remark || "")}">${escapeHTML(v.display_name || v.name)}</option>`).join("");
-  const bindPaymentAccountRemark = overlay => {
-    const select = overlay.querySelector('[name="account_id"]');
-    const note = overlay.querySelector("[data-payment-account-remark]");
-    const update = () => {
-      const remark = select?.selectedOptions[0]?.dataset.accountRemark || "未填写";
-      if (note) note.textContent = `账户备注：${remark}`;
-    };
-    select?.addEventListener("change", update);
-    update();
-  };
   const payrollSelections = () => Array.from(document.querySelectorAll("[data-payroll-select]:checked"));
   const syncPayrollSelections = () => {
     const checkboxes = Array.from(document.querySelectorAll("[data-payroll-select]:not(:disabled)"));
@@ -631,10 +629,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (payrollSelectAll) {
       payrollSelectAll.checked = checkboxes.length > 0 && selected.length === checkboxes.length;
       payrollSelectAll.indeterminate = selected.length > 0 && selected.length < checkboxes.length;
-    }
-    if (payrollSelectedButton) {
-      payrollSelectedButton.disabled = selected.length === 0;
-      payrollSelectedButton.textContent = selected.length ? `发放所选（${selected.length}人）` : "发放所选工资";
     }
     if (payrollDeleteSelectedButton) {
       payrollDeleteSelectedButton.disabled = selected.length === 0;
@@ -657,86 +651,6 @@ document.addEventListener("DOMContentLoaded", () => {
   };
   payrollDeleteSelectedButton?.addEventListener("click", () => deletePayrollItems(payrollSelections().map(input => Number(input.dataset.itemId))));
   document.querySelectorAll("[data-delete-payroll]").forEach(button => button.addEventListener("click", () => deletePayrollItems([Number(button.dataset.itemId)])));
-  payrollSelectedButton?.addEventListener("click", async event => {
-    const button = event.currentTarget;
-    const selected = payrollSelections();
-    if (!selected.length) return;
-    if (!window.confirm(`确定发放选中的 ${selected.length} 名员工工资吗？已发放员工不会重复入账。`)) return;
-    try {
-      await loadAdminOptions();
-      if (!adminOptions.accounts.length) throw new Error("请先在台账新增一个资金账户");
-      const overlay = document.createElement("div");
-      overlay.className = "record-dialog";
-      const paymentRemarkFields = selected.map(input => `<label>收款备注（${escapeHTML(input.dataset.employeeName || "员工")}，选填）<input type="text" data-payment-remark data-item-id="${input.dataset.itemId}" maxlength="500" placeholder="银行卡号、微信号或QQ号"></label>`).join("");
-      overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>工资管理</small><h2>批量发放所选工资</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="notice-card"><span>核</span><div><strong>只发放当前勾选的员工</strong><p>已经发放的员工不会重复入账，每名员工会生成一条独立工资台账支出。</p></div></div><div class="record-form-grid"><label>付款账户 *<select name="account_id" required><option value="">请选择</option>${paymentAccountOptions()}</select><small class="payment-account-remark" data-payment-account-remark>账户备注：未填写</small></label><label>发放日期 *<input name="occurred_on" type="date" value="${today()}" required></label></div><div class="payment-remarks-grid">${paymentRemarkFields}</div><div class="record-dialog-error"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">确认发放</button></div></form></div>`;
-      document.body.appendChild(overlay);
-      bindPaymentAccountRemark(overlay);
-      overlay.querySelectorAll("[data-close-dialog]").forEach(v => v.addEventListener("click", closeRecordDialog));
-      overlay.querySelector("form").addEventListener("submit", async submitEvent => {
-        submitEvent.preventDefault();
-        const form = submitEvent.currentTarget;
-        const submit = form.querySelector("button[type=submit]");
-        submit.disabled = true;
-        const values = Object.fromEntries(new FormData(form).entries());
-        values.batch_id = Number(button.dataset.batchId);
-        values.item_ids = selected.map(input => Number(input.dataset.itemId));
-        values.payment_remarks = {};
-        form.querySelectorAll("[data-payment-remark]").forEach(input => { values.payment_remarks[input.dataset.itemId] = input.value.trim(); });
-        values.account_id = Number(values.account_id);
-        try {
-          await fetchJSON("/api/admin/payroll/pay", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(values)});
-          window.location.reload();
-        } catch (error) {
-          form.querySelector(".record-dialog-error").textContent = error.message;
-          submit.disabled = false;
-        }
-      });
-    } catch (error) {
-      showMessage(error.message);
-    }
-  });
-  document.querySelector("[data-pay-payroll]")?.addEventListener("click", async event => {
-    const button = event.currentTarget;
-    try {
-      await loadAdminOptions();
-      if (!adminOptions.accounts.length) throw new Error("请先在台账新增一个资金账户");
-      closeRecordDialog();
-      const overlay=document.createElement("div");overlay.className="record-dialog";
-      overlay.innerHTML=`<div class="record-dialog-card"><div class="record-dialog-head"><div><small>工资管理</small><h2>发放本月工资</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="notice-card"><span>核</span><div><strong>发放后工资将锁定</strong><p>系统会同时在台账生成工资支出，请确认工资明细已经核对完成。</p></div></div><div class="record-form-grid"><label>付款账户 *<select name="account_id" required><option value="">请选择</option>${paymentAccountOptions()}</select><small class="payment-account-remark" data-payment-account-remark>账户备注：未填写</small></label><label>发放日期 *<input name="occurred_on" type="date" value="${today()}" required></label></div><div class="record-dialog-error"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">确认发放</button></div></form></div>`;
-      document.body.appendChild(overlay);bindPaymentAccountRemark(overlay);overlay.querySelectorAll("[data-close-dialog]").forEach(v=>v.addEventListener("click",closeRecordDialog));
-      overlay.querySelector("form").addEventListener("submit",async submitEvent=>{submitEvent.preventDefault();const form=submitEvent.currentTarget;const submit=form.querySelector("button[type=submit]");submit.disabled=true;const values=Object.fromEntries(new FormData(form).entries());values.batch_id=Number(button.dataset.batchId);values.account_id=Number(values.account_id);try{await fetchJSON("/api/admin/payroll/pay",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(values)});window.location.reload()}catch(error){form.querySelector(".record-dialog-error").textContent=error.message;submit.disabled=false}});
-    } catch(error){showMessage(error.message)}
-  });
-  document.querySelectorAll("[data-pay-payroll-item]").forEach(button => button.addEventListener("click", async () => {
-    try {
-      await loadAdminOptions();
-      if (!adminOptions.accounts.length) throw new Error("请先在台账新增一个资金账户");
-      const overlay = document.createElement("div");
-      overlay.className = "record-dialog";
-      overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>工资管理</small><h2>单独发放：${escapeHTML(button.dataset.employeeName || "员工")}</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="notice-card"><span>核</span><div><strong>只发放当前员工</strong><p>已发放的其他员工不会重复入账；当前员工发放后将锁定。</p></div></div><div class="record-form-grid"><label>付款账户 *<select name="account_id" required><option value="">请选择</option>${paymentAccountOptions()}</select><small class="payment-account-remark" data-payment-account-remark>账户备注：未填写</small></label><label>发放日期 *<input name="occurred_on" type="date" value="${today()}" required></label></div><label class="payment-remark-field">收款备注（选填）<input name="payment_remark" maxlength="500" placeholder="填写该员工的银行卡号、微信号或QQ号"></label><div class="record-dialog-error"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">确认发放</button></div></form></div>`;
-      document.body.appendChild(overlay);
-      bindPaymentAccountRemark(overlay);
-      overlay.querySelectorAll("[data-close-dialog]").forEach(v => v.addEventListener("click", closeRecordDialog));
-      overlay.querySelector("form").addEventListener("submit", async submitEvent => {
-        submitEvent.preventDefault();
-        const form = submitEvent.currentTarget;
-        const submit = form.querySelector("button[type=submit]");
-        submit.disabled = true;
-        const values = Object.fromEntries(new FormData(form).entries());
-        values.item_id = Number(button.dataset.itemId);
-        values.account_id = Number(values.account_id);
-        try {
-          await fetchJSON("/api/admin/payroll/pay", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(values)});
-          window.location.reload();
-        } catch (error) {
-          form.querySelector(".record-dialog-error").textContent = error.message;
-          submit.disabled = false;
-        }
-      });
-    } catch (error) {
-      showMessage(error.message);
-    }
-  }));
 
   const departmentSelect = document.querySelector("[data-department-select]");
   const positionSelect = document.querySelector("[data-position-select]");
@@ -753,9 +667,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const employeeLeftDate = document.querySelector('[data-employee-form] [name="left_on"]');
   const employeeStatusSelect = document.querySelector('[data-employee-form] [name="employment_status"]');
+  const employeeEntrySalary = document.querySelector('[data-employee-form] [name="entry_salary"]');
+  const employeeCurrentSalary = document.querySelector('[data-employee-form] [name="current_salary"]');
   employeeLeftDate?.addEventListener("change", () => {
     if (employeeLeftDate.value && employeeStatusSelect) employeeStatusSelect.value = "left";
   });
+  // 新建档案默认沿用入职工资；用户主动改过当前工资后不再覆盖。
+  if (employeeEntrySalary && employeeCurrentSalary) {
+    let currentSalaryEdited = Boolean(employeeCurrentSalary.value);
+    employeeCurrentSalary.addEventListener("input", () => { currentSalaryEdited = true; });
+    employeeEntrySalary.addEventListener("input", () => {
+      if (!currentSalaryEdited) employeeCurrentSalary.value = employeeEntrySalary.value;
+    });
+  }
 
   const employeeSearch = document.querySelector("[data-employee-search]");
   const employeeDepartment = document.querySelector("[data-employee-department]");
@@ -766,7 +690,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const employeeListDescription = document.querySelector("[data-employee-list-description]");
   const employeeSelectAll = document.querySelector("[data-employee-select-all]");
   const employeeDeleteSelected = document.querySelector("[data-employee-delete-selected]");
-  let employeeType = "";
+  const employeeListQuery = new URLSearchParams(window.location.search);
+  let employeeType = employeeListQuery.get("employee_type") || "";
+  if (employeeSearch) employeeSearch.value = employeeListQuery.get("employee_q") || "";
+  if (employeeDepartment) employeeDepartment.value = employeeListQuery.get("employee_department") || "";
+  if (employeePosition) employeePosition.value = employeeListQuery.get("employee_position") || "";
+  if (employeeStatus) employeeStatus.value = employeeListQuery.get("employee_status") || "employed";
   const visibleEmployeeSelections = () => Array.from(document.querySelectorAll("[data-employee-row]"))
     .filter(row => !row.hidden)
     .map(row => row.querySelector("[data-employee-select]"))
@@ -809,13 +738,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const keyword = employeeSearch?.value.trim().toLowerCase() || "";
     const departmentID = employeeDepartment?.value || "";
     const positionID = employeePosition?.value || "";
-    const status = employeeStatus?.value || "";
+    const status = employeeStatus?.value || "employed";
     let visibleCount = 0;
     document.querySelectorAll("[data-employee-row]").forEach((row) => {
       const matchesKeyword = !keyword || row.dataset.search.toLowerCase().includes(keyword);
       const matchesDepartment = !departmentID || row.dataset.departmentId === departmentID;
       const matchesPosition = !positionID || row.dataset.positionId === positionID;
-      const matchesStatus = !status || row.dataset.status === status;
+      const matchesStatus = status === "employed" ? row.dataset.status !== "已离职" : (!status || row.dataset.status === status);
       const matchesType = !employeeType || row.dataset.employmentType === employeeType;
       row.dataset.textFiltered = String(!(matchesKeyword && matchesDepartment && matchesPosition && matchesStatus && matchesType));
       row.hidden = row.dataset.textFiltered === "true";
@@ -823,10 +752,25 @@ document.addEventListener("DOMContentLoaded", () => {
         const checkbox = row.querySelector("[data-employee-select]");
         if (checkbox) checkbox.checked = false;
       }
-      if (!row.hidden) visibleCount += 1;
+      if (!row.hidden) {
+        visibleCount += 1;
+        const sequence = row.querySelector("[data-employee-seq]");
+        if (sequence) sequence.textContent = String(visibleCount);
+      }
     });
     const count = document.querySelector("[data-employee-count]");
     if (count) count.textContent = `${visibleCount} 人`;
+    const url = new URL(window.location.href);
+    const setEmployeeListQuery = (name, value, defaultValue = "") => {
+      if (!value || value === defaultValue) url.searchParams.delete(name);
+      else url.searchParams.set(name, value);
+    };
+    setEmployeeListQuery("employee_q", keyword);
+    setEmployeeListQuery("employee_department", departmentID);
+    setEmployeeListQuery("employee_position", positionID);
+    setEmployeeListQuery("employee_status", status, "employed");
+    setEmployeeListQuery("employee_type", employeeType);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
     syncEmployeeSelections();
   };
   employeeSearch?.addEventListener("input", filterEmployees);
@@ -839,7 +783,44 @@ document.addEventListener("DOMContentLoaded", () => {
     updateEmployeeTableMode();
     filterEmployees();
   }));
-  syncEmployeeSelections();
+  employeeTypeTabs.forEach(tab => tab.classList.toggle("active", (tab.dataset.employeeTypeTab || "") === employeeType));
+  updateEmployeeTableMode();
+  filterEmployees();
+
+  const attendanceSelectAll = document.querySelector("[data-attendance-select-all]");
+  const attendanceDeleteSelected = document.querySelector("[data-attendance-delete-selected]");
+  const attendanceSelections = () => Array.from(document.querySelectorAll("[data-attendance-select]"));
+  const selectedAttendance = () => attendanceSelections().filter(input => input.checked);
+  const syncAttendanceSelections = () => {
+    const inputs = attendanceSelections();
+    const selected = selectedAttendance();
+    if (attendanceSelectAll) {
+      attendanceSelectAll.checked = inputs.length > 0 && inputs.every(input => input.checked);
+      attendanceSelectAll.indeterminate = selected.length > 0 && !attendanceSelectAll.checked;
+    }
+    if (attendanceDeleteSelected) {
+      attendanceDeleteSelected.disabled = selected.length === 0;
+      attendanceDeleteSelected.textContent = selected.length ? `删除所选（${selected.length}条）` : "删除所选";
+    }
+  };
+  attendanceSelectAll?.addEventListener("change", () => {
+    attendanceSelections().forEach(input => { input.checked = attendanceSelectAll.checked; });
+    syncAttendanceSelections();
+  });
+  attendanceSelections().forEach(input => input.addEventListener("change", syncAttendanceSelections));
+  attendanceDeleteSelected?.addEventListener("click", async () => {
+    const ids = selectedAttendance().map(input => Number(input.value)).filter(Boolean);
+    if (!ids.length || !await askConfirm({title:"删除所选记录",message:`确定删除选中的 ${ids.length} 条请假、公休或节假日记录吗？已计入工资的记录不能删除。`})) return;
+    attendanceDeleteSelected.disabled = true;
+    try {
+      await fetchJSON("/api/admin/attendance", {method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({ids})});
+      window.location.reload();
+    } catch (error) {
+      showMessage(error.message);
+      syncAttendanceSelections();
+    }
+  });
+  syncAttendanceSelections();
 
   const numberValue = (row, name) => Number(row.querySelector(`[data-field="${name}"]`)?.value || 0);
   const calculateNet = (row) => {
@@ -1294,7 +1275,13 @@ document.addEventListener("DOMContentLoaded", () => {
       const edit = Boolean(data.id);
       const overlay = document.createElement("div");
       overlay.className = "record-dialog";
-      overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>${monthly ? "档口月度核算" : "档口管理"}</small><h2>${monthly ? `编辑${escapeHTML(data.month || month())}当月规则` : edit ? "编辑档口" : "新增档口"}</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="record-form-grid">${monthly ? `<label>月份 *<input name="month" type="month" required value="${escapeHTML(data.month || month())}"></label>` : `<label>档口编号 *<input name="stall_no" required maxlength="64" value="${escapeHTML(data.stallNo || "")}" placeholder="例如：A01"></label><label>档口名称 *<input name="name" required maxlength="128" value="${escapeHTML(data.name || "")}"></label><label>负责人<input name="responsible_name" maxlength="64" value="${escapeHTML(data.responsibleName || "")}"></label><label>负责人电话（选填）<input name="responsible_mobile" maxlength="32" value="${escapeHTML(data.responsibleMobile || "")}"></label>`}<label>抽成模式<select name="allocation_mode"><option value="custom" ${data.allocationMode === "custom" ? "selected" : ""}>其他档口自定义</option><option value="profit_share" ${data.allocationMode === "profit_share" ? "selected" : ""}>甲乙扣成本后分成</option><option value="none" ${data.allocationMode === "none" ? "selected" : ""}>不参与我方抽成</option></select></label><label>月租（元）<input name="monthly_rent" type="number" min="0" step="0.01" value="${escapeHTML(data.monthlyRent || "0")}"></label><label>档口默认保底金额（元）<input name="default_guaranteed_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.defaultGuaranteedAmount || "0")}"></label><label>甲分成比例（%）<input name="profit_jia_rate" type="number" min="0" max="100" step="0.01" value="${escapeHTML(data.profitJiaRate || "0")}"></label><label>乙分成比例（%）<input name="profit_yi_rate" type="number" min="0" max="100" step="0.01" value="${escapeHTML(data.profitYiRate || "0")}"></label><label>保底抽成比例（%）<input name="guaranteed_rate" type="number" min="0" max="100" step="0.01" value="${escapeHTML(data.guaranteedRate || "0")}"></label><label>营业额第一层比例（%）<input name="base_amount_rate" type="number" min="0" max="100" step="0.01" value="${escapeHTML(data.baseAmountRate || "0")}"></label><label>第一层再乘比例（%）<input name="base_amount_factor" type="number" min="0" max="100" step="0.01" value="${escapeHTML(data.baseAmountFactor || "0")}"></label><label>总营业额比例（%）<input name="total_amount_rate" type="number" min="0" max="100" step="0.01" value="${escapeHTML(data.totalAmountRate || "0")}"></label><label class="span-2">备注（选填）<textarea name="remark" maxlength="500">${escapeHTML(data.remark || "")}</textarea></label></div><div class="notice-card compact-notice"><span>i</span><div><strong>${monthly ? "这里只保存当前月份，不会修改档口总设置" : "保底金额在这里设置，按档口分别保存"}</strong><p>${monthly ? "当月规则覆盖只对当前月份生效；下个月仍按档口长期规则计算。" : "当月营业额窗口可临时覆盖保底基数；百分比留空或填0表示不启用。"}</p></div></div><div class="record-dialog-error" role="alert"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">${monthly ? "保存当月规则" : "保存档口"}</button></div></form></div>`;
+      overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>${monthly ? "档口月度核算" : "档口管理"}</small><h2>${monthly ? `编辑${escapeHTML(data.month || month())}当月规则` : edit ? "编辑档口" : "新增档口"}</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="record-form-grid">${monthly ? `<label>月份 *<input name="month" type="month" required value="${escapeHTML(data.month || month())}"></label>` : `<label>档口编号 *<input name="stall_no" required maxlength="64" value="${escapeHTML(data.stallNo || "")}" placeholder="例如：A01"></label><label>档口名称 *<input name="name" required maxlength="128" value="${escapeHTML(data.name || "")}"></label><label>负责人<input name="responsible_name" maxlength="64" value="${escapeHTML(data.responsibleName || "")}"></label><label>负责人电话（选填）<input name="responsible_mobile" maxlength="32" value="${escapeHTML(data.responsibleMobile || "")}"></label>`}<label>抽成模式<select name="allocation_mode"><option value="custom" ${data.allocationMode === "custom" ? "selected" : ""}>其他档口自定义</option><option value="profit_share" ${data.allocationMode === "profit_share" ? "selected" : ""}>甲乙扣成本后分成</option><option value="none" ${data.allocationMode === "none" ? "selected" : ""}>不参与我方抽成</option></select></label><label>月租（元）<input name="monthly_rent" type="number" min="0" step="0.01" value="${escapeHTML(data.monthlyRent || "0")}"></label><label>固定抽成金额（元）<input name="fixed_commission_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.fixedCommissionAmount || "0")}"></label><label>档口默认保底金额（元）<input name="default_guaranteed_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.defaultGuaranteedAmount || "0")}"></label><label>甲分成比例（%）<input name="profit_jia_rate" type="number" min="0" max="100" step="0.01" value="${escapeHTML(data.profitJiaRate || "0")}"></label><label>乙分成比例（%）<input name="profit_yi_rate" type="number" min="0" max="100" step="0.01" value="${escapeHTML(data.profitYiRate || "0")}"></label><label>保底抽成比例（%）<input name="guaranteed_rate" type="number" min="0" max="100" step="0.01" value="${escapeHTML(data.guaranteedRate || "0")}"></label><label>营业额第一层比例（%）<input name="base_amount_rate" type="number" min="0" max="100" step="0.01" value="${escapeHTML(data.baseAmountRate || "0")}"></label><label>第一层再乘比例（%）<input name="base_amount_factor" type="number" min="0" max="100" step="0.01" value="${escapeHTML(data.baseAmountFactor || "0")}"></label><label>总营业额比例（%）<input name="total_amount_rate" type="number" min="0" max="100" step="0.01" value="${escapeHTML(data.totalAmountRate || "0")}"></label><label class="span-2">备注（选填）<textarea name="remark" maxlength="500">${escapeHTML(data.remark || "")}</textarea></label></div><div class="notice-card compact-notice"><span>i</span><div><strong>${monthly ? "这里只保存当前月份，不会修改档口总设置" : "固定抽成与月租、保底及比例可组合使用"}</strong><p>${monthly ? "当月规则覆盖只对当前月份生效；下个月仍按档口长期规则计算。" : "固定抽成金额独立于月租；百分比留空或填0表示不启用。"}</p></div></div><div class="record-dialog-error" role="alert"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">${monthly ? "保存当月规则" : "保存档口"}</button></div></form></div>`;
+      // 甲乙比例固定，不在单个档口或单月规则弹窗中开放修改。
+      ["profit_jia_rate", "profit_yi_rate"].forEach(name => overlay.querySelector(`[name="${name}"]`)?.closest("label")?.remove());
+	  const fixedShare = document.createElement("div");
+	  fixedShare.className = "fixed-rule-field";
+	  fixedShare.innerHTML = "<span>甲乙利润分配（固定）</span><strong>甲 90% · 乙 10%</strong>";
+	  overlay.querySelector(".record-form-grid")?.appendChild(fixedShare);
       document.body.appendChild(overlay);
       const close = () => overlay.remove();
       overlay.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", close));
@@ -1307,31 +1294,21 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     };
     const openTurnoverDialog = (data) => {
-      const edit = Boolean(data.turnoverId && Number(data.turnoverId)); const overlay = document.createElement("div"); overlay.className = "record-dialog";
-      overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>${escapeHTML(data.stallName || "档口")}</small><h2>录入${escapeHTML(data.month || month())}营业额</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="record-form-grid"><label>月份 *<input name="month" type="month" required value="${escapeHTML(data.month || month())}"></label><label>学校卡机营业额<input name="card_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.card || "0")}"></label><label>汇来米营业额<input name="huilaimi_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.huilaimi || "0")}"></label><label>当月成本<input name="cost_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.cost || "0")}"></label><label>保底金额基数<input name="guaranteed_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.guaranteed || "0")}"></label><label>手动我方抽成<input name="manual_own_commission" type="number" min="0" step="0.01" value="${escapeHTML(data.manualOwn || "")}" placeholder="未配规则时可填写，留空恢复算法"></label><label class="span-2">备注（选填）<textarea name="remark" maxlength="500"></textarea></label></div><div class="notice-card compact-notice"><span>算</span><div><strong>本月总营业额 = 学校卡机 + 汇来米</strong><p>康莱德只按学校卡机计算；未配置档口抽成规则时，可填写手动我方抽成，留空则继续按档口规则自动计算。</p></div></div><div class="record-dialog-error" role="alert"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存营业额</button></div></form></div>`;
+      const edit = Number(data.turnoverId) > 0; const overlay = document.createElement("div"); overlay.className = "record-dialog";
+      overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>${escapeHTML(data.stallName || "档口")}</small><h2>录入${escapeHTML(data.month || month())}营业额</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="record-form-grid"><label>月份 *<input name="month" type="month" required value="${escapeHTML(data.month || month())}"></label><label>学校卡机营业额<input name="card_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.card || "0")}"></label><label>汇来米营业额<input name="huilaimi_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.huilaimi || "0")}"></label><label>保底金额基数<input name="guaranteed_amount" type="number" min="0" step="0.01" value="${escapeHTML(data.guaranteed || "0")}"></label><label>手动我方抽成<input name="manual_own_commission" type="number" min="0" step="0.01" value="${escapeHTML(data.manualOwn || "")}" placeholder="未配规则时可填写，留空恢复算法"></label><label class="span-2">备注（选填）<textarea name="remark" maxlength="500"></textarea></label></div><input name="cost_amount" type="hidden" value="0"><div class="notice-card compact-notice"><span>算</span><div><strong>本月总营业额 = 学校卡机 + 汇来米</strong><p>三个自营档口的成本请在“档口成本”统一登记；康莱德只按学校卡机计算。</p></div></div><div class="record-dialog-error" role="alert"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存营业额</button></div></form></div>`;
       document.body.appendChild(overlay); const close = () => overlay.remove(); overlay.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", close)); overlay.addEventListener("click", event => { if (event.target === overlay) close(); });
       overlay.querySelector("form").addEventListener("submit", async event => { event.preventDefault(); const form = event.currentTarget; const submit = form.querySelector("button[type=submit]"); submit.disabled = true; try { const values = Object.fromEntries(new FormData(form).entries()); values.stall_id = Number(data.stallId); await fetchJSON(`/api/admin/stall-turnovers${edit ? `?id=${data.turnoverId}` : ""}`, {method: edit ? "PUT" : "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(values)}); window.location.reload(); } catch (error) { form.querySelector(".record-dialog-error").textContent = error.message; submit.disabled = false; } });
-    };
-    const openLedgerDialog = async (data) => {
-      try {
-        await loadAdminOptions();
-        const accounts = (adminOptions.accounts || []).map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.display_name || item.name)}</option>`).join("");
-        const overlay = document.createElement("div"); overlay.className = "record-dialog";
-        overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>档口抽成</small><h2>计入台账：${escapeHTML(data.stallName || "档口")}</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="notice-card"><span>收</span><div><strong>本方抽成 ¥${escapeHTML(data.ownCommission || "0")}</strong><p>只将甲乙及其他自营档口的本方抽成写入台账；康莱德公司抽成不计入本方收入。</p></div></div><div class="record-form-grid"><label>入账账户 *<select name="account_id" required><option value="">请选择</option>${accounts}</select></label><label>入账日期 *<input name="occurred_on" type="date" required value="${escapeHTML(`${data.month || month()}-01`)}"></label></div><div class="record-dialog-error" role="alert"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">确认计入台账</button></div></form></div>`;
-        document.body.appendChild(overlay); const close = () => overlay.remove(); overlay.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", close)); overlay.addEventListener("click", event => { if (event.target === overlay) close(); });
-        overlay.querySelector("form").addEventListener("submit", async event => { event.preventDefault(); const form = event.currentTarget; const submit = form.querySelector("button[type=submit]"); submit.disabled = true; try { const values = Object.fromEntries(new FormData(form).entries()); values.stall_id = Number(data.stallId); values.month = data.month || month(); values.account_id = Number(values.account_id); await fetchJSON("/api/admin/stall-commission-ledger", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(values)}); close(); showMessage("档口抽成已计入台账"); } catch (error) { form.querySelector(".record-dialog-error").textContent = error.message; submit.disabled = false; } });
-      } catch (error) { showMessage(error.message); }
     };
     document.querySelector("[data-stall-settings]")?.addEventListener("submit", async event => {
       event.preventDefault();
       const form = event.currentTarget; const button = form.querySelector("button[type=submit]"); button.disabled = true;
-      try { const values = Object.fromEntries(new FormData(form).entries()); await fetchJSON("/api/admin/stall-settings", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(values)}); showMessage("公共抽成设置已保存"); }
+      try { const values = Object.fromEntries(new FormData(form).entries()); await fetchJSON("/api/admin/stall-settings", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(values)}); showMessage("康莱德当月卡机抽点比例已保存"); window.location.reload(); }
       catch (error) { form.querySelector("[data-stall-settings-error]").textContent = error.message; }
       finally { button.disabled = false; }
     });
     const inlineTurnoverHTML = value => `<strong>¥${value || "0.00"}</strong><small>点击修改</small>`;
     const inlineOwnCommissionHTML = item => {
-      if (item.can_manual_own_commission) return `<strong class="salary">¥${item.own_commission || "0.00"}</strong><small class="cell-subtitle">${item.manual_own_commission_set ? "手动抽成，点击修改" : "未设规则，点击填写"}</small>`;
+      if (item.can_manual_own_commission) return `<strong class="salary">¥${item.own_commission || "0.00"}</strong><small class="cell-subtitle">${item.manual_own_commission_set ? "当月手动覆盖，点击修改" : "默认全额分成，点击调整"}</small>`;
       const modeText = item.allocation_mode === "profit_share" ? "甲乙净额分成" : item.allocation_mode === "none" ? "不抽成" : "月租+自定义比例";
       return `<strong class="salary">¥${item.own_commission || "0.00"}</strong><small class="cell-subtitle">${modeText}</small>`;
     };
@@ -1341,14 +1318,16 @@ document.addEventListener("DOMContentLoaded", () => {
       cells[3].innerHTML = inlineTurnoverHTML(item.school_card_amount);
       cells[4].innerHTML = inlineTurnoverHTML(item.huilaimi_amount);
       cells[5].innerHTML = `<strong>${money(item.total_turnover)}</strong>`;
-      cells[6].innerHTML = inlineTurnoverHTML(item.cost_amount);
-      cells[7].textContent = money(item.net_turnover);
+      const selfOperated = item.allocation_mode === "profit_share";
+      cells[6].innerHTML = selfOperated ? `${money(item.cost_amount)}<small class="cell-subtitle">成本页维护</small>` : "—";
+      cells[7].textContent = selfOperated ? money(item.cost_deducted_turnover) : "—";
       cells[8].textContent = money(item.conrad_commission);
-      cells[9].textContent = money(item.jia_commission);
-      cells[10].textContent = money(item.yi_commission);
-      cells[11].innerHTML = inlineOwnCommissionHTML(item);
-      cells[12].textContent = money(item.remaining);
-      const turnoverButton = cells[13].querySelector("[data-turnover-edit]");
+      cells[9].innerHTML = `<strong>${money(item.net_turnover)}</strong>`;
+      cells[10].textContent = money(item.jia_commission);
+      cells[11].textContent = money(item.yi_commission);
+      cells[12].innerHTML = inlineOwnCommissionHTML(item);
+      cells[13].textContent = money(item.remaining);
+      const turnoverButton = cells[14].querySelector("[data-turnover-edit]");
       if (turnoverButton) {
         turnoverButton.dataset.turnoverId = item.turnover_id || "";
         turnoverButton.dataset.month = item.month || "";
@@ -1358,8 +1337,6 @@ document.addEventListener("DOMContentLoaded", () => {
         turnoverButton.dataset.guaranteed = item.guaranteed_amount || "0.00";
         turnoverButton.dataset.manualOwn = item.manual_own_commission_set ? item.manual_own_commission || "0.00" : "";
       }
-      const ledgerButton = cells[13].querySelector("[data-stall-ledger]");
-      if (ledgerButton) ledgerButton.dataset.ownCommission = item.own_commission || "0.00";
     };
     document.querySelector("[data-stalls-recalculate-all]")?.addEventListener("click", () => {
       const url = new URL(window.location.href);
@@ -1415,7 +1392,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const masterCell = event.target.closest("[data-inline-master-field]");
       if (masterCell && pagePath === "/admin/stalls") {
         const field = masterCell.dataset.inlineMasterField;
-        const values = {stall_no: row.dataset.stallNo, name: row.dataset.name, responsible_name: row.dataset.responsibleName, responsible_mobile: row.dataset.responsibleMobile, monthly_rent: row.dataset.monthlyRent, default_guaranteed_amount: row.dataset.defaultGuaranteedAmount, allocation_mode: row.dataset.allocationMode, profit_jia_rate: row.dataset.profitJiaRate, profit_yi_rate: row.dataset.profitYiRate, guaranteed_rate: row.dataset.guaranteedRate, base_amount_rate: row.dataset.baseAmountRate, base_amount_factor: row.dataset.baseAmountFactor, total_amount_rate: row.dataset.totalAmountRate, remark: row.dataset.remark};
+        const values = {stall_no: row.dataset.stallNo, name: row.dataset.name, responsible_name: row.dataset.responsibleName, responsible_mobile: row.dataset.responsibleMobile, monthly_rent: row.dataset.monthlyRent, fixed_commission_amount: row.dataset.fixedCommissionAmount, default_guaranteed_amount: row.dataset.defaultGuaranteedAmount, allocation_mode: row.dataset.allocationMode, profit_jia_rate: row.dataset.profitJiaRate, profit_yi_rate: row.dataset.profitYiRate, guaranteed_rate: row.dataset.guaranteedRate, base_amount_rate: row.dataset.baseAmountRate, base_amount_factor: row.dataset.baseAmountFactor, total_amount_rate: row.dataset.totalAmountRate, remark: row.dataset.remark};
         startInlineEdit(masterCell, values[field], async value => { values[field] = value; await fetchJSON(`/api/admin/stalls?id=${row.dataset.id}`, {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(values)}); }, () => {
           row.dataset[field.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())] = values[field];
           masterCell.textContent = field.endsWith("rate") || field.endsWith("factor") ? `${values[field]}%` : `¥${values[field]}`;
@@ -1426,8 +1403,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (turnoverCell && pagePath === "/admin/stalls/monthly") {
         const field = turnoverCell.dataset.inlineTurnoverField;
         const button = row.querySelector("[data-turnover-edit]");
-        const values = {stall_id: Number(row.dataset.id), month: month(), card_amount: button?.dataset.card || "0", huilaimi_amount: button?.dataset.huilaimi || "0", cost_amount: button?.dataset.cost || "0", guaranteed_amount: button?.dataset.guaranteed || "0", manual_own_commission: button?.dataset.manualOwn || "", school_amount: button?.dataset.card || "0", remark: ""};
-        startInlineEdit(turnoverCell, values[field], async value => { values[field] = value; if (field === "card_amount") values.school_amount = value; await fetchJSON(`/api/admin/stall-turnovers${button?.dataset.turnoverId ? `?id=${button.dataset.turnoverId}` : ""}`, {method: button?.dataset.turnoverId ? "PUT" : "POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(values)}); }, async () => {
+        const values = {stall_id: Number(row.dataset.id), month: month(), card_amount: button?.dataset.card || "0", huilaimi_amount: button?.dataset.huilaimi || "0", cost_amount: "0", guaranteed_amount: button?.dataset.guaranteed || "0", manual_own_commission: button?.dataset.manualOwn || "", school_amount: button?.dataset.card || "0", remark: ""};
+        startInlineEdit(turnoverCell, values[field], async value => { values[field] = value; if (field === "card_amount") values.school_amount = value; const turnoverID = Number(button?.dataset.turnoverId || 0); await fetchJSON(`/api/admin/stall-turnovers${turnoverID > 0 ? `?id=${turnoverID}` : ""}`, {method: turnoverID > 0 ? "PUT" : "POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(values)}); }, async () => {
           const data = await fetchJSON(`/api/admin/stalls?month=${encodeURIComponent(month())}&q=${encodeURIComponent(row.dataset.stallNo || "")}`);
           const item = (data.stalls || []).find(value => String(value.id) === String(row.dataset.id));
           if (!item) throw new Error("没有找到当前档口");
@@ -1449,39 +1426,50 @@ document.addEventListener("DOMContentLoaded", () => {
         finally { calculateButton.disabled = false; }
       }
       if (event.target.closest("[data-turnover-edit]")) openTurnoverDialog(event.target.closest("[data-turnover-edit]").dataset);
-      if (event.target.closest("[data-stall-ledger]")) openLedgerDialog(event.target.closest("[data-stall-ledger]").dataset);
       const deleteButton = event.target.closest("[data-stall-delete]"); if (deleteButton && await askConfirm({title:"删除档口", message:"删除后档口及其营业额不再出现在列表中，确定继续吗？"})) { try { await fetchJSON(`/api/admin/stalls?id=${row.dataset.id}`, {method:"DELETE"}); window.location.reload(); } catch (error) { showMessage(error.message); } }
     });
   }
-  // 临时工不建立员工档案，直接生成工资台账支出。
-  if (pagePath === "/admin/payroll" && !document.querySelector("[data-temporary-payroll]")) {
-    const actions = document.querySelector(".admin-topbar .header-actions");
-    if (actions) { const button = document.createElement("button"); button.className = "ghost-button"; button.type = "button"; button.dataset.temporaryPayroll = "true"; button.textContent = "临时工发放"; actions.insertBefore(button, actions.firstElementChild); }
-  }
-  document.querySelector("[data-temporary-payroll]")?.addEventListener("click", async () => {
+  const specialPayrollRoot = document.querySelector("[data-special-payroll]");
+  const openSpecialPayrollDialog = (data = {}) => {
+    const editing = Boolean(data.id);
+    const overlay = document.createElement("div");
+    overlay.className = "record-dialog";
+    overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>特殊员工工资</small><h2>${editing ? "修改特殊工资" : "新增特殊工资"}</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form"><div class="notice-card"><span>特</span><div><strong>无需建立员工档案</strong><p>先记录姓名和实发金额；确认汇总入账后会与正式工、临时工工资分开记一条台账支出。</p></div></div><div class="record-form-grid"><label>工资月份 *<input name="month" type="month" required value="${escapeHTML(data.month || specialPayrollRoot?.dataset.month || "")}"></label><label>姓名 *<input name="name" maxlength="64" required value="${escapeHTML(data.name || "")}" placeholder="例如：临时帮工"></label><label>实发金额 *<input name="amount" type="number" min="0.01" step="0.01" required value="${escapeHTML(data.amount || "")}"></label><label class="span-2">备注（选填）<textarea name="remark" maxlength="500" placeholder="例如：工作3天后离开，线下结算">${escapeHTML(data.remark || "")}</textarea></label></div><div class="record-dialog-error" role="alert"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存特殊工资</button></div></form></div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", close));
+    overlay.addEventListener("click", event => { if (event.target === overlay) close(); });
+    overlay.querySelector("form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submit = form.querySelector("button[type=submit]");
+      submit.disabled = true;
+      try {
+        const values = Object.fromEntries(new FormData(form).entries());
+        await fetchJSON(`/api/admin/special-payroll${editing ? `?id=${data.id}` : ""}`, {method: editing ? "PUT" : "POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(values)});
+        window.location.reload();
+      } catch (error) { form.querySelector(".record-dialog-error").textContent = error.message; submit.disabled = false; }
+    });
+  };
+  specialPayrollRoot?.querySelector("[data-special-payroll-add]")?.addEventListener("click", () => openSpecialPayrollDialog());
+  specialPayrollRoot?.querySelectorAll("[data-special-payroll-edit]").forEach(button => button.addEventListener("click", event => {
+    const row = event.currentTarget.closest("[data-special-payroll-row]");
+    openSpecialPayrollDialog({id:row.dataset.id,name:row.dataset.name,amount:row.dataset.amount,remark:row.dataset.remark,month:specialPayrollRoot.dataset.month});
+  }));
+  specialPayrollRoot?.querySelectorAll("[data-special-payroll-delete]").forEach(button => button.addEventListener("click", async event => {
+    const row = event.currentTarget.closest("[data-special-payroll-row]");
+    if (!await askConfirm({title:"删除特殊工资", message:`确定删除“${row.dataset.name}”的特殊工资记录吗？`})) return;
+    try { await fetchJSON(`/api/admin/special-payroll?id=${row.dataset.id}`, {method:"DELETE"}); window.location.reload(); }
+    catch (error) { showMessage(error.message); }
+  }));
+  specialPayrollRoot?.querySelector("[data-special-payroll-settle]")?.addEventListener("click", async event => {
+    if (!window.confirm("确认将本月特殊员工工资汇总入账吗？会生成一条支出流水，入账后不能修改。")) return;
+    const button = event.currentTarget;
+    button.disabled = true;
     try {
-      await loadAdminOptions();
-      const overlay = document.createElement("div");
-      overlay.className = "record-dialog";
-      const accounts = (adminOptions.accounts || []).map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.display_name || item.name)}</option>`).join("");
-      overlay.innerHTML = `<div class="record-dialog-card"><div class="record-dialog-head"><div><small>临时工工资</small><h2>发放临时工</h2></div><button type="button" data-close-temp>×</button></div><form class="record-dialog-form"><div class="record-form-grid"><label>姓名 *<input name="name" required maxlength="64" placeholder="例如：临时帮工"></label><label>金额 *<input name="amount" required type="number" min="0.01" step="0.01"></label><label>付款账户 *<select name="account_id" required><option value="">请选择</option>${accounts}</select></label><label>发放日期 *<input name="occurred_on" required type="date" value="${today()}"></label><label class="span-2">备注（选填）<textarea name="remark" maxlength="255" placeholder="例如：10月临时工工资"></textarea></label></div><div class="record-dialog-error" role="alert"></div><div class="form-actions"><button type="button" class="ghost-button" data-close-temp>取消</button><button type="submit" class="primary-button">确认发放并入账</button></div></form></div>`;
-      document.body.appendChild(overlay);
-      const close = () => overlay.remove();
-      overlay.querySelectorAll("[data-close-temp]").forEach(button => button.addEventListener("click", close));
-      overlay.addEventListener("click", event => { if (event.target === overlay) close(); });
-      overlay.querySelector("form").addEventListener("submit", async event => {
-        event.preventDefault();
-        const form = event.currentTarget;
-        const submit = form.querySelector("button[type=submit]");
-        submit.disabled = true;
-        try {
-          const values = Object.fromEntries(new FormData(form).entries());
-          values.amount = Number(values.amount); values.account_id = Number(values.account_id);
-          await fetchJSON("/api/admin/payroll/temporary-pay", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(values)});
-          close(); showMessage("临时工工资已发放并写入台账");
-        } catch (error) { form.querySelector(".record-dialog-error").textContent = error.message; submit.disabled = false; }
-      });
-    } catch (error) { showMessage(error.message); }
+      await fetchJSON("/api/admin/special-payroll/settlement", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({month:specialPayrollRoot.dataset.month, occurred_on:`${specialPayrollRoot.dataset.month}-01`})});
+      window.location.reload();
+    } catch (error) { showMessage(error.message); button.disabled = false; }
   });
   if (pagePath === "/admin/organization") {
     document.querySelectorAll(".organization-grid .table-card").forEach(card => {

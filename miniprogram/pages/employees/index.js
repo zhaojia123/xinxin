@@ -1,6 +1,6 @@
 const listPage = require('../../utils/list')
 const api = require('../../utils/api')
-const employeeList = listPage({ endpoint: '/employees', tab: 'employees', module: 'employees', initial: { status: '', employmentType: '', summary: null }, params: d => ({ status: d.status, employment_type: d.employmentType, q: d.q }), decorate: v => ({ ...v, initial: v.name.slice(0, 1) }) })
+const employeeList = listPage({ endpoint: '/employees', tab: 'employees', module: 'employees', initial: { status: 'active', employmentType: '', summary: null }, params: d => ({ status: d.status, employment_type: d.employmentType, q: d.q }), decorate: v => ({ ...v, initial: v.name.slice(0, 1) }) })
 
 Page({
   ...employeeList,

@@ -84,6 +84,7 @@ type LedgerInput struct {
 
 func (v *LedgerInput) Validate() error {
 	v.Summary = strings.TrimSpace(v.Summary)
+	v.Counterparty = strings.TrimSpace(v.Counterparty)
 	if !validDate(v.OccurredOn, false) {
 		return fmt.Errorf("请选择正确的记账日期")
 	}
@@ -99,8 +100,11 @@ func (v *LedgerInput) Validate() error {
 	if v.Summary == "" || !textLength(v.Summary, 255) {
 		return fmt.Errorf("摘要必填，最多255字")
 	}
-	if !textLength(v.Counterparty, 128) || !textLength(v.VoucherNo, 64) || !textLength(v.Remark, 500) {
-		return fmt.Errorf("对方名称、凭证号或备注过长")
+	if v.Counterparty == "" || !textLength(v.Counterparty, 128) {
+		return fmt.Errorf("请填写对方单位或资金账户，最多128字")
+	}
+	if !textLength(v.VoucherNo, 64) || !textLength(v.Remark, 500) {
+		return fmt.Errorf("凭证号或备注过长")
 	}
 	return nil
 }

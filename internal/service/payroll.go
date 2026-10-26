@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"friends-records/api/request"
+	"friends-records/api/response"
 	"friends-records/internal/models/mysql"
 )
 
@@ -38,4 +39,19 @@ func (s Payroll) Confirm(ctx context.Context, batchID uint64) error {
 }
 func (s Payroll) ConfirmEmployee(ctx context.Context, itemID uint64) error {
 	return s.Store.ConfirmPayrollItem(ctx, itemID)
+}
+func (s Payroll) SettleType(ctx context.Context, actor uint64, input request.PayrollSettlementInput) (uint64, error) {
+	return s.Store.SettlePayrollType(ctx, actor, input)
+}
+func (s Payroll) SpecialList(ctx context.Context, month string) ([]response.SpecialPayrollRecord, response.SpecialPayrollSummary, error) {
+	return s.Store.SpecialPayrolls(ctx, month)
+}
+func (s Payroll) SaveSpecial(ctx context.Context, id, actor uint64, input request.SpecialPayrollInput) (uint64, error) {
+	return s.Store.SaveSpecialPayroll(ctx, id, actor, input)
+}
+func (s Payroll) DeleteSpecial(ctx context.Context, id, actor uint64) error {
+	return s.Store.DeleteSpecialPayroll(ctx, id, actor)
+}
+func (s Payroll) SettleSpecial(ctx context.Context, actor uint64, input request.SpecialPayrollSettlementInput) (uint64, error) {
+	return s.Store.SettleSpecialPayroll(ctx, actor, input)
 }

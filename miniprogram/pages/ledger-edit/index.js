@@ -22,7 +22,7 @@ Page({
       this.options = results[0]
       if (results[1]) {
         const form = {}; fields.forEach(key => { form[key] = results[1][key] })
-        this.setData({ form, locked: !!results[1].payroll_batch_id })
+        this.setData({ form, locked: !!(results[1].payroll_batch_id || results[1].payroll_type) })
         if (this.data.locked) wx.setNavigationBarTitle({ title: '工资关联流水' })
       } else if (!this.data.form.account_id && this.options.accounts.length) this.setData({ 'form.account_id': this.options.accounts[0].id })
       this.syncOptions()
@@ -68,10 +68,11 @@ Page({
   },
   async save() {
     if (!this.data.ready || this.data.saving || this.data.locked) return
-    const form = { ...this.data.form, summary: this.data.form.summary.trim(), amount: this.data.form.amount.trim() }
+    const form = { ...this.data.form, summary: this.data.form.summary.trim(), counterparty: this.data.form.counterparty.trim(), amount: this.data.form.amount.trim() }
     let message = ''
     if (!formUtil.moneyValid(form.amount)) message = '请填写大于0的金额，最多2位小数'
     else if (!form.summary) message = '请填写这笔收支的摘要'
+	else if (!form.counterparty) message = '请填写对方单位或资金账户'
     else if (!this.options.accounts.some(v => v.id === form.account_id)) message = '请选择有效账户；暂无账户时请先新建'
     if (message) { api.errorModal(new Error(message)); return }
     this.setData({ saving: true })

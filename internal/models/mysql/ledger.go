@@ -26,7 +26,7 @@ func (s *Store) LedgerRangeFiltered(ctx context.Context, start, end string, cate
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	query := `SELECT l.id,DATE_FORMAT(l.occurred_on,'%Y-%m-%d'),COALESCE(d.name,''),l.summary,l.counterparty,DATE_FORMAT(l.occurred_on,'%c月'),a.name,COALESCE(c.name,''),l.direction,l.amount,a.opening_balance+COALESCE((SELECT SUM(IF(x.direction='income',x.amount,-x.amount)) FROM ledger_entries x WHERE x.account_id=l.account_id AND x.active=1 AND (x.occurred_on<l.occurred_on OR (x.occurred_on=l.occurred_on AND x.id<=l.id))),0),l.voucher_no,COALESCE(pb.id,COALESCE((SELECT pi.payroll_batch_id FROM payroll_items pi WHERE pi.ledger_entry_id=l.id LIMIT 1),0)) FROM ledger_entries l JOIN ledger_accounts a ON a.id=l.account_id LEFT JOIN departments d ON d.id=l.department_id LEFT JOIN ledger_categories c ON c.id=l.category_id LEFT JOIN payroll_batches pb ON pb.ledger_entry_id=l.id WHERE l.active=1 AND l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY)`
+	query := `SELECT l.id,DATE_FORMAT(l.occurred_on,'%Y-%m-%d'),COALESCE(d.name,''),l.summary,l.counterparty,DATE_FORMAT(l.occurred_on,'%c月'),a.name,COALESCE(c.name,''),l.direction,l.amount,a.opening_balance+COALESCE((SELECT SUM(IF(x.direction='income',x.amount,-x.amount)) FROM ledger_entries x WHERE x.account_id=l.account_id AND x.active=1 AND (x.occurred_on<l.occurred_on OR (x.occurred_on=l.occurred_on AND x.id<=l.id))),0),l.voucher_no,COALESCE(pb.id,COALESCE((SELECT pi.payroll_batch_id FROM payroll_items pi WHERE pi.ledger_entry_id=l.id LIMIT 1),0)),COALESCE((SELECT pse.payroll_type FROM payroll_settlement_entries pse WHERE pse.ledger_entry_id=l.id LIMIT 1),'') FROM ledger_entries l JOIN ledger_accounts a ON a.id=l.account_id LEFT JOIN departments d ON d.id=l.department_id LEFT JOIN ledger_categories c ON c.id=l.category_id LEFT JOIN payroll_batches pb ON pb.ledger_entry_id=l.id WHERE l.active=1 AND l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY)`
 	args := []any{start, end}
 	if categoryID != 0 {
 		query += ` AND l.category_id=?`
@@ -43,7 +43,7 @@ func (s *Store) LedgerRangeFiltered(ctx context.Context, start, end string, cate
 		var v response.LedgerRecord
 		var direction string
 		var amount, balance float64
-		if err := rows.Scan(&v.ID, &v.Date, &v.Department, &v.Summary, &v.Counterparty, &v.Month, &v.Account, &v.Category, &direction, &amount, &balance, &v.VoucherNo, &v.PayrollBatchID); err != nil {
+		if err := rows.Scan(&v.ID, &v.Date, &v.Department, &v.Summary, &v.Counterparty, &v.Month, &v.Account, &v.Category, &direction, &amount, &balance, &v.VoucherNo, &v.PayrollBatchID, &v.PayrollType); err != nil {
 			return nil, apperror.Wrap(err, "读取台账流水失败")
 		}
 		v.No = len(result) + 1
@@ -78,6 +78,10 @@ func (s *Store) LedgerSummaryRangeFiltered(ctx context.Context, start, end strin
 		return response.LedgerSummary{}, err
 	}
 	year := start[:4]
+	allHistory := start == "1000-01-01" && end == "9998-12-31"
+	if allHistory {
+		year = time.Now().Format("2006")
+	}
 	var v response.LedgerSummary
 	var mi, me, balance, yi, ye, maxi, maxe float64
 	query := `SELECT COALESCE(SUM(CASE WHEN l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='income' THEN l.amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='expense' THEN l.amount ELSE 0 END),0),COALESCE((SELECT SUM(opening_balance) FROM ledger_accounts),0)+COALESCE(SUM(CASE WHEN l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) THEN IF(l.direction='income',l.amount,-l.amount) ELSE 0 END),0),COALESCE(SUM(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='income' THEN l.amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='expense' THEN l.amount ELSE 0 END),0),COALESCE(MAX(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='income' THEN l.amount END),0),COALESCE(MAX(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='expense' THEN l.amount END),0),COALESCE(SUM(YEAR(l.occurred_on)=?),0) FROM ledger_entries l WHERE l.active=1`
@@ -92,6 +96,10 @@ func (s *Store) LedgerSummaryRangeFiltered(ctx context.Context, start, end strin
 	}
 	v.Month = start[:7]
 	v.Period = start + " 至 " + end
+	if allHistory {
+		v.Month = "全部"
+		v.Period = "全部历史记录"
+	}
 	v.MonthIncome, v.MonthExpense, v.MonthNet, v.CurrentBalance = Money(mi), Money(me), Money(mi-me), Money(balance)
 	v.YearIncome, v.YearExpense, v.YearNet, v.MaxIncome, v.MaxExpense = Money(yi), Money(ye), Money(yi-ye), Money(maxi), Money(maxe)
 	return v, nil
