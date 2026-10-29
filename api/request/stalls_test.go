@@ -79,6 +79,20 @@ func TestStallMonthlyExpenseEmptyWaterAndElectricityBecomeZero(t *testing.T) {
 	}
 }
 
+func TestStallMonthlyExpenseLedgerUsesSelectedMonth(t *testing.T) {
+	v := StallMonthlyExpenseLedgerInput{Month: "2026-09"}
+	if err := v.Validate(); err != nil {
+		t.Fatalf("未填写日期时应默认记入核算月份：%v", err)
+	}
+	if v.OccurredOn != "2026-09-01" {
+		t.Fatalf("默认入账日期应为核算月首日，实际=%s", v.OccurredOn)
+	}
+	v.OccurredOn = "2026-10-01"
+	if err := v.Validate(); err == nil {
+		t.Fatal("入账日期不属于核算月份时应拒绝保存")
+	}
+}
+
 func TestStallSettingsAllowsMonthlyConradRate(t *testing.T) {
 	v := StallSettingsInput{Month: "2026-09", ConradRate: "3.5"}
 	if err := v.Validate(); err != nil {

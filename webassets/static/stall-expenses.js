@@ -78,7 +78,7 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const overlay = document.createElement("div");
       overlay.className = "record-prompt";
-      overlay.innerHTML = `<form class="record-prompt-card"><h3>确认月度核算入账</h3><p>将本月水费、电费、康莱德卡机抽点记为支出；卡机扣点后金额和全部汇来米记为收入。系统仅记录经营流水，不需要填写对方账户。</p><label>入账日期<input name="occurred_on" type="date" required value="${escapeHTML(root.dataset.month)}-01"></label><div class="form-actions"><button class="ghost-button" type="button" data-close>取消</button><button class="primary-button" type="submit">确认入账</button></div><p class="record-inline-error" role="alert"></p></form>`;
+      overlay.innerHTML = `<form class="record-prompt-card"><h3>确认 ${escapeHTML(root.dataset.month)} 月核算入账</h3><p>学校卡机、汇来米分别记为收入；水费、电费、康莱德卡机抽点和全部未入账档口成本分别记为支出。流水会记入当前核算月份，日期可改为该月内任一天；无需填写对方账户。</p><label>入账日期<input name="occurred_on" type="date" required value="${escapeHTML(root.dataset.month)}-01"></label><div class="form-actions"><button class="ghost-button" type="button" data-close>取消</button><button class="primary-button" type="submit">确认入账</button></div><p class="record-inline-error" role="alert"></p></form>`;
       const close = () => overlay.remove();
       overlay.querySelector("[data-close]").addEventListener("click", close);
       overlay.addEventListener("click", (clickEvent) => { if (clickEvent.target === overlay) close(); });

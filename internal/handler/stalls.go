@@ -75,7 +75,7 @@ func (h *Handler) StallsMonthlyPage(w http.ResponseWriter, r *http.Request) {
 	}
 	mysql.ApplyMonthlyOperatingExpense(&summary, expenses)
 	expenses.ConradAmount = summary.ConradCommission
-	expenses.CardIncomeAmount = summary.TotalCardAfterConrad
+	expenses.CardIncomeAmount = summary.TotalCardTurnover
 	expenses.HuilaimiIncomeAmount = summary.TotalHuilaimi
 	h.render(w, "stall_settlement.html", StallMonthlyPageData{ActiveMenu: "stall-monthly", Month: month, Keyword: keyword, Stalls: items, Summary: summary, Settings: settings, Expenses: expenses})
 }
@@ -139,7 +139,7 @@ func (h *Handler) StallsAPI(tokens *token.Manager) http.HandlerFunc {
 			}
 			mysql.ApplyMonthlyOperatingExpense(&summary, expenses)
 			expenses.ConradAmount = summary.ConradCommission
-			expenses.CardIncomeAmount = summary.TotalCardAfterConrad
+			expenses.CardIncomeAmount = summary.TotalCardTurnover
 			expenses.HuilaimiIncomeAmount = summary.TotalHuilaimi
 			httpx.JSON(w, http.StatusOK, map[string]any{"stalls": items, "summary": summary, "month": month, "settings": settings, "expenses": expenses})
 		case http.MethodPost, http.MethodPut:

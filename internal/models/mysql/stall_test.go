@@ -25,8 +25,8 @@ func TestCalculateStallMonthlyRentOverridesLegacyManualCommission(t *testing.T) 
 	if item.CanManualOwnCommission {
 		t.Fatal("已配置月租时不应允许手动填写我方抽成")
 	}
-	if item.NetTurnover != "155668.98" {
-		t.Fatalf("扣成本及康莱德后的金额错误：%s", item.NetTurnover)
+	if item.NetTurnover != "162155.19" {
+		t.Fatalf("档口列表不应扣康莱德后的金额错误：%s", item.NetTurnover)
 	}
 }
 
@@ -54,8 +54,8 @@ func TestCalculateStallDefaultsOtherStallToFullNetAmount(t *testing.T) {
 
 	calculateStall(&item, defaultConradRate)
 
-	// (100 × 97%) + 20 = 117；未设抽点规则时全额按甲乙90/10分配。
-	if item.OwnCommission != "117.00" || item.JiaCommission != "105.30" || item.YiCommission != "11.70" {
+	// 100 + 20 = 120；未设抽点规则时全额按甲乙90/10分配。
+	if item.OwnCommission != "120.00" || item.JiaCommission != "108.00" || item.YiCommission != "12.00" {
 		t.Fatalf("未设规则时应按可计算额全额分配，实际总额=%s，甲=%s，乙=%s", item.OwnCommission, item.JiaCommission, item.YiCommission)
 	}
 }
@@ -70,9 +70,9 @@ func TestCalculateStallUsesAfterConradAmountForOtherStallRate(t *testing.T) {
 
 	calculateStall(&item, defaultConradRate)
 
-	// (100 × 97% + 100) × 10% = 19.70。
-	if item.OwnCommission != "19.70" {
-		t.Fatalf("非自营比例抽成应先扣康莱德3%%，实际：%s", item.OwnCommission)
+	// 档口列表不扣康莱德，(100 + 100) × 10% = 20；康莱德在月度汇总中统一扣除。
+	if item.OwnCommission != "20.00" {
+		t.Fatalf("非自营档口抽成不应在明细中扣康莱德，实际：%s", item.OwnCommission)
 	}
 }
 
@@ -86,9 +86,43 @@ func TestCalculateSelfOperatedStallDeductsCostBeforeFixedSplit(t *testing.T) {
 
 	calculateStall(&item, defaultConradRate)
 
-	// (100 × 97% + 100) - 97 = 100，再按固定90/10拆分。
-	if item.OwnCommission != "100.00" || item.JiaCommission != "90.00" || item.YiCommission != "10.00" {
+	// (100 + 100) - 97 = 103，再按固定90/10拆分；康莱德在月度汇总中统一扣除。
+	if item.OwnCommission != "103.00" || item.JiaCommission != "92.70" || item.YiCommission != "10.30" {
 		t.Fatalf("自营档口应先扣成本再按90/10分配，总额=%s，甲=%s，乙=%s", item.OwnCommission, item.JiaCommission, item.YiCommission)
+	}
+}
+
+func TestCalculateSelfOperatedStallKeepsLoss(t *testing.T) {
+	item := response.Stall{
+		AllocationMode:   "profit_share",
+		SchoolCardAmount: "73665.38",
+		CostAmount:       "93796.07",
+	}
+
+	calculateStall(&item, 0)
+
+	if item.NetTurnover != "73665.38" || item.CostDeductedTurnover != "-20130.69" {
+		t.Fatalf("成本前后金额应保留真实值，扣点后=%s，扣成本后=%s", item.NetTurnover, item.CostDeductedTurnover)
+	}
+	if item.OwnCommission != "-20130.69" || item.JiaCommission != "-18117.62" || item.YiCommission != "-2013.07" || item.Remaining != "0.00" {
+		t.Fatalf("自营档口亏损不能归零，总额=%s，甲=%s，乙=%s，余额=%s", item.OwnCommission, item.JiaCommission, item.YiCommission, item.Remaining)
+	}
+}
+
+func TestCalculateOtherStallCostDeductsRemaining(t *testing.T) {
+	item := response.Stall{
+		AllocationMode:   "custom",
+		SchoolCardAmount: "100.00",
+		HuilaimiAmount:   "100.00",
+		CostAmount:       "50.00",
+		TotalAmountRate:  "20.00",
+	}
+
+	calculateStall(&item, defaultConradRate)
+
+	// 可计算额 200，按 20% 抽成 40；非自营成本必须从未分配余额中扣除。
+	if item.OwnCommission != "40.00" || item.CostDeductedTurnover != "150.00" || item.Remaining != "110.00" {
+		t.Fatalf("非自营成本应扣未分配余额，抽成=%s，扣成本后=%s，余额=%s", item.OwnCommission, item.CostDeductedTurnover, item.Remaining)
 	}
 }
 
@@ -140,5 +174,16 @@ func TestApplyMonthlyOperatingExpenseKeepsMonthlyLoss(t *testing.T) {
 	}
 	if summary.JiaCommission != "0.00" || summary.YiCommission != "0.00" {
 		t.Fatalf("亏损月份不应产生甲乙抽成，甲=%s，乙=%s", summary.JiaCommission, summary.YiCommission)
+	}
+}
+
+func TestApplyMonthlyOperatingExpenseDeductsConradAtMonthlyLevel(t *testing.T) {
+	summary := response.StallSummary{SelfOperatedCommission: "1000.00", ConradCommission: "30.00"}
+	expense := response.StallMonthlyExpense{TotalAmount: "70.00"}
+
+	ApplyMonthlyOperatingExpense(&summary, expense)
+
+	if summary.DistributableBalance != "900.00" || summary.JiaCommission != "810.00" || summary.YiCommission != "90.00" {
+		t.Fatalf("康莱德应仅在月度汇总扣一次，结余=%s，甲=%s，乙=%s", summary.DistributableBalance, summary.JiaCommission, summary.YiCommission)
 	}
 }

@@ -25,7 +25,11 @@ func (s *Store) payrollAmount(ctx context.Context, queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, month string) (float64, error) {
 	var amount float64
-	err := queryer.QueryRowContext(ctx, `SELECT COALESCE(SUM(l.amount),0) FROM payroll_settlement_entries p JOIN ledger_entries l ON l.id=p.ledger_entry_id AND l.active=1 WHERE p.payroll_month=?`, month+"-01").Scan(&amount)
+	// 月度核算需要反映当前已保存的实发工资，不能等到汇总入账后才更新。
+	// net_salary 已包含手动实发覆盖；特殊员工工资尚未入账时同样要计入当月人工成本。
+	err := queryer.QueryRowContext(ctx, `SELECT
+		COALESCE((SELECT SUM(i.net_salary) FROM payroll_items i JOIN payroll_batches b ON b.id=i.payroll_batch_id WHERE b.payroll_month=? AND b.status<>'cancelled'),0)
+		+ COALESCE((SELECT SUM(s.amount) FROM special_payroll_records s WHERE s.payroll_month=?),0)`, month+"-01", month+"-01").Scan(&amount)
 	if err != nil {
 		return 0, apperror.Wrap(err, "统计当月工资失败")
 	}
@@ -112,7 +116,7 @@ func incomeCategory(ctx context.Context, tx *sql.Tx, name string) (uint64, error
 	return uint64(id), err
 }
 
-// PostMonthlyOperatingExpenseLedger 按月度核算口径写入水电、康莱德支出及营业收入。
+// PostMonthlyOperatingExpenseLedger 按月度核算口径写入水电、档口成本、康莱德支出及营业收入。
 func (s *Store) PostMonthlyOperatingExpenseLedger(ctx context.Context, actor uint64, input request.StallMonthlyExpenseLedgerInput) error {
 	if err := s.ready(); err != nil {
 		return err
@@ -130,7 +134,7 @@ func (s *Store) PostMonthlyOperatingExpenseLedger(ctx context.Context, actor uin
 	} else if err := requirePayrollAccount(ctx, tx, input.AccountID); err != nil {
 		return err
 	}
-	// 即使本月未填写水电，也允许直接确认营业收入和康莱德抽点入账。
+	// 即使本月未填写水电，也允许直接确认营业收入、康莱德抽点和档口成本入账。
 	if _, err := tx.ExecContext(ctx, `INSERT IGNORE INTO stall_monthly_expenses(expense_month,water_amount,electricity_amount,manual_payroll_amount) VALUES(?,?,?,NULL)`, input.Month+"-01", 0, 0); err != nil {
 		return apperror.Wrap(err, "初始化当月经营支出失败")
 	}
@@ -151,7 +155,8 @@ func (s *Store) PostMonthlyOperatingExpenseLedger(ctx context.Context, actor uin
 		return err
 	}
 	conradAmount := cardAmount * conradRate
-	cardIncomeAmount := cardAmount - conradAmount
+	// 卡机按原始营业额入收入，康莱德抽点以独立支出入账，确保流水可分别核对且不会重复扣减。
+	cardIncomeAmount := cardAmount
 	post := func(direction, category, summary string, amount float64) (uint64, error) {
 		if amount <= 0 {
 			return 0, nil
@@ -190,13 +195,27 @@ func (s *Store) PostMonthlyOperatingExpenseLedger(ctx context.Context, actor uin
 	if err != nil {
 		return apperror.Wrap(err, "写入汇来米营业收入台账失败")
 	}
-	if waterID == 0 && electricityID == 0 && conradID == 0 && cardIncomeID == 0 && huilaimiIncomeID == 0 {
-		return MiniInputError{"本月没有可确认入账的水电、康莱德抽点或营业收入"}
+	var stallCostAmount float64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(amount),0) FROM stall_cost_entries WHERE cost_month=? AND active=1 AND ledger_entry_id IS NULL`, input.Month+"-01").Scan(&stallCostAmount); err != nil {
+		return apperror.Wrap(err, "统计未入账档口成本失败")
+	}
+	stallCostID, err := post("expense", "档口成本", "全部档口成本", stallCostAmount)
+	if err != nil {
+		return apperror.Wrap(err, "写入档口成本台账失败")
+	}
+	if stallCostID != 0 {
+		// 月度统一入账后，将每条成本关联至同一笔支出，避免成本页再次重复入账。
+		if _, err := tx.ExecContext(ctx, `UPDATE stall_cost_entries SET ledger_entry_id=? WHERE cost_month=? AND active=1 AND ledger_entry_id IS NULL`, stallCostID, input.Month+"-01"); err != nil {
+			return apperror.Wrap(err, "关联档口成本台账失败")
+		}
+	}
+	if waterID == 0 && electricityID == 0 && conradID == 0 && cardIncomeID == 0 && huilaimiIncomeID == 0 && stallCostID == 0 {
+		return MiniInputError{"本月没有可确认入账的水电、康莱德抽点、档口成本或营业收入"}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE stall_monthly_expenses SET water_ledger_entry_id=NULLIF(?,0),electricity_ledger_entry_id=NULLIF(?,0),conrad_ledger_entry_id=NULLIF(?,0),card_income_ledger_entry_id=NULLIF(?,0),huilaimi_income_ledger_entry_id=NULLIF(?,0) WHERE expense_month=?`, waterID, electricityID, conradID, cardIncomeID, huilaimiIncomeID, input.Month+"-01"); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO audit_logs(admin_user_id,module,action,target_type,target_text,detail) VALUES(?,?,?,?,?,?)`, actor, "stalls", "月度核算确认入账", "stall_monthly_expenses", input.Month, "水电、康莱德支出及卡机、汇来米收入确认入账；工资由工资模块发放时入账"); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO audit_logs(admin_user_id,module,action,target_type,target_text,detail) VALUES(?,?,?,?,?,?)`, actor, "stalls", "月度核算确认入账", "stall_monthly_expenses", input.Month, "水电、档口成本、康莱德支出及卡机、汇来米收入确认入账；工资由工资模块发放时入账"); err != nil {
 		return err
 	}
 	return tx.Commit()

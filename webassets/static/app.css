@@ -214,6 +214,21 @@ h2 { margin-bottom: 6px; font-size: 20px; }
 .stall-table-v2 td:nth-child(14) { min-width:330px; }
 .stall-summary-grid .stat-card strong { font-size: 23px; }
 .stall-settings-card { margin-top: 18px; }
+
+/* 康莱德抽点按全月卡机统一展示，档口明细不再逐行重复占列。 */
+.admin-main[data-stalls-page] .stall-table-v2 th:nth-child(9),
+.admin-main[data-stalls-page] .stall-table-v2 td:nth-child(9),
+.admin-main[data-stalls-page] .monthly-expense-metrics .fixed-rule-field:nth-child(6),
+.admin-main[data-stalls-page] .monthly-expense-metrics .fixed-rule-field:nth-child(7) {
+  display: none;
+}
+
+/* 明细不使用康莱德比例，表头明确展示为原始卡机与汇来米合计。 */
+.admin-main[data-stalls-page] .stall-table-v2 th:nth-child(10) { font-size: 0; }
+.admin-main[data-stalls-page] .stall-table-v2 th:nth-child(10)::after {
+  content: "卡机＋汇来米";
+  font-size: 12px;
+}
 .record-inline-form { display:flex; align-items:end; flex-wrap:wrap; gap:12px; padding:0 22px 22px; }
 .record-inline-form label { display:grid; gap:6px; min-width:190px; color:var(--muted); font-size:12px; font-weight:700; }
 .record-inline-form label.wide { flex:1; min-width:260px; }

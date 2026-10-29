@@ -336,12 +336,17 @@ func (v *StallMonthlyExpenseLedgerInput) Validate() error {
 	if _, err := time.Parse("2006-01", strings.TrimSpace(v.Month)); err != nil {
 		return fmt.Errorf("经营支出月份格式必须是YYYY-MM")
 	}
+	v.Month = strings.TrimSpace(v.Month)
 	if v.OccurredOn == "" {
-		v.OccurredOn = strings.TrimSpace(v.Month) + "-01"
+		v.OccurredOn = v.Month + "-01"
 	}
-	if _, err := time.Parse("2006-01-02", v.OccurredOn); err != nil {
+	occurredOn, err := time.Parse("2006-01-02", v.OccurredOn)
+	if err != nil {
 		return fmt.Errorf("入账日期格式必须是YYYY-MM-DD")
 	}
-	v.Month = strings.TrimSpace(v.Month)
+	// 月度核算只能写入所选月份，避免确认历史月份时误把流水记到其他月份。
+	if occurredOn.Format("2006-01") != v.Month {
+		return fmt.Errorf("入账日期必须属于核算月份%s", v.Month)
+	}
 	return nil
 }

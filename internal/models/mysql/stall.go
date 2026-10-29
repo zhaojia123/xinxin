@@ -51,8 +51,8 @@ func hasStallAutomaticCommissionRule(item *response.Stall) bool {
 	}
 }
 
-// calculateStall 按三方规则计算单个档口：康莱德只看学校卡机，其他规则看卡机+汇来米。
-func calculateStall(item *response.Stall, conradRate float64) {
+// calculateStall 只按档口自身营业额、成本和规则计算；康莱德统一在月度汇总时扣除。
+func calculateStall(item *response.Stall, _ float64) {
 	card := stallNumber(item.SchoolCardAmount)
 	huilaimi := stallNumber(item.HuilaimiAmount)
 	total := card + huilaimi
@@ -60,30 +60,30 @@ func calculateStall(item *response.Stall, conradRate float64) {
 	if cost < 0 {
 		cost = 0
 	}
-	conrad := card * conradRate
-	net := total - conrad
+	// 档口列表不参与康莱德比例计算，避免每个档口分别扣减造成口径混乱。
+	conrad := 0.0
+	net := total
+	availableAfterCost := net - cost
 	jia, yi, rent, fixed, guaranteed, base, totalRate := 0.0, 0.0, stallNumber(item.MonthlyRent), stallNumber(item.FixedCommissionAmount), 0.0, 0.0, 0.0
+	own := 0.0
 	if item.AllocationMode == "profit_share" {
 		// 自营档口先扣自身成本、房租和固定扣减，再把剩余金额按甲乙固定比例分配。
-		net -= cost + rent + fixed
+		own = availableAfterCost - rent - fixed
 		// 甲乙净额分成是全局固定规则，不使用历史档口中可变的比例。
 		item.ProfitJiaRate, item.ProfitYiRate = "90.00", "10.00"
-		if net < 0 {
-			net = 0
-		}
-		jia = net * 0.9
-		yi = net * 0.1
+		// 亏损同样按 90/10 保留在档口和月度核算中，避免被静默丢弃。
+		jia = own * 0.9
+		yi = own * 0.1
 	} else if item.AllocationMode == "custom" {
 		guaranteed = stallNumber(item.GuaranteedAmount) * stallNumber(item.GuaranteedRate) / 100
-		// 非自营档口的比例抽成也以学校卡机先扣康莱德3%后的可用营业额为基数。
+		// 非自营档口的比例抽成只以本档口营业额为基数。
 		base = net * stallNumber(item.BaseAmountRate) / 100 * stallNumber(item.BaseAmountFactor) / 100
 		totalRate = net * stallNumber(item.TotalAmountRate) / 100
-		jia = (rent + fixed + guaranteed + base + totalRate) * 0.9
-		yi = (rent + fixed + guaranteed + base + totalRate) * 0.1
+		own = rent + fixed + guaranteed + base + totalRate
+		jia = own * 0.9
+		yi = own * 0.1
 	}
-	calculatedOwn := jia + yi
-	own := calculatedOwn
-	// 非自营档口没有单独抽点规则时，默认将扣康莱德后的可计算额全额按甲乙分配；
+	// 非自营档口没有单独抽点规则时，默认将全部可计算额按甲乙分配；
 	// 当月手填金额视为该月覆盖规则，优先于默认全额分配。
 	canManualOwnCommission := item.AllocationMode == "custom" && !hasStallAutomaticCommissionRule(item)
 	if canManualOwnCommission {
@@ -94,11 +94,8 @@ func calculateStall(item *response.Stall, conradRate float64) {
 		jia, yi = own*0.9, own*0.1
 	}
 	item.NetTurnover = Decimal(net)
-	costDeducted := total
-	if item.AllocationMode == "profit_share" {
-		costDeducted -= cost
-	}
-	item.CostDeductedTurnover = Decimal(costDeducted)
+	// 所有档口的成本都要进入余额计算；自营档口还会继续扣除房租和固定扣减。
+	item.CostDeductedTurnover = Decimal(availableAfterCost)
 	item.TotalTurnover = Decimal(total)
 	item.ConradCommission = Decimal(conrad)
 	item.JiaCommission = Decimal(jia)
@@ -110,13 +107,18 @@ func calculateStall(item *response.Stall, conradRate float64) {
 	item.BaseCommission = Decimal(base)
 	item.TotalRateCommission = Decimal(totalRate)
 	item.TotalCommission = Decimal(conrad + own)
-	item.Remaining = Decimal(net - own)
+	remaining := availableAfterCost - own
+	if item.AllocationMode == "profit_share" {
+		remaining -= rent + fixed
+	}
+	item.Remaining = Decimal(remaining)
 }
 
 // ApplyMonthlyOperatingExpense 以各档口已计算出的甲乙可抽成金额为基数，扣除水电和人工后统一分配。
 func ApplyMonthlyOperatingExpense(summary *response.StallSummary, expense response.StallMonthlyExpense) {
 	// 自营档口的金额已扣自身成本、房租等；其他档口的金额已按其抽点规则计算。
-	operating := stallNumber(expense.TotalAmount)
+	// 康莱德只在月度汇总中按全部卡机统一扣一次，不参与任何单档口计算。
+	operating := stallNumber(expense.TotalAmount) + stallNumber(summary.ConradCommission)
 	commissionBeforeExpense := stallNumber(summary.SelfOperatedCommission) + stallNumber(summary.OtherStallCommission)
 	// 自营成本已在单档口计算时扣除；这里继续扣水电和人工等当月经营支出。
 	result := commissionBeforeExpense - operating
@@ -135,7 +137,7 @@ func ApplyMonthlyOperatingExpense(summary *response.StallSummary, expense respon
 	summary.TotalCommission = Decimal(stallNumber(summary.ConradCommission) + result)
 }
 
-func scanStall(row interface{ Scan(...any) error }, conradRate float64) (response.Stall, error) {
+func scanStall(row interface{ Scan(...any) error }) (response.Stall, error) {
 	var item response.Stall
 	var turnoverID sql.NullInt64
 	var month sql.NullString
@@ -169,7 +171,7 @@ func scanStall(row interface{ Scan(...any) error }, conradRate float64) (respons
 	if guaranteedAmount.Float64 == 0 {
 		item.GuaranteedAmount = item.DefaultGuaranteedAmount
 	}
-	calculateStall(&item, conradRate)
+	calculateStall(&item, 0)
 	return item, nil
 }
 
@@ -224,7 +226,7 @@ func (s *Store) StallsMaster(ctx context.Context, keyword string) ([]response.St
 	defer rows.Close()
 	items := make([]response.Stall, 0)
 	for rows.Next() {
-		item, err := scanStall(rows, 0)
+		item, err := scanStall(rows)
 		if err != nil {
 			return nil, apperror.Wrap(err, "读取档口设置失败")
 		}
@@ -289,7 +291,7 @@ func (s *Store) StallsWithTurnover(ctx context.Context, month, keyword string) (
 	items := make([]response.Stall, 0)
 	var summary response.StallSummary
 	for rows.Next() {
-		item, err := scanStall(rows, conradRate)
+		item, err := scanStall(rows)
 		if err != nil {
 			return nil, response.StallSummary{}, apperror.Wrap(err, "读取档口列表失败")
 		}
@@ -300,7 +302,6 @@ func (s *Store) StallsWithTurnover(ctx context.Context, month, keyword string) (
 		summary.TotalHuilaimi = Decimal(stallNumber(summary.TotalHuilaimi) + stallNumber(item.HuilaimiAmount))
 		summary.TotalTurnover = Decimal(stallNumber(summary.TotalTurnover) + stallNumber(item.TotalTurnover))
 		summary.TotalCost = Decimal(stallNumber(summary.TotalCost) + stallNumber(item.CostAmount))
-		summary.ConradCommission = Decimal(stallNumber(summary.ConradCommission) + stallNumber(item.ConradCommission))
 		summary.JiaCommission = Decimal(stallNumber(summary.JiaCommission) + stallNumber(item.JiaCommission))
 		summary.YiCommission = Decimal(stallNumber(summary.YiCommission) + stallNumber(item.YiCommission))
 		summary.OwnCommission = Decimal(stallNumber(summary.OwnCommission) + stallNumber(item.OwnCommission))
@@ -309,7 +310,7 @@ func (s *Store) StallsWithTurnover(ctx context.Context, month, keyword string) (
 		if item.AllocationMode == "profit_share" {
 			summary.SpecialProfitPool = Decimal(stallNumber(summary.SpecialProfitPool) + stallNumber(item.NetTurnover))
 			summary.SpecialStallCost = Decimal(stallNumber(summary.SpecialStallCost) + stallNumber(item.CostAmount))
-			summary.BalanceBeforeExpenses = Decimal(stallNumber(summary.BalanceBeforeExpenses) + stallNumber(item.NetTurnover))
+			summary.BalanceBeforeExpenses = Decimal(stallNumber(summary.BalanceBeforeExpenses) + stallNumber(item.OwnCommission))
 			summary.SelfOperatedCardNet = Decimal(stallNumber(summary.SelfOperatedCardNet) + stallNumber(item.SchoolCardAmount) - stallNumber(item.ConradCommission))
 			summary.SelfOperatedHuilaimi = Decimal(stallNumber(summary.SelfOperatedHuilaimi) + stallNumber(item.HuilaimiAmount))
 			summary.SelfOperatedRevenueAfterConrad = Decimal(stallNumber(summary.SelfOperatedRevenueAfterConrad) + stallNumber(item.SchoolCardAmount) - stallNumber(item.ConradCommission) + stallNumber(item.HuilaimiAmount))
@@ -320,11 +321,13 @@ func (s *Store) StallsWithTurnover(ctx context.Context, month, keyword string) (
 			// 非自营档口只把本方实际抽成加入甲乙可分配额，营业额本身不重复计入。
 			summary.OtherStallCommission = Decimal(stallNumber(summary.OtherStallCommission) + stallNumber(item.OwnCommission))
 		}
-		summary.TotalCardAfterConrad = Decimal(stallNumber(summary.TotalCardTurnover) - stallNumber(summary.ConradCommission))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, response.StallSummary{}, apperror.Wrap(err, "遍历档口列表失败")
 	}
+	// 康莱德为全月统一成本：全部卡机营业额 × 当月比例，只在汇总层扣除一次。
+	summary.ConradCommission = Decimal(stallNumber(summary.TotalCardTurnover) * conradRate)
+	summary.TotalCardAfterConrad = Decimal(stallNumber(summary.TotalCardTurnover) - stallNumber(summary.ConradCommission))
 	return items, summary, nil
 }
 
@@ -333,7 +336,7 @@ func (s *Store) StallRecord(ctx context.Context, id uint64) (response.Stall, err
 		return response.Stall{}, err
 	}
 	row := s.DB.QueryRowContext(ctx, stallSelect()+` FROM stall_accounts s LEFT JOIN stall_turnovers t ON 1=0 WHERE s.id=? AND s.active=1`, id)
-	item, err := scanStall(row, 0)
+	item, err := scanStall(row)
 	if err == sql.ErrNoRows {
 		return response.Stall{}, ErrNotFound
 	}

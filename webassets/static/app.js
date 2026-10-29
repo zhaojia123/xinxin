@@ -874,6 +874,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const payrollRows = Array.from(document.querySelectorAll("[data-payroll-row]"));
   const payrollTable = document.querySelector("[data-payroll-table]");
+  const payrollTotal = document.querySelector("[data-payroll-total]");
+  // 页面内先同步预览，服务端保存成功后档口月度核算读取同一份实发金额。
+  const refreshPayrollTotal = () => {
+    if (!payrollTotal) return;
+    const amount = payrollRows.reduce((sum, row) => sum + calculateNet(row), 0);
+    payrollTotal.textContent = `¥${amount.toFixed(2)}`;
+  };
   let payrollSort = {key: "", direction: 1};
   payrollTable?.querySelectorAll("[data-payroll-sort]").forEach(button => button.addEventListener("click", () => {
     const key = button.dataset.payrollSort;
@@ -891,16 +898,19 @@ document.addEventListener("DOMContentLoaded", () => {
       row.dataset.payrollVersion = String(Number(row.dataset.payrollVersion || 0) + 1);
       row.dataset.payrollDirty = "true";
       renderNet(row);
+      refreshPayrollTotal();
       schedulePayrollSave(row);
     }));
     row.querySelector("[data-save-payroll]")?.addEventListener("click", async (event) => {
       event.preventDefault();
       try {
         await flushPayrollRow(row);
+        refreshPayrollTotal();
         showMessage("工资明细已保存，实发工资已由服务端重新计算。");
       } catch (error) { showMessage(`保存失败：${error.message}`); }
     });
   });
+  refreshPayrollTotal();
 
   document.querySelector("#generate-payroll")?.addEventListener("click", async (event) => {
     const button = event.currentTarget;
@@ -1318,9 +1328,8 @@ document.addEventListener("DOMContentLoaded", () => {
       cells[3].innerHTML = inlineTurnoverHTML(item.school_card_amount);
       cells[4].innerHTML = inlineTurnoverHTML(item.huilaimi_amount);
       cells[5].innerHTML = `<strong>${money(item.total_turnover)}</strong>`;
-      const selfOperated = item.allocation_mode === "profit_share";
-      cells[6].innerHTML = selfOperated ? `${money(item.cost_amount)}<small class="cell-subtitle">成本页维护</small>` : "—";
-      cells[7].textContent = selfOperated ? money(item.cost_deducted_turnover) : "—";
+      cells[6].innerHTML = `${money(item.cost_amount)}<small class="cell-subtitle">成本页维护</small>`;
+      cells[7].textContent = money(item.cost_deducted_turnover);
       cells[8].textContent = money(item.conrad_commission);
       cells[9].innerHTML = `<strong>${money(item.net_turnover)}</strong>`;
       cells[10].textContent = money(item.jia_commission);
@@ -1343,13 +1352,13 @@ document.addEventListener("DOMContentLoaded", () => {
       url.searchParams.set("month", month());
       window.location.href = url.toString();
     });
-    document.querySelector("[data-month-navigate]")?.addEventListener("change", event => {
+    document.querySelectorAll("[data-month-navigate]").forEach(monthInput => monthInput.addEventListener("change", event => {
       const value = event.currentTarget.value;
       if (!value) return;
       const url = new URL(window.location.href);
       url.searchParams.set("month", value);
       window.location.href = url.toString();
-    });
+    }));
     const startInlineEdit = (cell, value, save, afterSave) => {
       if (cell.dataset.inlineEditing === "true") return;
       cell.dataset.inlineEditing = "true";

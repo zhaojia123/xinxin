@@ -40,7 +40,7 @@
       </nav>
 
       <section class="stat-grid four-cols">
-        <article class="stat-card"><span>{{.Summary.Month}} 应发工资</span><strong>{{.Summary.GrossAmount}}</strong><small>本月基本工资，不含特殊补贴</small></article>
+        <article class="stat-card"><span>{{.Summary.Month}} 工资合计</span><strong data-payroll-total>{{.Summary.GrossAmount}}</strong><small>按已保存实发工资汇总，手动实发会同步更新</small></article>
         <article class="stat-card"><span>扣款与税费</span><strong>{{.Summary.DeductionAmount}}</strong><small>考勤、其他、社保、个税</small></article>
         <article class="stat-card"><span>实发合计</span><strong>{{.Summary.NetAmount}}</strong><small>含特殊补贴，共 {{.Summary.EmployeeCount}} 名员工</small></article>
         <article class="stat-card"><span>已汇总入账</span><strong>{{.Summary.PaidCount}} / {{.Summary.EmployeeCount}}</strong><small>本类型工资确认后只生成一条支出流水</small></article>

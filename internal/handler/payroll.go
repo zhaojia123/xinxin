@@ -105,7 +105,8 @@ func payrollSummaryForType(summary response.PayrollSummary, items []response.Pay
 			amount, _ := strconv.ParseFloat(strings.TrimLeft(value, "¥"), 64)
 			return amount
 		}
-		gross += parse(item.BaseSalary)
+		// 手动实发保存后，以最终实发金额作为本页面“本月工资合计”，确保顶部汇总立即联动。
+		gross += parse(item.NetSalary)
 		deductions += parse(item.AttendanceDeduction) + parse(item.OtherDeduction) + parse(item.SocialSecurity) + parse(item.Tax)
 		net += parse(item.NetSalary)
 		if item.Status == "已发放" {
