@@ -358,7 +358,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (kind === "ledger" && (data.payroll_batch_id || data.payroll_type)) readonly = true;
       if (data.enabled === undefined) data.enabled = true;
       const ledgerProofs = kind === "ledger" ? `<section class="ledger-proof-panel"><div class="record-label-row"><strong>转账凭证</strong><small>支持 JPG、PNG、WebP，单张大小以服务端配置为准</small></div>${data.attachments?.length ? `<div class="ledger-proof-list">${data.attachments.map(item => `<a href="${escapeHTML(item.file_url)}" target="_blank" rel="noopener"><img src="${escapeHTML(item.file_url)}" alt="${escapeHTML(item.original_name || "转账凭证")}"><span>${escapeHTML(item.original_name || "查看图片")}</span></a>`).join("")}</div>` : `<p class="ledger-proof-empty">暂无转账凭证</p>`}<div class="upload-dropzone" data-ledger-proof-upload><input type="file" data-ledger-proof-files accept="image/jpeg,image/png,image/webp" multiple><span class="upload-dropzone-plus">＋</span><strong>拖入或选择转账凭证</strong><small>可上传银行回单、转账截图，支持多张图片</small><em data-ledger-proof-names>尚未选择文件</em></div><button type="button" class="ghost-button ledger-proof-upload-button" data-ledger-proof-submit ${id ? "" : "disabled"}>上传凭证图片</button>${id ? "" : `<p class="ledger-proof-empty">保存台账后会自动上传已选择的图片</p>`}</section>` : "";
-      const payrollBreakdown = kind === "ledger" && data.payroll_items?.length ? `<section class="ledger-payroll-breakdown"><div class="record-label-row"><strong>工资发放明细</strong><small>每名员工对应一条工资金额</small></div><div class="ledger-payroll-items">${data.payroll_items.map(item => `<div><span>${escapeHTML(item.employee_name)}</span><strong>¥${escapeHTML(item.amount)}</strong></div>`).join("")}</div></section>` : "";
+      const payrollTypeLabel = {full_time: "正式工", part_time: "临时工", special: "特殊员工"}[data.payroll_type] || "员工";
+      const payrollBreakdown = kind === "ledger" && data.payroll_items?.length ? `<section class="ledger-payroll-breakdown"><div class="record-label-row"><strong>${payrollTypeLabel}工资发放明细</strong><small>每名员工对应一条最终实发金额</small></div><div class="ledger-payroll-items">${data.payroll_items.map(item => `<div><span>${escapeHTML(item.employee_name)}</span><strong>¥${escapeHTML(item.amount)}</strong></div>`).join("")}</div></section>` : "";
       const detailActions = readonly && id && kind === "ledger" && !data.payroll_batch_id && !data.payroll_type ? `<button type="button" class="ghost-button" data-detail-edit>编辑</button><button type="button" class="primary-button danger-button" data-detail-delete>删除</button>` : "";
       closeRecordDialog();
       const overlay = document.createElement("div");
@@ -613,7 +614,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelector("[data-payroll-settle]")?.addEventListener("click", async event => {
     const button = event.currentTarget;
     const typeLabel = button.dataset.payrollType === "part_time" ? "临时工" : "正式工";
-    if (!window.confirm(`确认将本月${typeLabel}工资汇总入账吗？会生成一条工资支出，入账后不能再修改工资明细。`)) return;
+    if (!window.confirm(`确认将本月${typeLabel}工资汇总入账吗？会生成一条“${typeLabel}工资”支出，点开台账详情可查看每位员工的最终实发金额；入账后不能再修改工资明细。`)) return;
     button.disabled = true;
     try {
       await fetchJSON("/api/admin/payroll/settlement", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({batch_id:Number(button.dataset.batchId), payroll_type:button.dataset.payrollType, occurred_on:`${button.dataset.month}-01`})});
