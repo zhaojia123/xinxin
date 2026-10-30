@@ -375,6 +375,8 @@ type StallSummary struct {
 	SelfOperatedCommission string `json:"self_operated_commission"`
 	// OtherStallCommission 是非自营档口按规则或手动填写后的我方抽成。
 	OtherStallCommission string `json:"other_stall_commission"`
+	// OtherStallUnallocatedBalance 是非自营档口扣除成本和我方抽成后，需作为对外支出结算的正向余额。
+	OtherStallUnallocatedBalance string `json:"other_stall_unallocated_balance"`
 	// CommissionBeforeOperatingExpense 是水电和人工成本扣除前，甲乙可分配的档口抽成合计。
 	CommissionBeforeOperatingExpense string `json:"commission_before_operating_expense"`
 	// MonthlyLoss 是当月支出超过甲乙可抽成金额时的亏损额度。
@@ -388,8 +390,6 @@ type StallMonthlyExpense struct {
 	WaterAmount            string `json:"water_amount"`
 	ElectricityAmount      string `json:"electricity_amount"`
 	AutomaticPayrollAmount string `json:"automatic_payroll_amount"`
-	ManualPayrollAmount    string `json:"manual_payroll_amount"`
-	ManualPayrollAmountSet bool   `json:"manual_payroll_amount_set"`
 	PayrollAmount          string `json:"payroll_amount"`
 	TotalAmount            string `json:"total_amount"`
 	ConradAmount           string `json:"conrad_amount"`

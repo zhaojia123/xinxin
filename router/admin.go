@@ -85,6 +85,7 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	mux.HandleFunc("/api/admin/payroll/temporary-pay", h.TemporaryPayrollAPI(payroll))
 	mux.HandleFunc("/api/admin/payroll/confirm", h.PayrollConfirmAPI(payroll))
 	mux.HandleFunc("/api/admin/payroll/settlement", h.PayrollSettlementAPI(payroll, tokens))
+	mux.HandleFunc("/api/admin/payroll/settlement/revoke", h.PayrollSettlementRevokeAPI(payroll, tokens))
 	mux.HandleFunc("/api/admin/special-payroll", h.SpecialPayrollAPI(payroll, tokens))
 	mux.HandleFunc("/api/admin/special-payroll/settlement", h.SpecialPayrollSettlementAPI(payroll, tokens))
 	// GET/POST/PUT/DELETE /api/admin/ledger：查询、新增、修改和删除普通台账记录。
@@ -99,6 +100,7 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	mux.HandleFunc("/api/admin/stall-costs/ledger", h.StallCostLedgerAPI(tokens))
 	mux.HandleFunc("/api/admin/stall-monthly-expenses", h.StallMonthlyExpenseAPI(tokens))
 	mux.HandleFunc("/api/admin/stall-monthly-expenses/ledger", h.StallMonthlyExpenseLedgerAPI(tokens))
+	mux.HandleFunc("/api/admin/stall-monthly-expenses/ledger/revoke", h.StallMonthlyExpenseLedgerRevokeAPI(tokens))
 	// GET/POST/PUT/DELETE /api/admin/menu-items：菜单查询和增删改。
 	mux.HandleFunc("/api/admin/menu-items", h.MenuAPI(tokens))
 	// GET/POST/PUT/DELETE /api/admin/purchases：查询、新增、修改和假删除采购明细。

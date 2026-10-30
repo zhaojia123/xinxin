@@ -112,12 +112,11 @@ func (v *StallMonthlyRuleInput) Validate() error {
 	return nil
 }
 
-// StallMonthlyExpenseInput 保存指定月份的水电与工资核算金额；工资留空时沿用工资模块自动汇总。
+// StallMonthlyExpenseInput 保存指定月份的水电；人工成本始终从工资明细实发金额汇总。
 type StallMonthlyExpenseInput struct {
-	Month               string `json:"month"`
-	WaterAmount         string `json:"water_amount"`
-	ElectricityAmount   string `json:"electricity_amount"`
-	ManualPayrollAmount string `json:"manual_payroll_amount"`
+	Month             string `json:"month"`
+	WaterAmount       string `json:"water_amount"`
+	ElectricityAmount string `json:"electricity_amount"`
 }
 
 // StallMonthlyExpenseLedgerInput 确认月度核算产生的水电、康莱德及营业收支流水。
@@ -125,6 +124,11 @@ type StallMonthlyExpenseLedgerInput struct {
 	Month      string `json:"month"`
 	AccountID  uint64 `json:"account_id"`
 	OccurredOn string `json:"occurred_on"`
+}
+
+// StallMonthlyExpenseLedgerRevokeInput 撤销指定月份由月度核算自动生成的流水。
+type StallMonthlyExpenseLedgerRevokeInput struct {
+	Month string `json:"month"`
 }
 
 // StallCostInput 是档口月度成本；非自营成本仅记录和入账，不参与甲乙分配。
@@ -317,7 +321,7 @@ func (v *StallMonthlyExpenseInput) Validate() error {
 		return fmt.Errorf("经营支出月份格式必须是YYYY-MM")
 	}
 	v.Month = strings.TrimSpace(v.Month)
-	for _, item := range []struct{ value, label string }{{v.WaterAmount, "水费"}, {v.ElectricityAmount, "电费"}, {v.ManualPayrollAmount, "手动工资"}} {
+	for _, item := range []struct{ value, label string }{{v.WaterAmount, "水费"}, {v.ElectricityAmount, "电费"}} {
 		if err := validateDecimal(item.value, item.label, 1000000000); err != nil {
 			return err
 		}
@@ -347,6 +351,14 @@ func (v *StallMonthlyExpenseLedgerInput) Validate() error {
 	// 月度核算只能写入所选月份，避免确认历史月份时误把流水记到其他月份。
 	if occurredOn.Format("2006-01") != v.Month {
 		return fmt.Errorf("入账日期必须属于核算月份%s", v.Month)
+	}
+	return nil
+}
+
+func (v *StallMonthlyExpenseLedgerRevokeInput) Validate() error {
+	v.Month = strings.TrimSpace(v.Month)
+	if _, err := time.Parse("2006-01", v.Month); err != nil {
+		return fmt.Errorf("经营支出月份格式必须是YYYY-MM")
 	}
 	return nil
 }

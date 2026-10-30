@@ -13,7 +13,7 @@
     <main class="admin-main" data-special-payroll data-month="{{.Month}}">
       <header class="admin-topbar">
         <div><p class="breadcrumb">薪资管理 / 特殊员工工资</p><h1>特殊员工工资</h1><p class="page-description">适用于尚未来得及建立员工档案、已离开但仍需结算工资的人员。</p></div>
-        <div class="header-actions">{{if eq .Summary.PaidCount 0}}<button class="ghost-button" type="button" data-special-payroll-add>＋ 新增特殊工资</button>{{end}}{{if gt .Summary.DraftCount 0}}<button class="primary-button" type="button" data-special-payroll-settle>确认并汇总入账</button>{{end}}</div>
+        <div class="header-actions">{{if eq .Summary.PaidCount 0}}<button class="ghost-button" type="button" data-special-payroll-add>＋ 新增特殊工资</button>{{else}}<button class="ghost-button danger-action" type="button" data-payroll-settlement-revoke data-payroll-type="special" data-month="{{.Month}}">撤销本类型入账</button>{{end}}{{if gt .Summary.DraftCount 0}}<button class="primary-button" type="button" data-special-payroll-settle>确认并汇总入账</button>{{end}}</div>
       </header>
       <nav class="payroll-type-tabs" aria-label="工资类型">
         <a href="/admin/payroll?type=full_time&amp;month={{.Month}}">正式工工资</a>

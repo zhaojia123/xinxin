@@ -4,8 +4,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const form = root.querySelector("[data-stall-monthly-expense-form]");
   const errorBox = root.querySelector("[data-stall-monthly-expense-error]");
-  const payrollInput = root.querySelector("[data-automatic-payroll-input]");
-  const automaticPayroll = Number(root.dataset.automaticPayroll || 0);
   const toast = document.querySelector(".demo-toast");
   let autoSaveTimer;
   let saving = false;
@@ -25,26 +23,18 @@ document.addEventListener("DOMContentLoaded", () => {
   };
   const escapeHTML = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[char]);
 
-  root.querySelector("[data-reset-monthly-payroll]")?.addEventListener("click", () => {
-    payrollInput.value = automaticPayroll.toFixed(2);
-    root.dataset.payrollManualSet = "false";
-    form.requestSubmit();
-  });
-
   // 金额输入完成或离开输入框后直接保存，避免再额外点击保存按钮。
-  form?.querySelectorAll('input[name="water_amount"], input[name="electricity_amount"], input[name="manual_payroll_amount"]').forEach((input) => {
+  form?.querySelectorAll('input[name="water_amount"], input[name="electricity_amount"]').forEach((input) => {
     const saveWhenReady = () => {
       clearTimeout(autoSaveTimer);
       if (input.value === "") return;
       autoSaveTimer = setTimeout(() => form.requestSubmit(), 800);
     };
     input.addEventListener("input", () => {
-      if (input === payrollInput) root.dataset.payrollManualSet = "true";
       saveWhenReady();
     });
     input.addEventListener("change", () => {
       clearTimeout(autoSaveTimer);
-      if (input === payrollInput) root.dataset.payrollManualSet = "true";
       form.requestSubmit();
     });
   });
@@ -56,8 +46,6 @@ document.addEventListener("DOMContentLoaded", () => {
     errorBox.textContent = "";
     const submitButton = form.querySelector('[type="submit"]');
     const values = Object.fromEntries(new FormData(form));
-    const payroll = Number(values.manual_payroll_amount || 0);
-    if (root.dataset.payrollManualSet !== "true" && Math.abs(payroll - automaticPayroll) < 0.005) values.manual_payroll_amount = "";
     submitButton.disabled = true;
     try {
       await requestJSON("/api/admin/stall-monthly-expenses", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(values)});
@@ -78,7 +66,7 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const overlay = document.createElement("div");
       overlay.className = "record-prompt";
-      overlay.innerHTML = `<form class="record-prompt-card"><h3>确认 ${escapeHTML(root.dataset.month)} 月核算入账</h3><p>学校卡机、汇来米分别记为收入；水费、电费、康莱德卡机抽点和全部未入账档口成本分别记为支出。流水会记入当前核算月份，日期可改为该月内任一天；无需填写对方账户。</p><label>入账日期<input name="occurred_on" type="date" required value="${escapeHTML(root.dataset.month)}-01"></label><div class="form-actions"><button class="ghost-button" type="button" data-close>取消</button><button class="primary-button" type="submit">确认入账</button></div><p class="record-inline-error" role="alert"></p></form>`;
+      overlay.innerHTML = `<form class="record-prompt-card"><h3>确认 ${escapeHTML(root.dataset.month)} 月核算入账</h3><p>学校卡机、汇来米分别记为收入；水费、电费、康莱德卡机抽点、全部未入账档口成本和非自营档口未分配余额分别记为支出。流水会记入当前核算月份，日期可改为该月内任一天；无需填写对方账户。</p><label>入账日期<input name="occurred_on" type="date" required value="${escapeHTML(root.dataset.month)}-01"></label><div class="form-actions"><button class="ghost-button" type="button" data-close>取消</button><button class="primary-button" type="submit">确认入账</button></div><p class="record-inline-error" role="alert"></p></form>`;
       const close = () => overlay.remove();
       overlay.querySelector("[data-close]").addEventListener("click", close);
       overlay.addEventListener("click", (clickEvent) => { if (clickEvent.target === overlay) close(); });
@@ -99,6 +87,21 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       });
       document.body.append(overlay);
+    } catch (error) {
+      errorBox.textContent = error.message;
+      button.disabled = false;
+    }
+  });
+
+  root.querySelector("[data-revoke-monthly-expenses]")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    if (!window.confirm(`确定撤销 ${root.dataset.month} 月核算入账吗？自动生成的收入、支出流水会作废保留审计记录，档口成本恢复为未入账，可修改后重新确认。`)) return;
+    errorBox.textContent = "";
+    button.disabled = true;
+    try {
+      await requestJSON("/api/admin/stall-monthly-expenses/ledger/revoke", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({month: root.dataset.month})});
+      showMessage("本月核算入账已撤销，可修改后重新确认。");
+      window.location.reload();
     } catch (error) {
       errorBox.textContent = error.message;
       button.disabled = false;

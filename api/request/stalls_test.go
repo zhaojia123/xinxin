@@ -59,7 +59,7 @@ func TestStallMonthlyRuleEmptyAmountsBecomeZero(t *testing.T) {
 }
 
 func TestStallMonthlyExpenseInputValidation(t *testing.T) {
-	v := StallMonthlyExpenseInput{Month: "2026-09", WaterAmount: "100", ElectricityAmount: "88.50", ManualPayrollAmount: ""}
+	v := StallMonthlyExpenseInput{Month: "2026-09", WaterAmount: "100", ElectricityAmount: "88.50"}
 	if err := v.Validate(); err != nil {
 		t.Fatalf("经营支出应允许工资留空并自动汇总：%v", err)
 	}

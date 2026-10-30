@@ -40,6 +40,23 @@ type PayrollSettlementInput struct {
 	OccurredOn  string `json:"occurred_on"`
 }
 
+// PayrollSettlementRevokeInput 撤销某月某类员工的汇总入账。
+type PayrollSettlementRevokeInput struct {
+	Month       string `json:"month"`
+	PayrollType string `json:"payroll_type"`
+}
+
+func (v *PayrollSettlementRevokeInput) Validate() error {
+	v.Month = strings.TrimSpace(v.Month)
+	if _, err := time.Parse("2006-01", v.Month); err != nil {
+		return fmt.Errorf("工资月份格式必须是 YYYY-MM")
+	}
+	if v.PayrollType != "full_time" && v.PayrollType != "part_time" && v.PayrollType != "special" {
+		return fmt.Errorf("工资类型不正确")
+	}
+	return nil
+}
+
 func (v *PayrollSettlementInput) Validate() error {
 	if v.BatchID == 0 {
 		return fmt.Errorf("工资批次ID不正确")

@@ -423,3 +423,30 @@ func (h *Handler) StallMonthlyExpenseLedgerAPI(tokens *token.Manager) http.Handl
 		httpx.JSON(w, http.StatusOK, map[string]any{"month": input.Month})
 	}
 }
+
+// StallMonthlyExpenseLedgerRevokeAPI 撤销指定月份由档口月度核算生成的全部流水。
+func (h *Handler) StallMonthlyExpenseLedgerRevokeAPI(tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			httpx.MethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		actor, ok := adminActor(w, r, tokens)
+		if !ok {
+			return
+		}
+		var input request.StallMonthlyExpenseLedgerRevokeInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if err := input.Validate(); err != nil {
+			httpx.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := h.Store.RevokeMonthlyOperatingExpenseLedger(r.Context(), actor, input.Month); err != nil {
+			adminWriteError(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"month": input.Month})
+	}
+}

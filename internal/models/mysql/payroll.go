@@ -444,6 +444,63 @@ func (s *Store) SettlePayrollType(ctx context.Context, actor uint64, input reque
 	return uint64(ledgerID), nil
 }
 
+// RevokePayrollSettlement 作废工资汇总流水，并将对应工资恢复为待确认以便修正后重新入账。
+func (s *Store) RevokePayrollSettlement(ctx context.Context, actor uint64, input request.PayrollSettlementRevokeInput) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	if err := input.Validate(); err != nil {
+		return err
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return apperror.Wrap(err, "开始撤销工资汇总事务失败")
+	}
+	defer tx.Rollback()
+	var ledgerID uint64
+	err = tx.QueryRowContext(ctx, `SELECT ledger_entry_id FROM payroll_settlement_entries WHERE payroll_month=? AND payroll_type=? FOR UPDATE`, input.Month+"-01", input.PayrollType).Scan(&ledgerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return MiniInputError{"本月该类型工资尚未汇总入账"}
+	}
+	if err != nil {
+		return apperror.Wrap(err, "读取工资汇总流水失败")
+	}
+	if input.PayrollType == "special" {
+		if _, err = tx.ExecContext(ctx, `UPDATE special_payroll_records SET status='draft',ledger_entry_id=NULL,paid_at=NULL WHERE payroll_month=? AND ledger_entry_id=?`, input.Month+"-01", ledgerID); err != nil {
+			return apperror.Wrap(err, "恢复特殊员工工资失败")
+		}
+	} else {
+		var batchID uint64
+		if err = tx.QueryRowContext(ctx, `SELECT payroll_batch_id FROM payroll_items WHERE ledger_entry_id=? LIMIT 1 FOR UPDATE`, ledgerID).Scan(&batchID); err != nil {
+			return apperror.Wrap(err, "读取工资批次失败")
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE payroll_items i JOIN employees e ON e.id=i.employee_id SET i.status='draft',i.ledger_entry_id=NULL,i.paid_at=NULL WHERE i.ledger_entry_id=? AND e.employment_type=?`, ledgerID, input.PayrollType); err != nil {
+			return apperror.Wrap(err, "恢复工资明细失败")
+		}
+		var paidCount int
+		if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM payroll_items WHERE payroll_batch_id=? AND status='paid'`, batchID).Scan(&paidCount); err != nil {
+			return apperror.Wrap(err, "读取工资发放状态失败")
+		}
+		batchStatus := "confirmed"
+		if paidCount == 0 {
+			batchStatus = "draft"
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE payroll_batches SET status=?,paid_at=CASE WHEN ?=0 THEN NULL ELSE paid_at END WHERE id=?`, batchStatus, paidCount, batchID); err != nil {
+			return apperror.Wrap(err, "恢复工资批次状态失败")
+		}
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM payroll_settlement_entries WHERE payroll_month=? AND payroll_type=?`, input.Month+"-01", input.PayrollType); err != nil {
+		return apperror.Wrap(err, "删除工资汇总关联失败")
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE ledger_entries SET active=0,deleted_at=NOW(),deleted_by=? WHERE id=? AND active=1`, actor, ledgerID); err != nil {
+		return apperror.Wrap(err, "作废工资汇总流水失败")
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO audit_logs(admin_user_id,module,action,target_type,target_id,target_text,detail) VALUES(?,?,?,?,?,?,?)`, actor, "payroll", "撤销汇总入账", "ledger_entries", ledgerID, input.Month+payrollSettlementLabel(input.PayrollType), "恢复工资明细待确认，流水已作废保留审计记录"); err != nil {
+		return apperror.Wrap(err, "写入撤销工资汇总日志失败")
+	}
+	return tx.Commit()
+}
+
 func (s *Store) GeneratePayroll(ctx context.Context, month string) (uint64, error) {
 	return s.generatePayroll(ctx, month, 0)
 }

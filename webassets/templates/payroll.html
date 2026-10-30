@@ -29,7 +29,7 @@
           </div>
           <button class="ghost-button" data-generate-payroll-employee data-month="{{.Summary.Month}}">生成所选</button>
           <button class="primary-button compact" id="generate-payroll" data-month="{{.Summary.Month}}">生成本月工资</button>
-		  {{if gt .Summary.EmployeeCount 0}}<button class="primary-button compact" type="button" data-payroll-settle data-batch-id="{{.Summary.BatchID}}" data-payroll-type="{{.PayrollType}}" data-month="{{.Summary.Month}}">确认并汇总入账</button>{{end}}
+		  {{if gt .Summary.EmployeeCount 0}}{{if gt .Summary.PaidCount 0}}<button class="ghost-button danger-action" type="button" data-payroll-settlement-revoke data-payroll-type="{{.PayrollType}}" data-month="{{.Summary.Month}}">撤销本类型入账</button>{{else}}<button class="primary-button compact" type="button" data-payroll-settle data-batch-id="{{.Summary.BatchID}}" data-payroll-type="{{.PayrollType}}" data-month="{{.Summary.Month}}">确认并汇总入账</button>{{end}}{{end}}
         </div>
       </header>
 

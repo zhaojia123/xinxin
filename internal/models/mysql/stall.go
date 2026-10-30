@@ -320,6 +320,10 @@ func (s *Store) StallsWithTurnover(ctx context.Context, month, keyword string) (
 			summary.OtherStallRevenueAfterConrad = Decimal(stallNumber(summary.OtherStallRevenueAfterConrad) + stallNumber(item.NetTurnover))
 			// 非自营档口只把本方实际抽成加入甲乙可分配额，营业额本身不重复计入。
 			summary.OtherStallCommission = Decimal(stallNumber(summary.OtherStallCommission) + stallNumber(item.OwnCommission))
+			// 非自营档口的正向未分配余额需要在月度核算时作为对外支出结算。
+			if remaining := stallNumber(item.Remaining); remaining > 0 {
+				summary.OtherStallUnallocatedBalance = Decimal(stallNumber(summary.OtherStallUnallocatedBalance) + remaining)
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {

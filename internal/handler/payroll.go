@@ -358,6 +358,33 @@ func (h *Handler) PayrollSettlementAPI(payroll service.Payroll, tokens *token.Ma
 	}
 }
 
+// PayrollSettlementRevokeAPI 撤销一类员工工资的汇总流水并恢复待确认状态。
+func (h *Handler) PayrollSettlementRevokeAPI(payroll service.Payroll, tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			httpx.MethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		actor, ok := adminActor(w, r, tokens)
+		if !ok {
+			return
+		}
+		var input request.PayrollSettlementRevokeInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if err := input.Validate(); err != nil {
+			httpx.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := payroll.RevokeSettlement(r.Context(), actor, input); err != nil {
+			adminWriteError(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"month": input.Month, "payroll_type": input.PayrollType})
+	}
+}
+
 // SpecialPayrollAPI 维护未建档员工的特殊工资，并按月汇总入账。
 func (h *Handler) SpecialPayrollAPI(payroll service.Payroll, tokens *token.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

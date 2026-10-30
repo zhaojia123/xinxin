@@ -218,8 +218,8 @@ h2 { margin-bottom: 6px; font-size: 20px; }
 /* 康莱德抽点按全月卡机统一展示，档口明细不再逐行重复占列。 */
 .admin-main[data-stalls-page] .stall-table-v2 th:nth-child(9),
 .admin-main[data-stalls-page] .stall-table-v2 td:nth-child(9),
-.admin-main[data-stalls-page] .monthly-expense-metrics .fixed-rule-field:nth-child(6),
-.admin-main[data-stalls-page] .monthly-expense-metrics .fixed-rule-field:nth-child(7) {
+.admin-main[data-stalls-page] .monthly-expense-metrics .fixed-rule-field:nth-child(7),
+.admin-main[data-stalls-page] .monthly-expense-metrics .fixed-rule-field:nth-child(8) {
   display: none;
 }
 

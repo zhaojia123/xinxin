@@ -43,6 +43,9 @@ func (s Payroll) ConfirmEmployee(ctx context.Context, itemID uint64) error {
 func (s Payroll) SettleType(ctx context.Context, actor uint64, input request.PayrollSettlementInput) (uint64, error) {
 	return s.Store.SettlePayrollType(ctx, actor, input)
 }
+func (s Payroll) RevokeSettlement(ctx context.Context, actor uint64, input request.PayrollSettlementRevokeInput) error {
+	return s.Store.RevokePayrollSettlement(ctx, actor, input)
+}
 func (s Payroll) SpecialList(ctx context.Context, month string) ([]response.SpecialPayrollRecord, response.SpecialPayrollSummary, error) {
 	return s.Store.SpecialPayrolls(ctx, month)
 }

@@ -621,6 +621,16 @@ document.addEventListener("DOMContentLoaded", () => {
       window.location.reload();
     } catch (error) { showMessage(error.message); button.disabled = false; }
   });
+  document.querySelectorAll("[data-payroll-settlement-revoke]").forEach(button => button.addEventListener("click", async event => {
+    const target = event.currentTarget;
+    const typeLabel = {full_time:"正式工", part_time:"临时工", special:"特殊员工"}[target.dataset.payrollType] || "员工";
+    if (!await askConfirm({title:"撤销工资汇总入账", message:`确定撤销本月${typeLabel}工资的汇总入账吗？原台账流水会作废保留审计记录，工资明细将恢复为待确认，可修改后重新入账。`})) return;
+    target.disabled = true;
+    try {
+      await fetchJSON("/api/admin/payroll/settlement/revoke", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({month:target.dataset.month, payroll_type:target.dataset.payrollType})});
+      window.location.reload();
+    } catch (error) { showMessage(error.message); target.disabled = false; }
+  }));
   const payrollSelectAll = document.querySelector("[data-payroll-select-all]");
   const payrollDeleteSelectedButton = document.querySelector("[data-payroll-delete-selected]");
   const payrollSelections = () => Array.from(document.querySelectorAll("[data-payroll-select]:checked"));
