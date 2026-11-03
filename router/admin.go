@@ -49,6 +49,9 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	mux.HandleFunc("/admin/stalls/monthly", h.StallsMonthlyPage)
 	// GET /admin/stall-costs：三个自营档口的月度成本。
 	mux.HandleFunc("/admin/stall-costs", h.StallCostsPage)
+	// GET /admin/supplier-costs：按供货商和档口登记月度食材、米油对账。
+	mux.HandleFunc("/admin/supplier-costs", h.SupplierCostsPage)
+	mux.HandleFunc("/admin/suppliers", h.SuppliersPage)
 	// GET /admin/menu：菜单菜品列表和维护页面。
 	mux.HandleFunc("/admin/menu", h.MenuPage)
 	// GET /admin/purchases：每日供货商采购清单。
@@ -98,6 +101,7 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	mux.HandleFunc("/api/admin/stall-turnovers", h.StallTurnoverAPI(tokens))
 	mux.HandleFunc("/api/admin/stall-costs", h.StallCostsAPI(tokens))
 	mux.HandleFunc("/api/admin/stall-costs/ledger", h.StallCostLedgerAPI(tokens))
+	mux.HandleFunc("/api/admin/suppliers", h.SuppliersAPI(tokens))
 	mux.HandleFunc("/api/admin/stall-monthly-expenses", h.StallMonthlyExpenseAPI(tokens))
 	mux.HandleFunc("/api/admin/stall-monthly-expenses/ledger", h.StallMonthlyExpenseLedgerAPI(tokens))
 	mux.HandleFunc("/api/admin/stall-monthly-expenses/ledger/revoke", h.StallMonthlyExpenseLedgerRevokeAPI(tokens))

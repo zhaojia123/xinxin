@@ -19,7 +19,7 @@
         </div>
         <div class="header-actions">
           {{if eq .PayrollType "part_time"}}<a class="ghost-button link-button" href="/admin/work-logs?month={{.Summary.Month}}">登记每日工时</a>{{end}}
-          <button type="button" class="ghost-button" data-payroll-export data-month="{{.Summary.Month}}" data-payroll-type="{{.PayrollType}}">导出工资表</button>
+		  <button type="button" class="ghost-button" data-payroll-export data-month="{{.Summary.Month}}" data-payroll-type="{{.PayrollType}}">{{if eq .PayrollType "full_time"}}导出发放明细{{else}}导出工资表{{end}}</button>
           <div class="payroll-employee-picker" data-payroll-picker>
             <button type="button" class="employee-picker-toggle" data-payroll-picker-toggle>选择员工（可选）</button>
             <div class="employee-picker-panel" data-payroll-picker-panel hidden>
@@ -27,8 +27,8 @@
               <div class="employee-picker-options">{{range .Employees}}<label class="employee-picker-option"><input type="checkbox" value="{{.ID}}" data-payroll-employee><span>{{.Name}}</span></label>{{end}}</div>
             </div>
           </div>
-          <button class="ghost-button" data-generate-payroll-employee data-month="{{.Summary.Month}}">生成所选</button>
-          <button class="primary-button compact" id="generate-payroll" data-month="{{.Summary.Month}}">生成本月工资</button>
+          <button class="ghost-button" data-generate-payroll-employee data-month="{{.Summary.Month}}" data-payroll-type="{{.PayrollType}}">生成所选</button>
+          <button class="primary-button compact" id="generate-payroll" data-month="{{.Summary.Month}}" data-payroll-type="{{.PayrollType}}">生成本月工资</button>
 		  {{if gt .Summary.EmployeeCount 0}}{{if gt .Summary.PaidCount 0}}<button class="ghost-button danger-action" type="button" data-payroll-settlement-revoke data-payroll-type="{{.PayrollType}}" data-month="{{.Summary.Month}}">撤销本类型入账</button>{{else}}<button class="primary-button compact" type="button" data-payroll-settle data-batch-id="{{.Summary.BatchID}}" data-payroll-type="{{.PayrollType}}" data-month="{{.Summary.Month}}">确认并汇总入账</button>{{end}}{{end}}
         </div>
       </header>
@@ -36,7 +36,6 @@
       <nav class="payroll-type-tabs" aria-label="工资类型">
         <a class="{{if eq .PayrollType "full_time"}}active{{end}}" href="/admin/payroll?type=full_time&amp;month={{.Summary.Month}}">正式工工资</a>
         <a class="{{if eq .PayrollType "part_time"}}active{{end}}" href="/admin/payroll?type=part_time&amp;month={{.Summary.Month}}">临时工工资</a>
-		<a href="/admin/payroll?type=special&amp;month={{.Summary.Month}}">特殊员工工资</a>
       </nav>
 
       <section class="stat-grid four-cols">

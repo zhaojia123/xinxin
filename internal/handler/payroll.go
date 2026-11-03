@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/csv"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -73,17 +74,23 @@ func (h *Handler) PayrollPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	people, _ := options["employees"].([]mysql.AdminOption)
+	activePeople := make([]mysql.AdminOption, 0, len(people))
+	for _, person := range people {
+		if person.EmploymentType == payrollType && (person.Status == "active" || person.Status == "probation") {
+			activePeople = append(activePeople, person)
+		}
+	}
 	// 工资统一按固定30天计薪，默认公休3天，对应27个计薪日。
 	workDays := 30 - h.Store.MonthlyRestDays
 	if workDays < 1 {
 		workDays = 1
 	}
 	summary = payrollSummaryForType(summary, items)
-	pageTitle, pageDescription, activeMenu := "正式工工资", "请假、公休、入职及离职日期会自动参与正式工月度工资计算（离职当天计薪）", "payroll-formal"
+	pageTitle, pageDescription, activeMenu := "正式工工资", "仅生成当前在职正式工；离职员工工资请按需手动补录", "payroll-formal"
 	if payrollType == "part_time" {
 		pageTitle, pageDescription, activeMenu = "临时工工资", "先登记每日工时，再按时薪、日薪或半天工资自动汇总本月工资", "payroll-temporary"
 	}
-	h.render(w, "payroll.html", PayrollPageData{ActiveMenu: activeMenu, Payroll: items, Summary: summary, Employees: people, RestDays: h.Store.MonthlyRestDays, WorkDays: workDays, StatusFilter: statusFilter, Search: search, PayrollType: payrollType, PageTitle: pageTitle, PageDescription: pageDescription})
+	h.render(w, "payroll.html", PayrollPageData{ActiveMenu: activeMenu, Payroll: items, Summary: summary, Employees: activePeople, RestDays: h.Store.MonthlyRestDays, WorkDays: workDays, StatusFilter: statusFilter, Search: search, PayrollType: payrollType, PageTitle: pageTitle, PageDescription: pageDescription})
 }
 
 func filterPayrollType(items []response.PayrollRecord, payrollType string) []response.PayrollRecord {
@@ -156,12 +163,23 @@ func (h *Handler) PayrollExport(tokens *token.Manager) http.HandlerFunc {
 			writer.Flush()
 			return
 		}
-		_ = writer.Write([]string{"序号", "员工", "入职时间", "应出勤天数", "请假天数", "公休天数", "入职时工资", "本月基本工资", "奖金补贴", "考勤扣款", "其他扣款", "社保", "个税", "实发工资"})
+		_ = writer.Write([]string{"序号", "岗位", "姓名", "入职时间", "薪资/月", "离职时间", "应勤天数", "实勤天数", "应发工资", "社会保险", "住房公积金", "补贴", "实发合计", "员工签字", "备注"})
 		for i, item := range items {
-			_ = writer.Write([]string{strconv.Itoa(i + 1), item.Name, item.JoinedOn, strconv.Itoa(item.RequiredAttendanceDays), item.LeaveDays, item.PublicRestDays, item.EntrySalary, item.BaseSalary, item.Bonus, item.AttendanceDeduction, item.OtherDeduction, item.SocialSecurity, item.Tax, item.NetSalary})
+			_ = writer.Write([]string{strconv.Itoa(i + 1), item.Position, item.Name, item.JoinedOn, item.EntrySalary, item.LeftOn, strconv.Itoa(item.RequiredAttendanceDays), payrollActualDays(item), item.BaseSalary, item.SocialSecurity, "0.00", item.Bonus, item.NetSalary, "", ""})
 		}
 		writer.Flush()
 	}
+}
+
+// payrollActualDays 与工资计算口径一致：应勤天数减去请假和额外公休，保留半天等小数出勤。
+func payrollActualDays(item response.PayrollRecord) string {
+	leave, _ := strconv.ParseFloat(strings.TrimPrefix(item.LeaveDays, "¥"), 64)
+	rest, _ := strconv.ParseFloat(strings.TrimPrefix(item.PublicRestDays, "¥"), 64)
+	actual := math.Max(0, float64(item.RequiredAttendanceDays)-leave-rest)
+	if math.Abs(actual-math.Round(actual)) < 0.000001 {
+		return strconv.Itoa(int(math.Round(actual)))
+	}
+	return strconv.FormatFloat(actual, 'f', 1, 64)
 }
 
 func payrollPayBasisLabel(value string) string {
@@ -243,10 +261,15 @@ func (h *Handler) PayrollGenerateAPI(payroll service.Payroll) http.HandlerFunc {
 		}
 		var input struct {
 			Month       string   `json:"month"`
+			PayrollType string   `json:"payroll_type"`
 			EmployeeID  uint64   `json:"employee_id"`
 			EmployeeIDs []uint64 `json:"employee_ids"`
 		}
 		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if input.PayrollType != "full_time" && input.PayrollType != "part_time" {
+			httpx.Error(w, http.StatusBadRequest, "工资类型不正确")
 			return
 		}
 		var batchID uint64
@@ -265,13 +288,13 @@ func (h *Handler) PayrollGenerateAPI(payroll service.Payroll) http.HandlerFunc {
 					continue
 				}
 				seen[employeeID] = struct{}{}
-				batchID, err = payroll.GenerateEmployee(r.Context(), input.Month, employeeID)
+				batchID, err = payroll.GenerateEmployee(r.Context(), input.Month, input.PayrollType, employeeID)
 				if err != nil {
 					break
 				}
 			}
 		} else {
-			batchID, err = payroll.Generate(r.Context(), input.Month)
+			batchID, err = payroll.Generate(r.Context(), input.Month, input.PayrollType)
 		}
 		if err != nil {
 			fail(w, err, "生成月度工资失败")

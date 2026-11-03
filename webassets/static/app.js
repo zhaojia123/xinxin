@@ -927,7 +927,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const button = event.currentTarget;
     button.disabled = true;
     try {
-      const response = await fetch("/api/admin/payroll/generate", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({month: button.dataset.month})});
+      const response = await fetch("/api/admin/payroll/generate", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({month: button.dataset.month, payroll_type: button.dataset.payrollType})});
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "生成失败");
       window.location.reload();
@@ -969,7 +969,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const response = await fetch("/api/admin/payroll/generate", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({month: button.dataset.month, employee_ids: employeeIDs})
+        body: JSON.stringify({month: button.dataset.month, payroll_type: button.dataset.payrollType, employee_ids: employeeIDs})
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "生成失败");

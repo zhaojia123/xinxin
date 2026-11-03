@@ -133,12 +133,38 @@ type StallMonthlyExpenseLedgerRevokeInput struct {
 
 // StallCostInput 是档口月度成本；非自营成本仅记录和入账，不参与甲乙分配。
 type StallCostInput struct {
-	StallID         uint64 `json:"stall_id"`
-	Month           string `json:"month"`
-	CostType        string `json:"cost_type"`
-	Amount          string `json:"amount"`
-	Remark          string `json:"remark"`
-	AllSelfOperated bool   `json:"all_self_operated"`
+	StallID  uint64 `json:"stall_id"`
+	Month    string `json:"month"`
+	CostType string `json:"cost_type"`
+	// Amount 保留兼容旧客户端，等同于食材费用。
+	Amount           string `json:"amount"`
+	IngredientAmount string `json:"ingredient_amount"`
+	RiceOilAmount    string `json:"rice_oil_amount"`
+	SupplierName     string `json:"supplier_name"`
+	Remark           string `json:"remark"`
+	AllSelfOperated  bool   `json:"all_self_operated"`
+}
+
+// SupplierInput 是供货商基础资料，供月度档口对账选择使用。
+type SupplierInput struct {
+	Name    string `json:"name"`
+	Contact string `json:"contact"`
+	Mobile  string `json:"mobile"`
+	Remark  string `json:"remark"`
+}
+
+func (v *SupplierInput) Validate() error {
+	v.Name = strings.TrimSpace(v.Name)
+	v.Contact = strings.TrimSpace(v.Contact)
+	v.Mobile = strings.TrimSpace(v.Mobile)
+	v.Remark = strings.TrimSpace(v.Remark)
+	if v.Name == "" || !textLength(v.Name, 64) {
+		return fmt.Errorf("供货商名称必填且不能超过64字")
+	}
+	if !textLength(v.Contact, 64) || !textLength(v.Mobile, 32) || !textLength(v.Remark, 255) {
+		return fmt.Errorf("供货商资料长度不正确")
+	}
+	return nil
 }
 
 // StallCostLedgerInput 将一条自营档口成本写入台账支出。
@@ -171,19 +197,42 @@ func (v *StallCostInput) Validate() error {
 		v.CostType = "other"
 	}
 	switch v.CostType {
-	case "ingredient", "water", "electricity", "labor", "other":
+	case "ingredient", "rice_oil", "water", "electricity", "labor", "other":
 	default:
 		return fmt.Errorf("成本类型不正确")
 	}
 	if v.AllSelfOperated && v.CostType != "water" && v.CostType != "electricity" {
 		return fmt.Errorf("全部自营档口仅可登记水费或电费")
 	}
-	if err := validateDecimal(v.Amount, "成本金额", 100000000); err != nil {
+	v.IngredientAmount = strings.TrimSpace(v.IngredientAmount)
+	v.RiceOilAmount = strings.TrimSpace(v.RiceOilAmount)
+	v.SupplierName = strings.TrimSpace(v.SupplierName)
+	// 旧接口只传 amount，升级后把它视为食材费用，保证历史调用不丢数。
+	if v.IngredientAmount == "" {
+		v.IngredientAmount = strings.TrimSpace(v.Amount)
+	}
+	if v.IngredientAmount == "" {
+		v.IngredientAmount = "0"
+	}
+	if v.RiceOilAmount == "" {
+		v.RiceOilAmount = "0"
+	}
+	if err := validateDecimal(v.IngredientAmount, "食材费用", 100000000); err != nil {
 		return err
 	}
-	if strings.TrimSpace(v.Amount) == "" {
-		return fmt.Errorf("成本金额不能为空")
+	if err := validateDecimal(v.RiceOilAmount, "米油费用", 100000000); err != nil {
+		return err
 	}
+	ingredient, _ := strconv.ParseFloat(v.IngredientAmount, 64)
+	riceOil, _ := strconv.ParseFloat(v.RiceOilAmount, 64)
+	if ingredient+riceOil <= 0 {
+		return fmt.Errorf("食材费用和米油费用不能同时为0")
+	}
+	if !textLength(v.SupplierName, 64) {
+		return fmt.Errorf("供货商名称不能超过64字")
+	}
+	// amount 是历史列，始终存放食材费用。
+	v.Amount = v.IngredientAmount
 	if len([]rune(v.Remark)) > 255 {
 		return fmt.Errorf("备注不能超过255字")
 	}

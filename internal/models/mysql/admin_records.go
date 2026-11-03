@@ -27,12 +27,13 @@ func attendanceDateTime(value string, fallbackDate string, fallbackClock string)
 }
 
 type AdminOption struct {
-	ID           uint64 `json:"id"`
-	Name         string `json:"name"`
-	DepartmentID uint64 `json:"department_id"`
-	PositionID   uint64 `json:"position_id"`
-	Status       string `json:"status"`
-	Salary       string `json:"salary"`
+	ID             uint64 `json:"id"`
+	Name           string `json:"name"`
+	DepartmentID   uint64 `json:"department_id"`
+	PositionID     uint64 `json:"position_id"`
+	Status         string `json:"status"`
+	EmploymentType string `json:"employment_type"`
+	Salary         string `json:"salary"`
 }
 
 func (s *Store) AdminOptions(ctx context.Context) (map[string]any, error) {
@@ -40,7 +41,7 @@ func (s *Store) AdminOptions(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT id,CONCAT(name,' · ',employee_no),COALESCE(department_id,0),COALESCE(position_id,0),employment_status,COALESCE(CAST(current_salary AS CHAR),'') FROM employees WHERE active=1 ORDER BY employment_status='left',employee_no`)
+	rows, err := s.DB.QueryContext(ctx, `SELECT id,CONCAT(name,' · ',employee_no),COALESCE(department_id,0),COALESCE(position_id,0),employment_status,employment_type,COALESCE(CAST(current_salary AS CHAR),'') FROM employees WHERE active=1 ORDER BY employment_status='left',employee_no`)
 	if err != nil {
 		return nil, apperror.Wrap(err, "查询员工选项失败")
 	}
@@ -48,7 +49,7 @@ func (s *Store) AdminOptions(ctx context.Context) (map[string]any, error) {
 	employees := []AdminOption{}
 	for rows.Next() {
 		var v AdminOption
-		if err := rows.Scan(&v.ID, &v.Name, &v.DepartmentID, &v.PositionID, &v.Status, &v.Salary); err != nil {
+		if err := rows.Scan(&v.ID, &v.Name, &v.DepartmentID, &v.PositionID, &v.Status, &v.EmploymentType, &v.Salary); err != nil {
 			return nil, err
 		}
 		employees = append(employees, v)

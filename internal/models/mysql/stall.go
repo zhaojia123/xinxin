@@ -178,7 +178,7 @@ func scanStall(row interface{ Scan(...any) error }) (response.Stall, error) {
 func stallSelect() string {
 	return `SELECT s.id,s.stall_no,s.name,s.responsible_name,s.responsible_mobile,s.monthly_rent,s.fixed_commission_amount,s.default_guaranteed_amount,
  s.allocation_mode,s.profit_jia_rate,s.profit_yi_rate,s.guaranteed_rate,s.base_amount_rate,s.base_amount_factor,s.total_amount_rate,s.remark,
-	 t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE((SELECT SUM(c.amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
+	 t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE((SELECT SUM(c.amount+c.rice_oil_amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
 }
 
 func stallMonthlySelect() string {
@@ -186,7 +186,7 @@ func stallMonthlySelect() string {
 	 COALESCE(r.monthly_rent,s.monthly_rent),COALESCE(r.fixed_commission_amount,s.fixed_commission_amount),COALESCE(r.default_guaranteed_amount,s.default_guaranteed_amount),
  COALESCE(r.allocation_mode,s.allocation_mode),COALESCE(r.profit_jia_rate,s.profit_jia_rate),COALESCE(r.profit_yi_rate,s.profit_yi_rate),
  COALESCE(r.guaranteed_rate,s.guaranteed_rate),COALESCE(r.base_amount_rate,s.base_amount_rate),COALESCE(r.base_amount_factor,s.base_amount_factor),COALESCE(r.total_amount_rate,s.total_amount_rate),s.remark,
-	 t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE((SELECT SUM(c.amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
+	 t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE((SELECT SUM(c.amount+c.rice_oil_amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
 }
 
 // StallSettings 查询指定月份的康莱德公司抽成比例；未设置时默认3%。

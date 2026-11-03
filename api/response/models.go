@@ -174,8 +174,10 @@ type PayrollRecord struct {
 	Month                    string `json:"month"`
 	EmployeeNo               string `json:"employee_no"`
 	Name                     string `json:"name"`
+	Position                 string `json:"position"`
 	EmploymentType           string `json:"employment_type"`
 	JoinedOn                 string `json:"joined_on"`
+	LeftOn                   string `json:"left_on"`
 	RequiredAttendanceDays   int    `json:"required_attendance_days"`
 	LeaveDays                string `json:"leave_days"`
 	PublicRestDays           string `json:"public_rest_days"`
@@ -400,18 +402,33 @@ type StallMonthlyExpense struct {
 
 // StallCostEntry 是自营档口成本页面的一行明细。
 type StallCostEntry struct {
-	ID              uint64 `json:"id"`
-	Seq             int    `json:"seq,omitempty"`
-	Month           string `json:"month"`
-	StallID         uint64 `json:"stall_id"`
-	StallName       string `json:"stall_name"`
-	CostType        string `json:"cost_type"`
-	CostTypeLabel   string `json:"cost_type_label"`
-	Amount          string `json:"amount"`
-	Remark          string `json:"remark"`
-	LedgerPosted    bool   `json:"ledger_posted"`
-	SelfOperated    bool   `json:"self_operated"`
-	AllSelfOperated bool   `json:"all_self_operated"`
+	ID            uint64 `json:"id"`
+	Seq           int    `json:"seq,omitempty"`
+	Month         string `json:"month"`
+	StallID       uint64 `json:"stall_id"`
+	StallName     string `json:"stall_name"`
+	CostType      string `json:"cost_type"`
+	CostTypeLabel string `json:"cost_type_label"`
+	// Amount 是食材费用的兼容字段；月度核算统一使用 TotalAmount。
+	Amount           string `json:"amount"`
+	IngredientAmount string `json:"ingredient_amount"`
+	RiceOilAmount    string `json:"rice_oil_amount"`
+	TotalAmount      string `json:"total_amount"`
+	SupplierName     string `json:"supplier_name"`
+	Remark           string `json:"remark"`
+	LedgerPosted     bool   `json:"ledger_posted"`
+	SelfOperated     bool   `json:"self_operated"`
+	AllSelfOperated  bool   `json:"all_self_operated"`
+}
+
+// Supplier 是可供档口成本对账选择的供货商资料。
+type Supplier struct {
+	Seq     int    `json:"seq,omitempty"`
+	ID      uint64 `json:"id"`
+	Name    string `json:"name"`
+	Contact string `json:"contact"`
+	Mobile  string `json:"mobile"`
+	Remark  string `json:"remark"`
 }
 
 type StallSettings struct {

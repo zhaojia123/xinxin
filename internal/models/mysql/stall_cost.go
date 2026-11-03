@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"strings"
 
 	"friends-records/api/request"
@@ -57,14 +58,14 @@ func (s *Store) StallCosts(ctx context.Context, month, keyword string) ([]respon
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	query := `SELECT c.id,DATE_FORMAT(c.cost_month,'%Y-%m'),c.stall_id,s.name,s.allocation_mode,c.cost_type,c.all_self_operated,c.amount,c.remark,c.ledger_entry_id
+	query := `SELECT c.id,DATE_FORMAT(c.cost_month,'%Y-%m'),c.stall_id,s.name,s.allocation_mode,c.cost_type,c.all_self_operated,c.amount,c.rice_oil_amount,c.supplier_name,c.remark,c.ledger_entry_id
 		FROM stall_cost_entries c JOIN stall_accounts s ON s.id=c.stall_id
 		WHERE c.active=1 AND c.cost_month=?`
 	args := []any{NormalizeMonth(month) + "-01"}
 	if keyword = strings.TrimSpace(keyword); keyword != "" {
-		query += ` AND (s.name LIKE ? OR c.cost_type LIKE ? OR c.remark LIKE ?)`
+		query += ` AND (s.name LIKE ? OR c.supplier_name LIKE ? OR c.cost_type LIKE ? OR c.remark LIKE ?)`
 		like := "%" + keyword + "%"
-		args = append(args, like, like, like)
+		args = append(args, like, like, like, like)
 	}
 	query += ` ORDER BY c.cost_month DESC,c.id DESC`
 	rows, err := s.DB.QueryContext(ctx, query, args...)
@@ -77,9 +78,11 @@ func (s *Store) StallCosts(ctx context.Context, month, keyword string) ([]respon
 		var item response.StallCostEntry
 		var ledgerID sql.NullInt64
 		var mode string
-		if err := rows.Scan(&item.ID, &item.Month, &item.StallID, &item.StallName, &mode, &item.CostType, &item.AllSelfOperated, &item.Amount, &item.Remark, &ledgerID); err != nil {
+		if err := rows.Scan(&item.ID, &item.Month, &item.StallID, &item.StallName, &mode, &item.CostType, &item.AllSelfOperated, &item.IngredientAmount, &item.RiceOilAmount, &item.SupplierName, &item.Remark, &ledgerID); err != nil {
 			return nil, apperror.Wrap(err, "读取档口成本失败")
 		}
+		item.Amount = item.IngredientAmount
+		item.TotalAmount = stallCostTotal(item.IngredientAmount, item.RiceOilAmount)
 		item.Seq = len(items) + 1
 		item.LedgerPosted = ledgerID.Valid
 		item.SelfOperated = mode == "profit_share"
@@ -96,10 +99,19 @@ func (s *Store) StallCosts(ctx context.Context, month, keyword string) ([]respon
 	return items, nil
 }
 
+// stallCostTotal 统一计算食材和米油合计，避免月度核算、列表和入账出现不同金额。
+func stallCostTotal(ingredient, riceOil string) string {
+	food, _ := strconv.ParseFloat(ingredient, 64)
+	rice, _ := strconv.ParseFloat(riceOil, 64)
+	return Decimal(food + rice)
+}
+
 func stallCostTypeLabel(value string) string {
 	switch value {
 	case "ingredient":
 		return "食材成本"
+	case "rice_oil":
+		return "米油成本"
 	case "water":
 		return "水费"
 	case "electricity":
@@ -135,7 +147,7 @@ func (s *Store) SaveStallCost(ctx context.Context, id, actor uint64, input reque
 		return 0, err
 	}
 	if id == 0 {
-		result, err := tx.ExecContext(ctx, `INSERT INTO stall_cost_entries(stall_id,cost_month,cost_type,all_self_operated,amount,remark) VALUES(?,?,?,?,?,?)`, input.StallID, input.Month+"-01", input.CostType, input.AllSelfOperated, input.Amount, input.Remark)
+		result, err := tx.ExecContext(ctx, `INSERT INTO stall_cost_entries(stall_id,cost_month,cost_type,all_self_operated,amount,rice_oil_amount,supplier_name,remark) VALUES(?,?,?,?,?,?,?,?)`, input.StallID, input.Month+"-01", input.CostType, input.AllSelfOperated, input.IngredientAmount, input.RiceOilAmount, input.SupplierName, input.Remark)
 		if err != nil {
 			return 0, apperror.Wrap(err, "新增档口成本失败")
 		}
@@ -145,7 +157,7 @@ func (s *Store) SaveStallCost(ctx context.Context, id, actor uint64, input reque
 		}
 		id = uint64(last)
 	} else {
-		result, err := tx.ExecContext(ctx, `UPDATE stall_cost_entries SET stall_id=?,cost_month=?,cost_type=?,all_self_operated=?,amount=?,remark=? WHERE id=? AND active=1 AND ledger_entry_id IS NULL`, input.StallID, input.Month+"-01", input.CostType, input.AllSelfOperated, input.Amount, input.Remark, id)
+		result, err := tx.ExecContext(ctx, `UPDATE stall_cost_entries SET stall_id=?,cost_month=?,cost_type=?,all_self_operated=?,amount=?,rice_oil_amount=?,supplier_name=?,remark=? WHERE id=? AND active=1 AND ledger_entry_id IS NULL`, input.StallID, input.Month+"-01", input.CostType, input.AllSelfOperated, input.IngredientAmount, input.RiceOilAmount, input.SupplierName, input.Remark, id)
 		if err != nil {
 			return 0, apperror.Wrap(err, "修改档口成本失败")
 		}
@@ -200,7 +212,7 @@ func (s *Store) PostStallCostLedger(ctx context.Context, actor uint64, input req
 	var month, name, costType, remark string
 	var amount float64
 	var ledgerID sql.NullInt64
-	err = tx.QueryRowContext(ctx, `SELECT DATE_FORMAT(c.cost_month,'%Y-%m'),s.name,c.cost_type,c.amount,c.remark,c.ledger_entry_id FROM stall_cost_entries c JOIN stall_accounts s ON s.id=c.stall_id WHERE c.id=? AND c.active=1 FOR UPDATE`, input.CostID).Scan(&month, &name, &costType, &amount, &remark, &ledgerID)
+	err = tx.QueryRowContext(ctx, `SELECT DATE_FORMAT(c.cost_month,'%Y-%m'),s.name,c.cost_type,c.amount+c.rice_oil_amount,c.remark,c.ledger_entry_id FROM stall_cost_entries c JOIN stall_accounts s ON s.id=c.stall_id WHERE c.id=? AND c.active=1 FOR UPDATE`, input.CostID).Scan(&month, &name, &costType, &amount, &remark, &ledgerID)
 	if err == sql.ErrNoRows {
 		return ErrNotFound
 	}

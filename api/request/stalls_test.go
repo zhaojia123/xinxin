@@ -102,3 +102,27 @@ func TestStallSettingsAllowsMonthlyConradRate(t *testing.T) {
 		t.Fatalf("康莱德比例应标准化为小数，实际：%s", v.ConradRate)
 	}
 }
+
+func TestStallCostSplitsIngredientAndRiceOil(t *testing.T) {
+	v := StallCostInput{StallID: 1, Month: "2026-09", CostType: "ingredient", IngredientAmount: "120.50", RiceOilAmount: "80.25"}
+	if err := v.Validate(); err != nil {
+		t.Fatalf("食材和米油成本应允许保存：%v", err)
+	}
+	if v.Amount != "120.50" {
+		t.Fatalf("历史金额列应保存食材费用，实际=%s", v.Amount)
+	}
+	v = StallCostInput{StallID: 1, Month: "2026-09", CostType: "ingredient", Amount: "100"}
+	if err := v.Validate(); err != nil {
+		t.Fatalf("旧版金额字段应继续兼容：%v", err)
+	}
+	if v.IngredientAmount != "100" || v.RiceOilAmount != "0" {
+		t.Fatalf("旧版金额应映射为食材费用，食材=%s 米油=%s", v.IngredientAmount, v.RiceOilAmount)
+	}
+}
+
+func TestSupplierInputValidation(t *testing.T) {
+	v := SupplierInput{Name: "菜卜", Contact: "张三", Mobile: "13800000000"}
+	if err := v.Validate(); err != nil {
+		t.Fatalf("供货商资料应允许保存：%v", err)
+	}
+}

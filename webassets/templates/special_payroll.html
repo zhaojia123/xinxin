@@ -18,7 +18,6 @@
       <nav class="payroll-type-tabs" aria-label="工资类型">
         <a href="/admin/payroll?type=full_time&amp;month={{.Month}}">正式工工资</a>
         <a href="/admin/payroll?type=part_time&amp;month={{.Month}}">临时工工资</a>
-        <a class="active" href="/admin/payroll?type=special&amp;month={{.Month}}">特殊员工工资</a>
       </nav>
       <section class="stat-grid three-cols">
         <article class="stat-card"><span>{{.Month}} 特殊工资合计</span><strong>{{.Summary.Amount}}</strong><small>共 {{.Summary.Count}} 条记录</small></article>

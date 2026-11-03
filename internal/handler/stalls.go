@@ -36,6 +36,21 @@ type StallCostsPageData struct {
 	Stalls     []response.Stall
 }
 
+// SupplierCostsPageData 是按月登记“供货商-档口”成本的对账页。
+// 保存后的食材和米油金额与档口成本使用同一条记录，避免两边重复维护。
+type SupplierCostsPageData struct {
+	ActiveMenu string
+	Month      string
+	Items      []response.StallCostEntry
+	Stalls     []response.Stall
+	Suppliers  []response.Supplier
+}
+
+type SuppliersPageData struct {
+	ActiveMenu string
+	Suppliers  []response.Supplier
+}
+
 func (h *Handler) StallsPage(w http.ResponseWriter, r *http.Request) {
 	if !getOnly(w, r) {
 		return
@@ -112,6 +127,52 @@ func (h *Handler) StallCostsPage(w http.ResponseWriter, r *http.Request) {
 		otherItems = append(otherItems, item)
 	}
 	h.render(w, "stall_costs.html", StallCostsPageData{ActiveMenu: "stall-costs", Month: month, Keyword: keyword, SelfItems: selfItems, OtherItems: otherItems, Stalls: stalls})
+}
+
+func (h *Handler) SupplierCostsPage(w http.ResponseWriter, r *http.Request) {
+	if !getOnly(w, r) {
+		return
+	}
+	month := r.URL.Query().Get("month")
+	if _, err := time.Parse("2006-01", month); err != nil {
+		month = time.Now().AddDate(0, -1, 0).Format("2006-01")
+	}
+	items, err := h.Store.StallCosts(r.Context(), month, "")
+	if err != nil {
+		fail(w, err, "供货商对账读取失败")
+		return
+	}
+	supplierItems := make([]response.StallCostEntry, 0)
+	for _, item := range items {
+		if item.SupplierName == "" {
+			continue
+		}
+		item.Seq = len(supplierItems) + 1
+		supplierItems = append(supplierItems, item)
+	}
+	stalls, err := h.Store.CostStalls(r.Context())
+	if err != nil {
+		fail(w, err, "档口选项读取失败")
+		return
+	}
+	suppliers, err := h.Store.Suppliers(r.Context())
+	if err != nil {
+		fail(w, err, "供货商资料读取失败")
+		return
+	}
+	h.render(w, "supplier_costs.html", SupplierCostsPageData{ActiveMenu: "supplier-costs", Month: month, Items: supplierItems, Stalls: stalls, Suppliers: suppliers})
+}
+
+func (h *Handler) SuppliersPage(w http.ResponseWriter, r *http.Request) {
+	if !getOnly(w, r) {
+		return
+	}
+	items, err := h.Store.Suppliers(r.Context())
+	if err != nil {
+		fail(w, err, "供货商资料读取失败")
+		return
+	}
+	h.render(w, "suppliers.html", SuppliersPageData{ActiveMenu: "supplier-costs", Suppliers: items})
 }
 
 func (h *Handler) StallsAPI(tokens *token.Manager) http.HandlerFunc {

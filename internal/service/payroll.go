@@ -16,11 +16,11 @@ func (s Payroll) Update(ctx context.Context, id uint64, input request.PayrollUpd
 func (s Payroll) Delete(ctx context.Context, ids []uint64, actor uint64) (int, error) {
 	return s.Store.DeletePayrollItems(ctx, ids, actor)
 }
-func (s Payroll) Generate(ctx context.Context, month string) (uint64, error) {
-	return s.Store.GeneratePayroll(ctx, month)
+func (s Payroll) Generate(ctx context.Context, month, payrollType string) (uint64, error) {
+	return s.Store.GeneratePayroll(ctx, month, payrollType)
 }
-func (s Payroll) GenerateEmployee(ctx context.Context, month string, employeeID uint64) (uint64, error) {
-	return s.Store.GeneratePayrollForEmployee(ctx, month, employeeID)
+func (s Payroll) GenerateEmployee(ctx context.Context, month, payrollType string, employeeID uint64) (uint64, error) {
+	return s.Store.GeneratePayrollForEmployee(ctx, month, payrollType, employeeID)
 }
 func (s Payroll) Pay(ctx context.Context, input request.PayrollPay) (uint64, error) {
 	return s.Store.PayPayroll(ctx, input.BatchID, input.AccountID, input.OccurredOn)

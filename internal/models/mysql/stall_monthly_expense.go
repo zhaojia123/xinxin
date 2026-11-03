@@ -200,7 +200,7 @@ func (s *Store) PostMonthlyOperatingExpenseLedger(ctx context.Context, actor uin
 		return apperror.Wrap(err, "写入汇来米营业收入台账失败")
 	}
 	var stallCostAmount float64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(amount),0) FROM stall_cost_entries WHERE cost_month=? AND active=1 AND ledger_entry_id IS NULL`, input.Month+"-01").Scan(&stallCostAmount); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(amount+rice_oil_amount),0) FROM stall_cost_entries WHERE cost_month=? AND active=1 AND ledger_entry_id IS NULL`, input.Month+"-01").Scan(&stallCostAmount); err != nil {
 		return apperror.Wrap(err, "统计未入账档口成本失败")
 	}
 	stallCostID, err := post("expense", "档口成本", "全部档口成本", stallCostAmount)
