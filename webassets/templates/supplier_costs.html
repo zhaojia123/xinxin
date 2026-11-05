@@ -1,5 +1,38 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>供货商对账 · 好友记录</title><link rel="stylesheet" href="/assets/app.css"><script defer src="/assets/app.js"></script><script defer src="/assets/supplier-costs.js"></script></head><body><div class="admin-shell">{{template "sidebar" .}}<main class="admin-main">
-<header class="admin-topbar"><div><p class="breadcrumb">业务管理 / 供货商对账</p><h1>供货商对账</h1><p class="page-description">按月登记每个档口从供货商取得的食材和米油费用，保存后自动同步到档口成本和月度核算。</p></div><div class="header-actions"><a class="ghost-button" href="/admin/suppliers">供货商管理</a><a class="ghost-button" href="/admin/stall-costs?month={{.Month}}">查看档口成本</a><button class="primary-button" type="button" data-supplier-cost-add>＋ 新增对账</button></div></header>
-<section class="notice-card compact-notice"><span>供</span><div><strong>一笔对账就是一个供货商在一个档口当月的成本</strong><p>食材费用和米油费用分开填写；两项合计会自动计入该档口成本。自营档口若有特殊情况，仍可到“档口成本”手动调整。</p></div></section>
-<section class="table-card" data-supplier-costs data-month="{{.Month}}"><form class="table-toolbar" method="get"><input type="month" name="month" value="{{.Month}}" onchange="this.form.submit()"></form><div class="table-header"><div><h2>{{.Month}} 供货商档口对账明细</h2><p>可按供应商、档口逐条维护；档口月度核算会实时取两项费用合计。</p></div><span class="count-badge">{{len .Items}} 条</span></div><div class="table-wrap"><table><thead><tr><th>序号</th><th>供货商</th><th>档口</th><th>食材费用（元）</th><th>米油费用（元）</th><th>合计（元）</th><th>备注</th><th>状态</th><th>操作</th></tr></thead><tbody>{{range .Items}}<tr data-supplier-cost-row data-id="{{.ID}}" data-stall-id="{{.StallID}}" data-month="{{.Month}}" data-supplier-name="{{.SupplierName}}" data-ingredient-amount="{{.IngredientAmount}}" data-rice-oil-amount="{{.RiceOilAmount}}" data-cost-type="{{.CostType}}" data-remark="{{.Remark}}" data-ledger-posted="{{.LedgerPosted}}"><td>{{.Seq}}</td><td><strong>{{.SupplierName}}</strong></td><td>{{.StallName}}</td><td>¥{{.IngredientAmount}}</td><td>¥{{.RiceOilAmount}}</td><td><strong class="salary">¥{{.TotalAmount}}</strong></td><td>{{if .Remark}}{{.Remark}}{{else}}—{{end}}</td><td>{{if .LedgerPosted}}<span class="status success">已入账</span>{{else}}<span class="status">未入账</span>{{end}}</td><td><div class="row-actions"><button type="button" data-supplier-cost-edit {{if .LedgerPosted}}disabled{{end}}>编辑</button><button type="button" class="danger-link" data-supplier-cost-delete {{if .LedgerPosted}}disabled{{end}}>删除</button></div></td></tr>{{else}}<tr><td colspan="9" class="empty-cell">本月暂无供货商对账记录。</td></tr>{{end}}</tbody></table></div></section>
-</main></div><select id="supplier-cost-stall-options" hidden>{{range .Stalls}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select><select id="supplier-cost-options" hidden>{{range .Suppliers}}<option value="{{.Name}}">{{.Name}}</option>{{end}}</select><div class="demo-toast"></div></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>供货商对账 · 好友记录</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script defer src="/assets/app.js"></script>
+  <script defer src="/assets/supplier-costs.js"></script>
+</head>
+<body>
+<div class="admin-shell">{{template "sidebar" .}}
+  <main class="admin-main">
+    <header class="admin-topbar">
+      <div><p class="breadcrumb">业务管理 / 供货商对账</p><h1>供货商对账</h1><p class="page-description">按月横向核对：左侧是供货商，上方是档口，点击交叉格即可录入食材和米油成本。</p></div>
+      <div class="header-actions"><a class="ghost-button" data-browser-download data-download-name="供货商档口对账_{{.Month}}.xlsx" href="/admin/supplier-costs/export?month={{.Month}}">导出 Excel</a><a class="ghost-button" href="/admin/suppliers">供货商管理</a><a class="ghost-button" href="/admin/stall-costs?month={{.Month}}">查看档口成本</a></div>
+    </header>
+    <section class="notice-card compact-notice"><span>供</span><div><strong>行是供货商，列是档口</strong><p>每月只维护这一张表。点击任一交叉格输入金额，普通供货商自动计入食材费用；“米油”行仅记录各档口从自营档口领用的金额，供查看，不计入供货商或档口合计。</p></div></section>
+    <section class="table-card" data-supplier-costs data-month="{{.Month}}">
+      <form class="table-toolbar" method="get"><input type="month" name="month" value="{{.Month}}" onchange="this.form.submit()"></form>
+      <div class="table-header"><div><h2>{{.Month}} 供货商档口对账表</h2><p>已入账或同一交叉格存在多条历史明细的数据只读展示，可前往“档口成本”查看和整理。</p></div><span class="count-badge">{{.EntryCount}} 条明细</span></div>
+      <div class="table-wrap supplier-matrix-wrap">
+        <table class="supplier-matrix-table">
+          <thead><tr><th class="supplier-matrix-sticky">供货商</th>{{range .Columns}}<th data-stall-id="{{.StallID}}">{{.StallName}}</th>{{end}}<th class="supplier-matrix-total">供货商合计（不含米油）</th></tr></thead>
+          <tbody>{{range .Rows}}
+            <tr><th class="supplier-matrix-sticky" scope="row">{{.SupplierName}}</th>{{range .Cells}}
+              <td class="supplier-matrix-cell{{if .ReadOnly}} is-readonly{{end}}" data-supplier-matrix-cell data-stall-id="{{.StallID}}" data-supplier-name="{{.SupplierName}}" data-total-amount="{{.TotalAmount}}" data-rice-oil-only="{{.RiceOilOnly}}" data-read-only="{{.ReadOnly}}">{{if .HasEntry}}<strong>¥{{.TotalAmount}}</strong><small>点击修改</small>{{else}}<span>—</span><small>点击录入</small>{{end}}</td>
+            {{end}}<td class="supplier-matrix-total">{{if .ReferenceOnly}}<strong>仅供查看</strong>{{else}}<strong>¥{{.TotalAmount}}</strong>{{end}}</td></tr>
+          {{else}}<tr><td class="empty-cell" colspan="100">暂无可用供货商，请先到“供货商管理”新增。</td></tr>{{end}}</tbody>
+          <tfoot><tr><th class="supplier-matrix-sticky">档口食材合计</th>{{range .Columns}}<td><strong>¥{{.TotalAmount}}</strong></td>{{end}}<td class="supplier-matrix-total"><strong>¥{{.GrandTotal}}</strong></td></tr></tfoot>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+<div class="demo-toast"></div>
+</body>
+</html>

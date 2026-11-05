@@ -33,7 +33,7 @@ Page({
       wx.showLoading({ title: '正在生成' })
       const path = await api.downloadFile('/purchases/export?' + api.query({ start_date: this.data.start_date, end_date: this.data.end_date }))
       wx.hideLoading()
-      wx.openDocument({ filePath: path, fileType: 'xls', showMenu: true, fail: () => api.errorModal(new Error('文件已下载，但当前微信无法打开，请在文件菜单中查看')) })
+      wx.openDocument({ filePath: path, fileType: 'xlsx', showMenu: true, fail: () => api.errorModal(new Error('文件已下载，但当前微信无法打开，请在文件菜单中查看')) })
     } catch (error) { wx.hideLoading(); api.errorModal(error) }
   }
 })

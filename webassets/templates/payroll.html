@@ -19,7 +19,7 @@
         </div>
         <div class="header-actions">
           {{if eq .PayrollType "part_time"}}<a class="ghost-button link-button" href="/admin/work-logs?month={{.Summary.Month}}">登记每日工时</a>{{end}}
-		  <button type="button" class="ghost-button" data-payroll-export data-month="{{.Summary.Month}}" data-payroll-type="{{.PayrollType}}">{{if eq .PayrollType "full_time"}}导出发放明细{{else}}导出工资表{{end}}</button>
+		  <button type="button" class="ghost-button" data-payroll-export data-month="{{.Summary.Month}}" data-payroll-type="{{.PayrollType}}">{{if eq .PayrollType "full_time"}}导出工资签收表{{else}}导出工资表{{end}}</button>
           <div class="payroll-employee-picker" data-payroll-picker>
             <button type="button" class="employee-picker-toggle" data-payroll-picker-toggle>选择员工（可选）</button>
             <div class="employee-picker-panel" data-payroll-picker-panel hidden>

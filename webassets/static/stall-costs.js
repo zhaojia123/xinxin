@@ -65,6 +65,75 @@
 
   const saveRow = async (row, values) => request(`/api/admin/stall-costs?id=${row.dataset.id}`, {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(values)});
 
+  // 单点编辑只更新当前行，保存后由服务端重新计算食材、米油的合计。
+  const inlineEdit = (cell, row) => {
+    if (row.dataset.ledgerPosted === "true" || cell.dataset.editing === "true") return;
+    const field = cell.dataset.stallCostField;
+    const original = cell.innerHTML;
+    const values = {
+      stall_id: Number(row.dataset.stallId),
+      month: row.dataset.month,
+      cost_type: row.dataset.costType,
+      ingredient_amount: row.dataset.ingredientAmount,
+      rice_oil_amount: row.dataset.riceOilAmount,
+      supplier_name: row.dataset.supplierName,
+      remark: row.dataset.remark,
+      all_self_operated: row.dataset.allSelfOperated === "true"
+    };
+    let input;
+    if (field === "cost_type") {
+      input = document.createElement("select");
+      // “全部自营档口”只允许登记水电，前端同时限制可选项以减少无效提交。
+      const editableTypes = values.all_self_operated
+        ? typeOptions.filter(item => item.value === "water" || item.value === "electricity")
+        : typeOptions;
+      input.innerHTML = selectOptions(editableTypes, values.cost_type);
+    } else {
+      input = document.createElement("input");
+      if (field === "ingredient_amount" || field === "rice_oil_amount") {
+        input.type = "number";
+        input.min = "0";
+        input.step = "0.01";
+      } else {
+        input.type = "text";
+        input.maxLength = field === "supplier_name" ? 64 : 255;
+      }
+      input.value = values[field] || "";
+    }
+    input.className = "inline-number-input";
+    cell.dataset.editing = "true";
+    cell.textContent = "";
+    cell.appendChild(input);
+    input.focus();
+    if (input.select) input.select();
+    let done = false;
+    const finish = async commit => {
+      if (done) return;
+      done = true;
+      if (!commit) {
+        cell.innerHTML = original;
+        delete cell.dataset.editing;
+        return;
+      }
+      input.disabled = true;
+      try {
+        values[field] = input.value;
+        await saveRow(row, values);
+        window.location.reload();
+      } catch (error) {
+        cell.innerHTML = original;
+        delete cell.dataset.editing;
+        toast(error.message);
+      }
+    };
+    input.addEventListener("keydown", event => {
+      if (event.key === "Enter") finish(true);
+      if (event.key === "Escape") finish(false);
+    });
+    input.addEventListener("blur", () => finish(true));
+    if (input.tagName === "SELECT") input.addEventListener("change", () => finish(true));
+  };
+
   const openLedgerDialog = async row => {
     try {
       const options = await request("/api/admin/options");
@@ -95,6 +164,8 @@
   roots.forEach(rootItem => rootItem.addEventListener("click", async event => {
     const row = event.target.closest("[data-stall-cost-row]");
     if (!row) return;
+    const field = event.target.closest("[data-stall-cost-field]");
+    if (field) { inlineEdit(field, row); return; }
     if (event.target.closest("[data-stall-cost-edit]")) {
       openDialog({id:row.dataset.id, stallId:row.dataset.stallId, month:row.dataset.month, costType:row.dataset.costType, ingredientAmount:row.dataset.ingredientAmount, riceOilAmount:row.dataset.riceOilAmount, remark:row.dataset.remark, allSelfOperated:row.dataset.allSelfOperated === "true"});
       return;

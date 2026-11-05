@@ -1,12 +1,11 @@
 package handler
 
 import (
-	"encoding/csv"
 	"math"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"friends-records/api/request"
 	"friends-records/api/response"
@@ -124,7 +123,7 @@ func payrollSummaryForType(summary response.PayrollSummary, items []response.Pay
 	return summary
 }
 
-// PayrollExport 导出当前月份工资明细，CSV 可直接用 Excel 打开。
+// PayrollExport 导出当前月份工资明细。正式工使用带月份标题的 Excel 签收表。
 func (h *Handler) PayrollExport(tokens *token.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := adminActor(w, r, tokens); !ok {
@@ -145,41 +144,119 @@ func (h *Handler) PayrollExport(tokens *token.Manager) http.HandlerFunc {
 			payrollType = "full_time"
 		}
 		items = filterPayrollType(items, payrollType)
-		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		fileName := month + "正式工工资.csv"
 		if payrollType == "part_time" {
-			fileName = month + "临时工工资.csv"
-		}
-		w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.QueryEscape(fileName))
-		writer := csv.NewWriter(w)
-		_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
-		if payrollType == "part_time" {
-			_ = writer.Write([]string{"员工姓名", "计薪方式", "本月工时", "奖金补贴", "应发工资", "其他扣款"})
-			for _, item := range items {
+			headers := []string{"序号", "员工姓名", "计薪方式", "本月工时", "奖金补贴", "应发工资", "其他扣款"}
+			widths := []int{48, 100, 100, 82, 92, 100, 100}
+			records := make([][]exportCell, 0, len(items)+1)
+			var hours, bonus, gross, deduction float64
+			for index, item := range items {
 				base, _ := strconv.ParseFloat(strings.TrimPrefix(item.BaseSalary, "¥"), 64)
-				bonus, _ := strconv.ParseFloat(strings.TrimPrefix(item.Bonus, "¥"), 64)
-				_ = writer.Write([]string{item.Name, payrollPayBasisLabel(item.PayBasis), item.WorkHours, item.Bonus, mysql.Money(base + bonus), item.OtherDeduction})
+				itemBonus, _ := strconv.ParseFloat(strings.TrimPrefix(item.Bonus, "¥"), 64)
+				itemHours, _ := strconv.ParseFloat(item.WorkHours, 64)
+				itemDeduction, _ := strconv.ParseFloat(strings.TrimPrefix(item.OtherDeduction, "¥"), 64)
+				records = append(records, []exportCell{exportInteger(strconv.Itoa(index + 1)), exportText(item.Name), exportText(payrollPayBasisLabel(item.PayBasis)), exportNumber(item.WorkHours), exportNumber(item.Bonus), exportNumber(mysql.Money(base + itemBonus)), exportNumber(item.OtherDeduction)})
+				hours += itemHours
+				bonus += itemBonus
+				gross += base + itemBonus
+				deduction += itemDeduction
 			}
-			writer.Flush()
+			records = append(records, []exportCell{exportText("合计"), exportText(""), exportText(""), exportNumber(mysql.Money(hours)), exportNumber(mysql.Money(bonus)), exportNumber(mysql.Money(gross)), exportNumber(mysql.Money(deduction))})
+			if err := writeExcelXLSX(w, "临时工工资_"+month+".xlsx", monthTitle(month)+"临时工工资表", "临时工工资表", headers, records, widths); err != nil {
+				fail(w, err, "工资表导出失败")
+			}
 			return
 		}
-		_ = writer.Write([]string{"序号", "岗位", "姓名", "入职时间", "薪资/月", "离职时间", "应勤天数", "实勤天数", "应发工资", "社会保险", "住房公积金", "补贴", "实发合计", "员工签字", "备注"})
+
+		headers := []string{"序号", "岗位", "姓名", "入职时间", "薪资/月", "离职时间", "应勤天数", "实勤天数", "应发工资", "社会保险", "住房公积金", "补贴", "实发合计", "员工签字", "备注"}
+		widths := []int{48, 82, 82, 90, 82, 90, 76, 76, 88, 88, 92, 78, 92, 110, 180}
+		records := make([][]exportCell, 0, len(items)+1)
+		var gross, socialSecurity, subsidy, net float64
 		for i, item := range items {
-			_ = writer.Write([]string{strconv.Itoa(i + 1), item.Position, item.Name, item.JoinedOn, item.EntrySalary, item.LeftOn, strconv.Itoa(item.RequiredAttendanceDays), payrollActualDays(item), item.BaseSalary, item.SocialSecurity, "0.00", item.Bonus, item.NetSalary, "", ""})
+			records = append(records, []exportCell{
+				exportInteger(strconv.Itoa(i + 1)),
+				exportText(item.Position),
+				exportText(item.Name),
+				exportText(item.JoinedOn),
+				exportNumber(item.EntrySalary),
+				exportText(item.LeftOn),
+				exportInteger(strconv.Itoa(item.RequiredAttendanceDays)),
+				exportInteger(payrollActualDays(item)),
+				exportNumber(item.BaseSalary),
+				exportNumber(item.SocialSecurity),
+				exportNumber("0"),
+				exportNumber(item.Bonus),
+				exportNumber(item.NetSalary),
+				exportText(""),
+				exportText(""),
+			})
+			gross += payrollExportAmount(item.BaseSalary)
+			socialSecurity += payrollExportAmount(item.SocialSecurity)
+			subsidy += payrollExportAmount(item.Bonus)
+			net += payrollExportAmount(item.NetSalary)
 		}
-		writer.Flush()
+		records = append(records, []exportCell{
+			exportText("合计"), exportText(""), exportText(""), exportText(""), exportText(""), exportText(""), exportText(""), exportText(""),
+			exportNumber(mysql.Money(gross)), exportNumber(mysql.Money(socialSecurity)), exportNumber("0"), exportNumber(mysql.Money(subsidy)), exportNumber(mysql.Money(net)), exportText(""), exportText(""),
+		})
+		canteenName := ""
+		if settings, settingsErr := h.Store.StallSettings(r.Context(), month); settingsErr == nil {
+			canteenName = settings.CanteenName
+		}
+		if err := writeExcelXLSX(w, "正式工资签收表_"+month+".xlsx", payrollExportTitle(month, canteenName), "正式工资签收表", headers, records, widths); err != nil {
+			fail(w, err, "工资表导出失败")
+		}
 	}
 }
 
-// payrollActualDays 与工资计算口径一致：应勤天数减去请假和额外公休，保留半天等小数出勤。
+// payrollExportAmount 将页面展示用金额转换为导出汇总金额。
+func payrollExportAmount(value string) float64 {
+	amount, _ := strconv.ParseFloat(strings.TrimPrefix(strings.TrimSpace(value), "¥"), 64)
+	return amount
+}
+
+// payrollExportTitle 使用食堂名称和月份生成工资条签收表标题。
+func payrollExportTitle(month, canteenName string) string {
+	parts := strings.Split(month, "-")
+	if len(parts) == 2 && strings.TrimSpace(canteenName) != "" {
+		monthNumber, err := strconv.Atoi(parts[1])
+		if err == nil {
+			return strings.TrimSpace(canteenName) + "员工" + strconv.Itoa(monthNumber) + "月份工资条签收表（后厨）"
+		}
+	}
+	return monthTitle(month) + "正式员工工资签收表"
+}
+
+// payrollActualDays 按工资生成的实际在岗区间计算出勤。
+// 整月在岗时，公休额度内视为满勤；入职或离职的非整月则按实际在岗日减公休和请假。
 func payrollActualDays(item response.PayrollRecord) string {
 	leave, _ := strconv.ParseFloat(strings.TrimPrefix(item.LeaveDays, "¥"), 64)
 	rest, _ := strconv.ParseFloat(strings.TrimPrefix(item.PublicRestDays, "¥"), 64)
-	actual := math.Max(0, float64(item.RequiredAttendanceDays)-leave-rest)
-	if math.Abs(actual-math.Round(actual)) < 0.000001 {
-		return strconv.Itoa(int(math.Round(actual)))
+	actual := float64(item.RequiredAttendanceDays)
+	monthStart, err := time.Parse("2006-01", item.Month)
+	if err != nil {
+		allowedRest := math.Max(0, 30-float64(item.RequiredAttendanceDays))
+		return strconv.Itoa(int(math.Floor(math.Max(0, actual-leave-math.Max(0, rest-allowedRest)))))
 	}
-	return strconv.FormatFloat(actual, 'f', 1, 64)
+	monthEnd := monthStart.AddDate(0, 1, -1)
+	workStart, workEnd := monthStart, monthEnd
+	if joinedOn, err := time.Parse("2006-01-02", item.JoinedOn); err == nil && joinedOn.After(workStart) {
+		workStart = joinedOn
+	}
+	if leftOn, err := time.Parse("2006-01-02", item.LeftOn); err == nil && leftOn.Before(workEnd) {
+		workEnd = leftOn
+	}
+	if workEnd.Before(workStart) {
+		return "0"
+	}
+	if !workStart.Equal(monthStart) || !workEnd.Equal(monthEnd) {
+		actual = float64(int(workEnd.Sub(workStart).Hours()/24) + 1)
+		actual -= rest + leave
+	} else {
+		allowedRest := math.Max(0, 30-float64(item.RequiredAttendanceDays))
+		excessRest := math.Max(0, rest-allowedRest)
+		actual -= leave + excessRest
+	}
+	return strconv.Itoa(int(math.Floor(actual)))
 }
 
 func payrollPayBasisLabel(value string) string {

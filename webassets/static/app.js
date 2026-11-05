@@ -9,8 +9,83 @@ document.addEventListener("DOMContentLoaded", () => {
     timer = setTimeout(() => toast.classList.remove("show"), 2600);
   };
 
+  // 后台连续两小时没有任何页面操作时主动退出；服务端令牌也同步采用两小时滑动过期。
+  if (document.querySelector(".admin-shell")) {
+    const idleTimeout = 2 * 60 * 60 * 1000;
+    let idleTimer;
+    const logoutForIdle = async () => {
+      try { await fetch("/admin/logout", {method: "POST", credentials: "same-origin"}); } catch (_) {}
+      window.location.assign("/admin/login");
+    };
+    const resetIdleTimer = () => {
+      window.clearTimeout(idleTimer);
+      idleTimer = window.setTimeout(logoutForIdle, idleTimeout);
+    };
+    ["pointerdown", "keydown", "scroll", "touchstart", "focus"].forEach(eventName => window.addEventListener(eventName, resetIdleTimer, {passive: true}));
+    resetIdleTimer();
+    document.querySelector("[data-admin-logout]")?.addEventListener("click", logoutForIdle);
+  }
+
+  // 统一通过浏览器 Blob 保存导出文件，避免系统下载器接管普通链接。
+  const downloadBrowserFile = async (url, fallbackFilename) => {
+    const response = await fetch(url, {credentials: "same-origin"});
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || "文件导出失败，请稍后重试");
+    }
+    const disposition = response.headers.get("content-disposition") || "";
+    const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    const regular = disposition.match(/filename=\"?([^\";]+)/i)?.[1];
+    let filename = fallbackFilename;
+    if (encoded) {
+      try { filename = decodeURIComponent(encoded); } catch (_) { filename = fallbackFilename; }
+    } else if (regular) {
+      filename = regular;
+    }
+    const objectURL = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = objectURL;
+    link.download = filename;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectURL), 1000);
+  };
+  window.downloadBrowserFile = downloadBrowserFile;
+  document.addEventListener("click", async event => {
+    const link = event.target.closest("a[href]");
+    if (!link) return;
+    const isExport = link.dataset.browserDownload !== undefined || /^\/admin\/[^/]+(?:\/[^/]+)*\/export$/.test(new URL(link.href, window.location.origin).pathname);
+    if (!isExport) return;
+    event.preventDefault();
+    if (link.dataset.downloading === "true") return;
+    link.dataset.downloading = "true";
+    link.setAttribute("aria-disabled", "true");
+    try {
+      await downloadBrowserFile(link.href, link.dataset.downloadName || "导出文件.xlsx");
+    } catch (error) {
+      showMessage(error.message);
+    } finally {
+      delete link.dataset.downloading;
+      link.removeAttribute("aria-disabled");
+    }
+  });
+
   document.querySelectorAll("[data-demo-action]").forEach((button) => {
-    button.addEventListener("click", () => showMessage(`${button.dataset.demoAction}：该文件功能暂未启用。`));
+    button.addEventListener("click", async () => {
+      const exportRoutes = {
+        "导出员工表": ["/admin/employees/export", "员工档案.xlsx"],
+        "导出台账": [`/admin/ledger/export${window.location.search}`, "台账流水.xlsx"],
+        "导出异动记录": [`/admin/changes/export${window.location.search}`, "人事异动记录.xlsx"],
+        "导出调薪记录": [`/admin/salary-adjustments/export${window.location.search}`, "调薪记录.xlsx"],
+        "导出操作日志": ["/admin/audit-logs/export", "操作日志.xlsx"]
+      };
+      const target = exportRoutes[button.dataset.demoAction];
+      if (!target) { showMessage(`${button.dataset.demoAction}：该功能暂未启用。`); return; }
+      button.disabled = true;
+      try { await downloadBrowserFile(target[0], target[1]); } catch (error) { showMessage(error.message); } finally { button.disabled = false; }
+    });
   });
 
   const escapeHTML = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[char]);
@@ -65,8 +140,8 @@ document.addEventListener("DOMContentLoaded", () => {
   };
   const choices = {
     direction: [{id:"income",name:"收入"},{id:"expense",name:"支出"}],
-    category: [{id:"public_rest",name:"正常公休"},{id:"leave",name:"请假"},{id:"holiday",name:"法定节假日休息"}],
-    attendance_kind: [{id:"public_rest",name:"公休"},{id:"leave",name:"请假"},{id:"holiday",name:"法定节假日"},{id:"special_leave",name:"特殊请假补贴"}],
+    category: [{id:"public_rest",name:"正常公休"},{id:"comp_time",name:"调休"},{id:"leave",name:"请假"},{id:"holiday",name:"法定节假日休息"}],
+    attendance_kind: [{id:"public_rest",name:"公休"},{id:"comp_time",name:"调休"},{id:"leave",name:"请假"},{id:"holiday",name:"法定节假日"},{id:"special_leave",name:"特殊请假补贴"}],
     salary_effect: [{id:"none",name:"不影响工资"},{id:"deduct",name:"按天扣款"},{id:"subsidy",name:"发放补助"},{id:"deduct_and_subsidy",name:"扣款并发补助"}],
     purchase_category: [{id:"蔬菜",name:"蔬菜"},{id:"调料",name:"调料"},{id:"肉类",name:"肉类"},{id:"水产",name:"水产"},{id:"水果",name:"水果"},{id:"粮油",name:"粮油"},{id:"其他",name:"其他"}],
     status: [{id:"probation",name:"试用期"},{id:"active",name:"在职"},{id:"left",name:"已离职"}],
@@ -353,7 +428,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (kind === "attendance" && data.employee_id) {
         data.employee_ids = [data.employee_id];
         data.occurred_ons = data.occurred_on ? [data.occurred_on] : [];
-        data.attendance_kind = data.record_type === "公休" ? "public_rest" : data.record_type === "节假日" ? "holiday" : data.record_type === "特殊请假" ? "special_leave" : "leave";
+        data.attendance_kind = data.record_type === "公休" ? "public_rest" : data.record_type === "调休" ? "comp_time" : data.record_type === "节假日" ? "holiday" : data.record_type === "特殊请假" ? "special_leave" : "leave";
       }
       if (kind === "ledger" && (data.payroll_batch_id || data.payroll_type)) readonly = true;
       if (data.enabled === undefined) data.enabled = true;
@@ -465,6 +540,7 @@ document.addEventListener("DOMContentLoaded", () => {
           if (kind === "attendance") {
             const attendanceMap = {
               public_rest: {record_type: "公休", salary_effect: "none"},
+              comp_time: {record_type: "调休", salary_effect: "none"},
               leave: {record_type: "请假", salary_effect: "deduct"},
               holiday: {record_type: "节假日", salary_effect: "none"},
               special_leave: {record_type: "特殊请假", salary_effect: "subsidy"}
@@ -496,7 +572,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-record-form]").forEach(button => button.addEventListener("click", () => {
     const kind = button.dataset.recordForm;
     const defaults = {};
-    if (kind === "attendance") { const category = button.dataset.category || "leave"; const recordType = button.dataset.recordType || (category === "public_rest" ? "公休" : category === "holiday" ? "节假日" : category === "leave" && button.dataset.recordType === "特殊请假" ? "特殊请假" : "请假"); const attendanceKind = recordType === "公休" ? "public_rest" : recordType === "节假日" ? "holiday" : recordType === "特殊请假" ? "special_leave" : "leave"; Object.assign(defaults,{attendance_kind:attendanceKind,occurred_on:today(),occurred_ons:[today()],duration_days:"1.00",subsidy_amount:"0"}); }
+    if (kind === "attendance") { const category = button.dataset.category || "leave"; const recordType = button.dataset.recordType || (category === "public_rest" ? "公休" : category === "comp_time" ? "调休" : category === "holiday" ? "节假日" : category === "leave" && button.dataset.recordType === "特殊请假" ? "特殊请假" : "请假"); const attendanceKind = recordType === "公休" ? "public_rest" : recordType === "调休" ? "comp_time" : recordType === "节假日" ? "holiday" : recordType === "特殊请假" ? "special_leave" : "leave"; Object.assign(defaults,{attendance_kind:attendanceKind,occurred_on:today(),occurred_ons:[today()],duration_days:"1.00",subsidy_amount:"0"}); }
     if (kind === "ledger") Object.assign(defaults,{direction:"expense",occurred_on:today(),amount:""});
     if (kind === "change") Object.assign(defaults,{change_type:"transfer",after_status:"active",effective_on:today()});
     if (kind === "salary") Object.assign(defaults,{after_salary:"",effective_on:today()});
@@ -1099,19 +1175,22 @@ document.addEventListener("DOMContentLoaded", () => {
   if (pagePath === "/admin/payroll") {
     const exportButton = document.querySelector("[data-payroll-export]");
     if (exportButton) {
-      exportButton.addEventListener("click", (event) => {
+      exportButton.addEventListener("click", async (event) => {
         event.preventDefault();
         const month = exportButton.dataset.month || document.querySelector('input[type="month"]')?.value || "";
         const type = exportButton.dataset.payrollType || "full_time";
         const query = `?month=${encodeURIComponent(month)}&type=${encodeURIComponent(type)}`;
         const dirtyRows = Array.from(document.querySelectorAll("[data-payroll-row][data-payroll-dirty=\"true\"]"));
         exportButton.disabled = true;
-        Promise.all(dirtyRows.map(flushPayrollRow)).then(() => {
-          window.location.assign(`/admin/payroll/export${query}`);
-        }).catch(error => {
-          exportButton.disabled = false;
+        try {
+          await Promise.all(dirtyRows.map(flushPayrollRow));
+          const filename = type === "full_time" ? `正式工资签收表_${month}.xlsx` : `临时工工资_${month}.xlsx`;
+          await downloadBrowserFile(`/admin/payroll/export${query}`, filename);
+        } catch (error) {
           showMessage(`导出前保存失败：${error.message}`);
-        });
+        } finally {
+          exportButton.disabled = false;
+        }
       });
     }
   }

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/csv"
 	"errors"
 	"net/http"
 	"net/url"
@@ -163,6 +162,7 @@ func filterAttendance(items []response.AttendanceRecord, month, category, record
 		if category != "" {
 			matched := (category == "leave" && item.Category == "请假" && item.Type != "特殊请假") ||
 				(category == "public_rest" && item.Type == "公休") ||
+				(category == "comp_time" && item.Type == "调休") ||
 				(category == "holiday" && item.Type == "节假日") ||
 				(category == "special_leave" && item.Type == "特殊请假")
 			if !matched {
@@ -462,10 +462,10 @@ func (h *Handler) LeavesPage(w http.ResponseWriter, r *http.Request) {
 	category, recordType, status, search := r.URL.Query().Get("category"), r.URL.Query().Get("record_type"), r.URL.Query().Get("status"), r.URL.Query().Get("q")
 	items = filterAttendance(items, month, category, recordType, status, search)
 	items, pager := pageAttendance(items, pageNumber(r))
-	h.render(w, "leaves.html", RecordsPageData{ActiveMenu: "leaves", Exceptions: items, Statistics: statistics, AttendancePager: pager, AttendanceMonth: month, AttendanceCategory: category, AttendanceType: recordType, AttendanceStatus: status, AttendanceSearch: search, AttendanceTypes: []string{"公休", "请假", "特殊请假", "节假日"}, AttendanceStatuses: []string{"已通过", "已记录", "已确认", "已驳回"}})
+	h.render(w, "leaves.html", RecordsPageData{ActiveMenu: "leaves", Exceptions: items, Statistics: statistics, AttendancePager: pager, AttendanceMonth: month, AttendanceCategory: category, AttendanceType: recordType, AttendanceStatus: status, AttendanceSearch: search, AttendanceTypes: []string{"公休", "调休", "请假", "特殊请假", "节假日"}, AttendanceStatuses: []string{"已通过", "已记录", "已确认", "已驳回"}})
 }
 
-// LeavesExport 导出全员逐日出勤表，并在文件中附带四类记录标记说明。
+// LeavesExport 导出全员逐日出勤表，并在文件中附带各类记录标记说明。
 func (h *Handler) LeavesExport(tokens *token.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := adminActor(w, r, tokens); !ok {
@@ -481,23 +481,25 @@ func (h *Handler) LeavesExport(tokens *token.Manager) http.HandlerFunc {
 			fail(w, err, "出勤表导出失败")
 			return
 		}
-		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.QueryEscape("全员出勤_"+month+".csv"))
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("\xEF\xBB\xBF"))
-		writer := csv.NewWriter(w)
-		_ = writer.Write([]string{"标记说明", "√ 正常出勤", "○ 公休", "✕ 请假", "◎ 特殊请假补助", "☆ 法定节假日"})
-		header := []string{"序号", "工号", "姓名"}
+		headers := []string{"序号", "工号", "姓名"}
 		for i := 1; i <= days; i++ {
-			header = append(header, strconv.Itoa(i)+"日")
+			headers = append(headers, strconv.Itoa(i)+"日")
 		}
-		_ = writer.Write(header)
+		records := make([][]exportCell, 0, len(rows))
 		for i, row := range rows {
-			record := []string{strconv.Itoa(i + 1), row.EmployeeNo, row.Name}
-			record = append(record, row.Marks...)
-			_ = writer.Write(record)
+			record := []exportCell{exportInteger(strconv.Itoa(i + 1)), exportText(row.EmployeeNo), exportText(row.Name)}
+			for _, mark := range row.Marks {
+				record = append(record, exportText(mark))
+			}
+			records = append(records, record)
 		}
-		writer.Flush()
+		widths := []int{48, 100, 90}
+		for i := 1; i <= days; i++ {
+			widths = append(widths, 48)
+		}
+		if err := writeExcelXLSX(w, "全员出勤_"+month+".xlsx", monthTitle(month)+"全员出勤表（√正常 ○公休 △调休 ✕请假 ◎特殊请假补助 ☆法定节假日）", "全员出勤", headers, records, widths); err != nil {
+			fail(w, err, "出勤表导出失败")
+		}
 	}
 }
 func (h *Handler) ChangesPage(w http.ResponseWriter, r *http.Request) {

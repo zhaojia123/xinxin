@@ -48,6 +48,59 @@ type StallSettingsInput struct {
 	Remark      string `json:"remark"`
 }
 
+type ProfitShareInput struct {
+	ID   uint64 `json:"id"`
+	Name string `json:"name"`
+	Rate string `json:"rate"`
+}
+
+// ProfitShareParticipantsInput 按月保存全部参与方；比例合计必须刚好为100%。
+type ProfitShareParticipantsInput struct {
+	Month        string             `json:"month"`
+	Participants []ProfitShareInput `json:"participants"`
+}
+
+func (v *ProfitShareParticipantsInput) Validate() error {
+	if _, err := time.Parse("2006-01", strings.TrimSpace(v.Month)); err != nil {
+		return fmt.Errorf("月份格式不正确")
+	}
+	v.Month = strings.TrimSpace(v.Month)
+	if len(v.Participants) < 2 {
+		return fmt.Errorf("至少保留两位分成参与方")
+	}
+	if len(v.Participants) > 20 {
+		return fmt.Errorf("分成参与方最多20位")
+	}
+	total := 0.0
+	names := map[string]bool{}
+	for index := range v.Participants {
+		item := &v.Participants[index]
+		item.Name = strings.TrimSpace(item.Name)
+		if item.Name == "" || len([]rune(item.Name)) > 64 {
+			return fmt.Errorf("第%d位参与方姓名不能为空且不超过64字", index+1)
+		}
+		if names[item.Name] {
+			return fmt.Errorf("分成参与方名称不能重复")
+		}
+		names[item.Name] = true
+		if err := normalizePercentage(&item.Rate, "分成比例"); err != nil {
+			return fmt.Errorf("第%d位参与方：%w", index+1, err)
+		}
+		rate, _ := strconv.ParseFloat(item.Rate, 64)
+		if rate <= 0 {
+			return fmt.Errorf("第%d位参与方比例必须大于0", index+1)
+		}
+		total += rate
+	}
+	if total > 1.000001 {
+		return fmt.Errorf("分成比例合计不能超过100%%，当前为%.2f%%", total*100)
+	}
+	if total < 0.999999 {
+		return fmt.Errorf("分成比例合计必须等于100%%，当前为%.2f%%", total*100)
+	}
+	return nil
+}
+
 // StallMonthlyRuleInput 是指定档口指定月份的规则覆盖，不会修改档口长期资料。
 type StallMonthlyRuleInput struct {
 	StallID                 uint64 `json:"stall_id"`
@@ -145,6 +198,41 @@ type StallCostInput struct {
 	AllSelfOperated  bool   `json:"all_self_operated"`
 }
 
+// SupplierMatrixCostInput 是供货商-档口对账矩阵中单元格的成本输入。
+type SupplierMatrixCostInput struct {
+	StallID          uint64 `json:"stall_id"`
+	Month            string `json:"month"`
+	SupplierName     string `json:"supplier_name"`
+	IngredientAmount string `json:"ingredient_amount"`
+	RiceOilAmount    string `json:"rice_oil_amount"`
+}
+
+func (v *SupplierMatrixCostInput) Validate() error {
+	if v.StallID == 0 {
+		return fmt.Errorf("档口不能为空")
+	}
+	if _, err := time.Parse("2006-01", strings.TrimSpace(v.Month)); err != nil {
+		return fmt.Errorf("成本月份格式必须是YYYY-MM")
+	}
+	v.Month = strings.TrimSpace(v.Month)
+	v.SupplierName = normalizeSupplierName(v.SupplierName)
+	if v.SupplierName == "" || !textLength(v.SupplierName, 64) {
+		return fmt.Errorf("供货商名称必填且不能超过64字")
+	}
+	v.IngredientAmount = strings.TrimSpace(v.IngredientAmount)
+	v.RiceOilAmount = strings.TrimSpace(v.RiceOilAmount)
+	if v.IngredientAmount == "" {
+		v.IngredientAmount = "0"
+	}
+	if v.RiceOilAmount == "" {
+		v.RiceOilAmount = "0"
+	}
+	if err := validateDecimal(v.IngredientAmount, "食材费用", 100000000); err != nil {
+		return err
+	}
+	return validateDecimal(v.RiceOilAmount, "米油费用", 100000000)
+}
+
 // SupplierInput 是供货商基础资料，供月度档口对账选择使用。
 type SupplierInput struct {
 	Name    string `json:"name"`
@@ -153,8 +241,31 @@ type SupplierInput struct {
 	Remark  string `json:"remark"`
 }
 
+// AdminPasswordInput 用于后台管理员修改自己的登录密码。
+type AdminPasswordInput struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+	ConfirmPassword string `json:"confirm_password"`
+}
+
+func (v *AdminPasswordInput) Validate() error {
+	if strings.TrimSpace(v.CurrentPassword) == "" {
+		return fmt.Errorf("当前密码不能为空")
+	}
+	if len(v.NewPassword) < 8 || len(v.NewPassword) > 128 {
+		return fmt.Errorf("新密码长度应为8至128位")
+	}
+	if v.NewPassword != v.ConfirmPassword {
+		return fmt.Errorf("两次输入的新密码不一致")
+	}
+	if v.CurrentPassword == v.NewPassword {
+		return fmt.Errorf("新密码不能与当前密码相同")
+	}
+	return nil
+}
+
 func (v *SupplierInput) Validate() error {
-	v.Name = strings.TrimSpace(v.Name)
+	v.Name = normalizeSupplierName(v.Name)
 	v.Contact = strings.TrimSpace(v.Contact)
 	v.Mobile = strings.TrimSpace(v.Mobile)
 	v.Remark = strings.TrimSpace(v.Remark)
@@ -165,6 +276,20 @@ func (v *SupplierInput) Validate() error {
 		return fmt.Errorf("供货商资料长度不正确")
 	}
 	return nil
+}
+
+// normalizeSupplierName 统一供货商名称中的括号和多余空格，避免同一供货商被重复建立。
+func normalizeSupplierName(value string) string {
+	name := strings.TrimSpace(value)
+	name = strings.NewReplacer(
+		" (", "（",
+		" （", "（",
+		"(", "（",
+		")", "）",
+		"（ ", "（",
+		" ）", "）",
+	).Replace(name)
+	return name
 }
 
 // StallCostLedgerInput 将一条自营档口成本写入台账支出。

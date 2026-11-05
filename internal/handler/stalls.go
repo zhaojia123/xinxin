@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"friends-records/api/request"
@@ -18,22 +20,36 @@ type StallsPageData struct {
 }
 
 type StallMonthlyPageData struct {
-	ActiveMenu string
-	Month      string
-	Keyword    string
-	Stalls     []response.Stall
-	Summary    response.StallSummary
-	Settings   response.StallSettings
-	Expenses   response.StallMonthlyExpense
+	ActiveMenu   string
+	Month        string
+	Keyword      string
+	Stalls       []response.Stall
+	Summary      response.StallSummary
+	Settings     response.StallSettings
+	Expenses     response.StallMonthlyExpense
+	ProfitShares []response.ProfitShare
 }
 
 type StallCostsPageData struct {
-	ActiveMenu string
-	Month      string
-	Keyword    string
-	SelfItems  []response.StallCostEntry
-	OtherItems []response.StallCostEntry
-	Stalls     []response.Stall
+	ActiveMenu     string
+	Month          string
+	Keyword        string
+	SelfSummaries  []StallCostSummary
+	OtherSummaries []StallCostSummary
+	Stalls         []response.Stall
+}
+
+// StallCostSummary 是一个档口在当月的成本汇总，供结果页展示使用。
+// 供货商拆分仍保留在供货商对账表，避免在档口成本页重复展示明细。
+type StallCostSummary struct {
+	Seq              int
+	StallID          uint64
+	StallName        string
+	IngredientAmount string
+	RiceOilAmount    string
+	SpecialAmount    string
+	TotalAmount      string
+	EntryCount       int
 }
 
 // SupplierCostsPageData 是按月登记“供货商-档口”成本的对账页。
@@ -41,9 +57,41 @@ type StallCostsPageData struct {
 type SupplierCostsPageData struct {
 	ActiveMenu string
 	Month      string
-	Items      []response.StallCostEntry
 	Stalls     []response.Stall
 	Suppliers  []response.Supplier
+	Columns    []SupplierCostMatrixColumn
+	Rows       []SupplierCostMatrixRow
+	EntryCount int
+	GrandTotal string
+}
+
+// SupplierCostMatrixColumn 是供货商对账矩阵中的一个档口列及其月度汇总。
+type SupplierCostMatrixColumn struct {
+	StallID     uint64
+	StallName   string
+	TotalAmount string
+}
+
+// SupplierCostMatrixCell 是供货商和档口交叉的一格成本数据。
+type SupplierCostMatrixCell struct {
+	CostID           uint64
+	StallID          uint64
+	SupplierName     string
+	IngredientAmount string
+	RiceOilAmount    string
+	TotalAmount      string
+	HasEntry         bool
+	LedgerPosted     bool
+	ReadOnly         bool
+	RiceOilOnly      bool
+}
+
+// SupplierCostMatrixRow 是一个供货商及其横向档口成本数据。
+type SupplierCostMatrixRow struct {
+	SupplierName  string
+	Cells         []SupplierCostMatrixCell
+	TotalAmount   string
+	ReferenceOnly bool
 }
 
 type SuppliersPageData struct {
@@ -89,13 +137,19 @@ func (h *Handler) StallsMonthlyPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mysql.ApplyMonthlyOperatingExpense(&summary, expenses)
+	shares, err := h.Store.ProfitShares(r.Context(), month)
+	if err != nil {
+		fail(w, err, "当月分成参与方读取失败")
+		return
+	}
+	mysql.ApplyProfitShares(&summary, shares)
 	expenses.ConradAmount = summary.ConradCommission
 	expenses.CardIncomeAmount = summary.TotalCardTurnover
 	expenses.HuilaimiIncomeAmount = summary.TotalHuilaimi
-	h.render(w, "stall_settlement.html", StallMonthlyPageData{ActiveMenu: "stall-monthly", Month: month, Keyword: keyword, Stalls: items, Summary: summary, Settings: settings, Expenses: expenses})
+	h.render(w, "stall_settlement.html", StallMonthlyPageData{ActiveMenu: "stall-monthly", Month: month, Keyword: keyword, Stalls: items, Summary: summary, Settings: settings, Expenses: expenses, ProfitShares: summary.ProfitShares})
 }
 
-// StallCostsPage 展示三个自营档口的成本明细，成本会自动汇总回月度核算。
+// StallCostsPage 按档口展示成本汇总，供货商拆分仅在供货商对账页维护。
 func (h *Handler) StallCostsPage(w http.ResponseWriter, r *http.Request) {
 	if !getOnly(w, r) {
 		return
@@ -115,18 +169,81 @@ func (h *Handler) StallCostsPage(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "档口成本选项读取失败")
 		return
 	}
-	selfItems := make([]response.StallCostEntry, 0)
-	otherItems := make([]response.StallCostEntry, 0)
-	for _, item := range items {
-		if item.SelfOperated {
-			item.Seq = len(selfItems) + 1
-			selfItems = append(selfItems, item)
-			continue
-		}
-		item.Seq = len(otherItems) + 1
-		otherItems = append(otherItems, item)
+	selfSummaries, otherSummaries := summarizeStallCosts(stalls, items)
+	h.render(w, "stall_costs.html", StallCostsPageData{
+		ActiveMenu:     "stall-costs",
+		Month:          month,
+		Keyword:        keyword,
+		SelfSummaries:  selfSummaries,
+		OtherSummaries: otherSummaries,
+		Stalls:         stalls,
+	})
+}
+
+// summarizeStallCosts 将同一档口的供货商成本和特殊调整分别汇总，避免手动金额混入供货商对账。
+func summarizeStallCosts(stalls []response.Stall, items []response.StallCostEntry) ([]StallCostSummary, []StallCostSummary) {
+	type aggregate struct {
+		id         uint64
+		name       string
+		ingredient float64
+		riceOil    float64
+		special    float64
+		count      int
 	}
-	h.render(w, "stall_costs.html", StallCostsPageData{ActiveMenu: "stall-costs", Month: month, Keyword: keyword, SelfItems: selfItems, OtherItems: otherItems, Stalls: stalls})
+	selfOrder, otherOrder := make([]string, 0), make([]string, 0)
+	selfData, otherData := make(map[string]*aggregate), make(map[string]*aggregate)
+	for _, item := range items {
+		target, order := otherData, &otherOrder
+		if item.SelfOperated {
+			target, order = selfData, &selfOrder
+		}
+		key := strconv.FormatUint(item.StallID, 10)
+		entry, exists := target[key]
+		if !exists {
+			entry = &aggregate{id: item.StallID, name: item.StallName}
+			target[key] = entry
+			*order = append(*order, key)
+		}
+		ingredient, _ := strconv.ParseFloat(item.IngredientAmount, 64)
+		riceOil, _ := strconv.ParseFloat(item.RiceOilAmount, 64)
+		if item.SupplierName == "" {
+			entry.special += ingredient + riceOil
+		} else {
+			entry.ingredient += ingredient
+			entry.riceOil += riceOil
+			entry.count++
+		}
+	}
+	// 即使当月还没有供货商对账，也展示档口，方便直接添加特殊调整金额。
+	for _, stall := range stalls {
+		target, order := otherData, &otherOrder
+		if stall.AllocationMode == "profit_share" {
+			target, order = selfData, &selfOrder
+		}
+		key := strconv.FormatUint(stall.ID, 10)
+		if _, exists := target[key]; !exists {
+			target[key] = &aggregate{id: stall.ID, name: stall.Name}
+			*order = append(*order, key)
+		}
+	}
+	build := func(order []string, data map[string]*aggregate) []StallCostSummary {
+		result := make([]StallCostSummary, 0, len(order))
+		for index, key := range order {
+			entry := data[key]
+			result = append(result, StallCostSummary{
+				Seq:              index + 1,
+				StallID:          entry.id,
+				StallName:        entry.name,
+				IngredientAmount: matrixMoney(entry.ingredient),
+				RiceOilAmount:    matrixMoney(entry.riceOil),
+				SpecialAmount:    matrixMoney(entry.special),
+				TotalAmount:      matrixMoney(entry.ingredient + entry.riceOil + entry.special),
+				EntryCount:       entry.count,
+			})
+		}
+		return result
+	}
+	return build(selfOrder, selfData), build(otherOrder, otherData)
 }
 
 func (h *Handler) SupplierCostsPage(w http.ResponseWriter, r *http.Request) {
@@ -142,14 +259,6 @@ func (h *Handler) SupplierCostsPage(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "供货商对账读取失败")
 		return
 	}
-	supplierItems := make([]response.StallCostEntry, 0)
-	for _, item := range items {
-		if item.SupplierName == "" {
-			continue
-		}
-		item.Seq = len(supplierItems) + 1
-		supplierItems = append(supplierItems, item)
-	}
 	stalls, err := h.Store.CostStalls(r.Context())
 	if err != nil {
 		fail(w, err, "档口选项读取失败")
@@ -160,8 +269,99 @@ func (h *Handler) SupplierCostsPage(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "供货商资料读取失败")
 		return
 	}
-	h.render(w, "supplier_costs.html", SupplierCostsPageData{ActiveMenu: "supplier-costs", Month: month, Items: supplierItems, Stalls: stalls, Suppliers: suppliers})
+	columns, rows, entryCount, grandTotal := buildSupplierCostMatrix(stalls, suppliers, items)
+	h.render(w, "supplier_costs.html", SupplierCostsPageData{ActiveMenu: "supplier-costs", Month: month, Stalls: stalls, Suppliers: suppliers, Columns: columns, Rows: rows, EntryCount: entryCount, GrandTotal: grandTotal})
 }
+
+// buildSupplierCostMatrix 将明细整理为“行是供货商、列是档口”的对账矩阵。
+func buildSupplierCostMatrix(stalls []response.Stall, suppliers []response.Supplier, items []response.StallCostEntry) ([]SupplierCostMatrixColumn, []SupplierCostMatrixRow, int, string) {
+	columns := make([]SupplierCostMatrixColumn, 0, len(stalls))
+	stallIndex := make(map[uint64]int, len(stalls))
+	columnTotals := make([]float64, len(stalls))
+	for index, stall := range stalls {
+		columns = append(columns, SupplierCostMatrixColumn{StallID: stall.ID, StallName: stall.Name})
+		stallIndex[stall.ID] = index
+	}
+
+	matrixSuppliers := append([]response.Supplier(nil), suppliers...)
+	supplierNames := make(map[string]bool, len(matrixSuppliers))
+	for _, supplier := range matrixSuppliers {
+		supplierNames[supplier.Name] = true
+	}
+	type aggregate struct {
+		id, count    uint64
+		ingredient   float64
+		riceOil      float64
+		ledgerPosted bool
+	}
+	values := make(map[string]*aggregate)
+	entryCount := 0
+	for _, item := range items {
+		if item.SupplierName == "" {
+			continue
+		}
+		column, found := stallIndex[item.StallID]
+		if !found {
+			continue
+		}
+		if !supplierNames[item.SupplierName] {
+			matrixSuppliers = append(matrixSuppliers, response.Supplier{Name: item.SupplierName})
+			supplierNames[item.SupplierName] = true
+		}
+		ingredient, _ := strconv.ParseFloat(item.IngredientAmount, 64)
+		riceOil, _ := strconv.ParseFloat(item.RiceOilAmount, 64)
+		key := item.SupplierName + "\x00" + strconv.FormatUint(item.StallID, 10)
+		cell := values[key]
+		if cell == nil {
+			cell = &aggregate{id: item.ID}
+			values[key] = cell
+		}
+		cell.count++
+		cell.ingredient += ingredient
+		cell.riceOil += riceOil
+		cell.ledgerPosted = cell.ledgerPosted || item.LedgerPosted
+		// 米油是自营档口统一采购后分发给其他档口的领用明细，仅展示，不重复累计采购成本。
+		if item.SupplierName != "米油" {
+			columnTotals[column] += ingredient + riceOil
+		}
+		entryCount++
+	}
+
+	rows := make([]SupplierCostMatrixRow, 0, len(matrixSuppliers))
+	grandTotal := 0.0
+	for _, supplier := range matrixSuppliers {
+		row := SupplierCostMatrixRow{SupplierName: supplier.Name, ReferenceOnly: supplier.Name == "米油", Cells: make([]SupplierCostMatrixCell, 0, len(columns))}
+		rowTotal := 0.0
+		for _, column := range columns {
+			cell := SupplierCostMatrixCell{StallID: column.StallID, SupplierName: supplier.Name, RiceOilOnly: supplier.Name == "米油"}
+			if value := values[supplier.Name+"\x00"+strconv.FormatUint(column.StallID, 10)]; value != nil {
+				cell.CostID = value.id
+				cell.IngredientAmount = matrixMoney(value.ingredient)
+				cell.RiceOilAmount = matrixMoney(value.riceOil)
+				cell.TotalAmount = matrixMoney(value.ingredient + value.riceOil)
+				cell.HasEntry = true
+				cell.LedgerPosted = value.ledgerPosted
+				// 一个交叉格存在多条旧明细时只展示合计，禁止覆盖，避免历史数据丢失。
+				cell.ReadOnly = value.count > 1 || value.ledgerPosted
+				if !row.ReferenceOnly {
+					rowTotal += value.ingredient + value.riceOil
+				}
+			}
+			row.Cells = append(row.Cells, cell)
+		}
+		row.TotalAmount = matrixMoney(rowTotal)
+		if !row.ReferenceOnly {
+			grandTotal += rowTotal
+		}
+		rows = append(rows, row)
+	}
+	for index := range columns {
+		columns[index].TotalAmount = matrixMoney(columnTotals[index])
+	}
+	return columns, rows, entryCount, matrixMoney(grandTotal)
+}
+
+func matrixMoney(value float64) string { return fmt.Sprintf("%.2f", value) }
 
 func (h *Handler) SuppliersPage(w http.ResponseWriter, r *http.Request) {
 	if !getOnly(w, r) {
@@ -266,6 +466,33 @@ func (h *Handler) StallSettingsAPI(tokens *token.Manager) http.HandlerFunc {
 			return
 		}
 		if err := h.Store.SaveStallSettings(r.Context(), actor, input); err != nil {
+			adminWriteError(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"month": input.Month})
+	}
+}
+
+// ProfitShareParticipantsAPI 维护指定月份参与利润分成的人员和比例。
+func (h *Handler) ProfitShareParticipantsAPI(tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			httpx.MethodNotAllowed(w, http.MethodPut)
+			return
+		}
+		actor, ok := adminActor(w, r, tokens)
+		if !ok {
+			return
+		}
+		var input request.ProfitShareParticipantsInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if err := input.Validate(); err != nil {
+			httpx.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := h.Store.SaveProfitShares(r.Context(), actor, input); err != nil {
 			adminWriteError(w, err)
 			return
 		}
@@ -401,6 +628,34 @@ func (h *Handler) StallCostsAPI(tokens *token.Manager) http.HandlerFunc {
 		default:
 			httpx.MethodNotAllowed(w, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete)
 		}
+	}
+}
+
+// SupplierCostMatrixAPI 保存供货商对账矩阵中一个供货商和档口交叉格的费用。
+func (h *Handler) SupplierCostMatrixAPI(tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			httpx.MethodNotAllowed(w, http.MethodPut)
+			return
+		}
+		actor, ok := adminActor(w, r, tokens)
+		if !ok {
+			return
+		}
+		var input request.SupplierMatrixCostInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if err := input.Validate(); err != nil {
+			httpx.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		id, err := h.Store.SaveSupplierMatrixCost(r.Context(), actor, input)
+		if err != nil {
+			adminWriteError(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"id": id})
 	}
 }
 

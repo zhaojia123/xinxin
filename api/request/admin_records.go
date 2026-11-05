@@ -121,16 +121,22 @@ func (v *AttendanceInput) Validate() error {
 			v.RecordType = "公休"
 		}
 	}
+	if v.Category == "comp_time" {
+		v.Category = "leave"
+		if v.RecordType == "" {
+			v.RecordType = "调休"
+		}
+	}
 	if v.Category == "holiday" {
 		v.Category = "leave"
 		v.RecordType = "节假日"
 		v.SalaryEffect = "none"
 		v.SubsidyAmount = "0"
 	}
-	// 正常公休不扣工资；其余请假记录默认按扣款处理。
-	if v.RecordType == "公休" || v.RecordType == "节假日" {
+	// 公休、调休和法定节假日均不扣工资；调休不占用每月公休额度。
+	if v.RecordType == "公休" || v.RecordType == "调休" || v.RecordType == "节假日" {
 		if v.Category != "leave" {
-			return fmt.Errorf("公休或节假日必须选择请假记录类别")
+			return fmt.Errorf("公休、调休或节假日必须选择请假记录类别")
 		}
 		v.SalaryEffect = "none"
 		v.SubsidyAmount = "0"

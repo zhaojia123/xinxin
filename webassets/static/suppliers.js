@@ -1,6 +1,20 @@
 (() => {
   const root = document.querySelector("[data-suppliers]");
   if (!root) return;
+  // 供货商页未加载公共脚本时，仍保持两小时无操作自动退出。
+  const idleTimeout = 2 * 60 * 60 * 1000;
+  let idleTimer;
+  const logout = async () => {
+    try { await fetch("/admin/logout", {method: "POST", credentials: "same-origin"}); } catch (_) {}
+    window.location.assign("/admin/login");
+  };
+  const resetIdleTimer = () => {
+    window.clearTimeout(idleTimer);
+    idleTimer = window.setTimeout(logout, idleTimeout);
+  };
+  ["pointerdown", "keydown", "scroll", "touchstart", "focus"].forEach(eventName => window.addEventListener(eventName, resetIdleTimer, {passive: true}));
+  resetIdleTimer();
+  document.querySelector("[data-admin-logout]")?.addEventListener("click", logout);
   const escapeHTML = value => String(value ?? "").replace(/[&<>'\"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[char]));
   const toast = message => { const node = document.querySelector(".demo-toast"); if (!node) return; node.textContent = message; node.classList.add("show"); window.setTimeout(() => node.classList.remove("show"), 2200); };
   const request = async (url, options = {}) => { const response = await fetch(url, options); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || "操作失败，请稍后重试"); return body; };

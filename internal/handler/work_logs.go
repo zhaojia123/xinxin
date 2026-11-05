@@ -1,9 +1,7 @@
 package handler
 
 import (
-	"encoding/csv"
 	"net/http"
-	"net/url"
 	"strconv"
 
 	"friends-records/api/request"
@@ -119,14 +117,12 @@ func (h *Handler) WorkLogsExport(tokens *token.Manager) http.HandlerFunc {
 			fail(w, err, "临时工工时导出失败")
 			return
 		}
-		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.QueryEscape(month+"临时工每日出勤.csv"))
-		writer := csv.NewWriter(w)
-		_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
-		_ = writer.Write([]string{"日期", "员工姓名", "计薪方式", "出勤标记", "实际工时", "计薪标准", "当天金额", "备注"})
+		records := make([][]exportCell, 0, len(items))
 		for _, item := range items {
-			_ = writer.Write([]string{item.WorkDate, item.Name, item.PayBasisLabel, item.WorkLabel, item.Hours, item.PayRate, item.Amount, item.Remark})
+			records = append(records, []exportCell{exportText(item.WorkDate), exportText(item.Name), exportText(item.PayBasisLabel), exportText(item.WorkLabel), exportNumber(item.Hours), exportText(item.PayRate), exportNumber(item.Amount), exportText(item.Remark)})
 		}
-		writer.Flush()
+		if err := writeExcelXLSX(w, month+"临时工每日出勤.xlsx", monthTitle(month)+"临时工每日出勤表", "临时工出勤", []string{"日期", "员工姓名", "计薪方式", "出勤标记", "实际工时", "计薪标准", "当天金额", "备注"}, records, []int{90, 90, 90, 90, 80, 95, 95, 180}); err != nil {
+			fail(w, err, "临时工工时导出失败")
+		}
 	}
 }

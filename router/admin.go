@@ -18,8 +18,13 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	mux.HandleFunc("/admin", h.AdminRoot)
 	// GET /admin/login：显示登录页；POST /admin/login：提交后台登录表单。
 	mux.HandleFunc("/admin/login", h.AdminLoginPage(admin, tokens))
+	// GET/POST /admin/password：管理员修改自己的后台登录密码。
+	mux.HandleFunc("/admin/password", h.AdminPasswordPage(tokens))
+	// POST /admin/logout：退出后台并清理会话 Cookie。
+	mux.HandleFunc("/admin/logout", h.AdminLogout)
 	// GET /admin/employees：员工档案列表和健康证到期提醒。
 	mux.HandleFunc("/admin/employees", h.EmployeesPage)
+	mux.HandleFunc("/admin/employees/export", h.AdminDataExport(tokens, "employees"))
 	// GET /admin/employees/view：员工详情、健康证和员工动态。
 	mux.HandleFunc("/admin/employees/view", h.EmployeeDetail)
 	// GET/POST /admin/employees/new：新增员工页面和表单提交。
@@ -33,8 +38,10 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	mux.HandleFunc("/admin/leaves/export", h.LeavesExport(tokens))
 	// GET /admin/changes：人事异动页面。
 	mux.HandleFunc("/admin/changes", h.ChangesPage)
+	mux.HandleFunc("/admin/changes/export", h.AdminDataExport(tokens, "changes"))
 	// GET /admin/salary-adjustments：调薪记录页面。
 	mux.HandleFunc("/admin/salary-adjustments", h.SalaryPage)
+	mux.HandleFunc("/admin/salary-adjustments/export", h.AdminDataExport(tokens, "salary"))
 	// GET /admin/payroll：月度工资编辑页面。
 	mux.HandleFunc("/admin/payroll", h.PayrollPage)
 	// GET /admin/work-logs：小时工每日工时记录。
@@ -43,14 +50,17 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	mux.HandleFunc("/admin/payroll/export", h.PayrollExport(tokens))
 	// GET /admin/ledger：台账流水和收支统计页面。
 	mux.HandleFunc("/admin/ledger", h.LedgerPage)
+	mux.HandleFunc("/admin/ledger/export", h.AdminDataExport(tokens, "ledger"))
 	// GET /admin/stalls：档口基础资料和抽成规则。
 	mux.HandleFunc("/admin/stalls", h.StallsPage)
 	// GET /admin/stalls/monthly：指定月份的营业额和抽成计算。
 	mux.HandleFunc("/admin/stalls/monthly", h.StallsMonthlyPage)
+	mux.HandleFunc("/admin/stalls/monthly/export", h.StallMonthlyExport(tokens))
 	// GET /admin/stall-costs：三个自营档口的月度成本。
 	mux.HandleFunc("/admin/stall-costs", h.StallCostsPage)
 	// GET /admin/supplier-costs：按供货商和档口登记月度食材、米油对账。
 	mux.HandleFunc("/admin/supplier-costs", h.SupplierCostsPage)
+	mux.HandleFunc("/admin/supplier-costs/export", h.SupplierCostsExport(tokens))
 	mux.HandleFunc("/admin/suppliers", h.SuppliersPage)
 	// GET /admin/menu：菜单菜品列表和维护页面。
 	mux.HandleFunc("/admin/menu", h.MenuPage)
@@ -59,6 +69,7 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	mux.HandleFunc("/admin/purchases/export", h.PurchaseExport(tokens))
 	// GET /admin/audit-logs：后台操作日志页面。
 	mux.HandleFunc("/admin/audit-logs", h.AuditPage)
+	mux.HandleFunc("/admin/audit-logs/export", h.AdminDataExport(tokens, "audit"))
 	// GET /admin/mini-users：小程序用户与模块权限管理页面。
 	mux.HandleFunc("/admin/mini-users", h.MiniUsersPage)
 
@@ -96,10 +107,13 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	// GET/POST/PUT/DELETE /api/admin/stalls：档口基础资料。
 	mux.HandleFunc("/api/admin/stalls", h.StallsAPI(tokens))
 	mux.HandleFunc("/api/admin/stall-settings", h.StallSettingsAPI(tokens))
+	mux.HandleFunc("/api/admin/profit-share-participants", h.ProfitShareParticipantsAPI(tokens))
 	mux.HandleFunc("/api/admin/stall-monthly-rules", h.StallMonthlyRuleAPI(tokens))
 	// POST/PUT/DELETE /api/admin/stall-turnovers：档口月度营业额。
 	mux.HandleFunc("/api/admin/stall-turnovers", h.StallTurnoverAPI(tokens))
 	mux.HandleFunc("/api/admin/stall-costs", h.StallCostsAPI(tokens))
+	// PUT /api/admin/supplier-cost-matrix：保存供货商对账矩阵单元格。
+	mux.HandleFunc("/api/admin/supplier-cost-matrix", h.SupplierCostMatrixAPI(tokens))
 	mux.HandleFunc("/api/admin/stall-costs/ledger", h.StallCostLedgerAPI(tokens))
 	mux.HandleFunc("/api/admin/suppliers", h.SuppliersAPI(tokens))
 	mux.HandleFunc("/api/admin/stall-monthly-expenses", h.StallMonthlyExpenseAPI(tokens))

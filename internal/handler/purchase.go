@@ -1,11 +1,7 @@
 package handler
 
 import (
-	"fmt"
-	"html"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
 	"friends-records/api/request"
@@ -195,7 +191,7 @@ func (h *Handler) MiniPurchasesAPI(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// PurchaseExport 导出 Excel 可直接打开的 .xls 文件，避免引入重量级第三方依赖。
+// PurchaseExport 导出标准 XLSX，保证 Excel 与 WPS 都能直接打开。
 func (h *Handler) PurchaseExport(tokens *token.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := adminActor(w, r, tokens); !ok {
@@ -238,30 +234,11 @@ func (h *Handler) MiniPurchaseExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func writePurchaseWorkbook(w http.ResponseWriter, items []response.PurchaseItem, start, end string) {
-	filename := url.QueryEscape("采购清单_" + start + "_至_" + end + ".xls")
-	w.Header().Set("Content-Type", "application/vnd.ms-excel; charset=utf-8")
-	w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+filename)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(purchaseWorkbook(items, start, end)))
-}
-
-func purchaseWorkbook(items []response.PurchaseItem, start, end string) string {
-	var b strings.Builder
-	b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?><?mso-application progid=\"Excel.Sheet\"?><Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\" xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\"><Worksheet ss:Name=\"采购清单\"><Table>")
-	b.WriteString("<Row><Cell><Data ss:Type=\"String\">采购清单")
-	b.WriteString(html.EscapeString("（" + start + " 至 " + end + "）"))
-	b.WriteString("</Data></Cell></Row><Row>")
-	for _, header := range []string{"日期", "供货商", "品类", "菜品/物料", "数量", "单位", "单价（元）", "总价（元）", "备注"} {
-		fmt.Fprintf(&b, "<Cell><Data ss:Type=\"String\">%s</Data></Cell>", html.EscapeString(header))
-	}
-	b.WriteString("</Row>")
+	records := make([][]exportCell, 0, len(items))
 	for _, item := range items {
-		b.WriteString("<Row>")
-		for _, value := range []string{item.Date, item.SupplierName, item.Category, item.ProductName, item.Quantity, item.Unit, item.UnitPrice, item.TotalPrice, item.Remark} {
-			fmt.Fprintf(&b, "<Cell><Data ss:Type=\"String\">%s</Data></Cell>", html.EscapeString(value))
-		}
-		b.WriteString("</Row>")
+		records = append(records, []exportCell{exportText(item.Date), exportText(item.SupplierName), exportText(item.Category), exportText(item.ProductName), exportNumber(item.Quantity), exportText(item.Unit), exportNumber(item.UnitPrice), exportNumber(item.TotalPrice), exportText(item.Remark)})
 	}
-	b.WriteString("</Table></Worksheet></Workbook>")
-	return b.String()
+	if err := writeExcelXLSX(w, "采购清单_"+start+"_至_"+end+".xlsx", "采购清单（"+start+" 至 "+end+"）", "采购清单", []string{"日期", "供货商", "品类", "菜品/物料", "数量", "单位", "单价（元）", "总价（元）", "备注"}, records, []int{90, 120, 80, 160, 70, 70, 85, 90, 180}); err != nil {
+		fail(w, err, "采购清单导出失败")
+	}
 }

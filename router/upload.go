@@ -24,13 +24,9 @@ func registerUploadRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmy
 	mux.HandleFunc("/api/admin/upload/health-certificate", h.HealthCertificateUpload(upload))
 	mux.HandleFunc("/api/admin/upload/ledger-proof", h.AdminLedgerProofUpload(proof, tokens))
 	mux.HandleFunc("/api/admin/upload/employee-document", h.AdminEmployeeDocumentUpload(document, tokens))
-	ledgerAccess := func(ctx context.Context, id uint64) (bool, error) {
-		return store.MiniPermissionAction(ctx, id, "ledger", "edit")
-	}
 	employeeAccess := func(ctx context.Context, id uint64) (bool, error) {
 		return store.MiniPermissionAction(ctx, id, "employees", "edit")
 	}
-	mux.HandleFunc("/api/mini/ledger-proof", handler.RequireMiniPermission(tokens, store.MiniEnabled, ledgerAccess, h.MiniLedgerProofUpload(proof)))
 	mux.HandleFunc("/api/mini/employee-document", handler.RequireMiniPermission(tokens, store.MiniEnabled, employeeAccess, h.MiniEmployeeDocumentUpload(document)))
 	// GET /uploads/*：读取已经上传的健康证图片。
 	mux.HandleFunc("/uploads/", serveUploadedFile(cfg.Upload.Dir))

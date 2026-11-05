@@ -151,6 +151,10 @@ h2 { margin-bottom: 6px; font-size: 20px; }
 .record-check { display: flex !important; align-items: center; align-self: end; grid-template-columns: auto 1fr; min-height: 44px; }
 .record-check input { width: 18px; height: 18px; }
 .record-dialog-error { min-height: 20px; margin-top: 16px; color: var(--danger); font-size: 13px; }
+.account-password-form { width: min(620px,100%); padding: 28px; display: grid; gap: 18px; }
+.account-password-form label { display: grid; gap: 8px; color: #344054; font-size: 14px; font-weight: 750; }
+.account-password-form input { min-height: 46px; padding: 0 14px; border: 1px solid #cfd8e7; border-radius: 10px; font-size: 15px; }
+.adjustment-list-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 16px; padding: 14px 16px; border-radius: 12px; background: #f4f7ff; color: #173f9f; }
 @media (max-width: 680px) { .record-form-grid { grid-template-columns: 1fr; } .record-dialog { padding: 12px; } .record-dialog-card { max-height: calc(100vh - 24px); padding: 20px; } }
 
 .primary-button, .ghost-button {
@@ -192,6 +196,8 @@ h2 { margin-bottom: 6px; font-size: 20px; }
 .nav-item.active .nav-icon { background: rgba(255,255,255,.17); }
 .sidebar-footer { display: flex; align-items: center; gap: 11px; margin-top: auto; padding: 14px 10px 4px; border-top: 1px solid rgba(255,255,255,.08); }
 .sidebar-footer strong { color: #eef2ff; font-size: 13px; }
+.sidebar-footer small a,.sidebar-footer small button { color: #dbe7ff; font: inherit; font-weight: 750; text-decoration: none; background: transparent; border: 0; padding: 0; cursor: pointer; }
+.sidebar-footer small a:hover,.sidebar-footer small button:hover { color: #fff; text-decoration: underline; }
 .avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; color: white; background: #34415c; font-size: 12px; font-weight: 800; }
 .admin-main { min-width: 0; padding: 42px clamp(22px, 4vw, 58px) 70px; }
 .admin-topbar { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
@@ -212,6 +218,12 @@ h2 { margin-bottom: 6px; font-size: 20px; }
 .stall-table th,.stall-table td { white-space:nowrap; }
 .stall-table td:nth-child(12) { min-width:150px; }
 .stall-table-v2 td:nth-child(14) { min-width:330px; }
+/* 月度核算横向滚动时固定序号和档口，方便核对当前行数据。 */
+.stall-table th:first-child,.stall-table td:first-child { position:sticky; left:0; z-index:2; min-width:64px; background:#fafbfc; }
+.stall-table th:nth-child(2),.stall-table td:nth-child(2) { position:sticky; left:64px; z-index:2; min-width:138px; background:#fafbfc; box-shadow:4px 0 7px rgba(16,24,40,.06); }
+.stall-table td:first-child,.stall-table td:nth-child(2) { background:#fff; }
+.stall-table thead th:first-child,.stall-table thead th:nth-child(2) { z-index:3; }
+.stall-table tfoot th:first-child,.stall-table tfoot th:nth-child(2),.stall-table tfoot td:first-child,.stall-table tfoot td:nth-child(2) { z-index:3; background:#f4f7ff; }
 .stall-summary-grid .stat-card strong { font-size: 23px; }
 .stall-settings-card { margin-top: 18px; }
 
@@ -283,7 +295,27 @@ h2 { margin-bottom: 6px; font-size: 20px; }
 .table-header { display: flex; align-items: center; justify-content: space-between; padding: 22px 24px; border-bottom: 1px solid var(--line); }
 .table-header p { margin-bottom: 0; color: var(--muted); font-size: 13px; }
 .count-badge { padding: 6px 10px; border-radius: 999px; color: var(--primary); background: #edf2ff; font-size: 13px; font-weight: 700; }
+.profit-loss-positive { color: #d92d20 !important; }
+.profit-loss-negative { color: var(--success) !important; }
 .table-wrap { overflow-x: auto; }
+.supplier-matrix-wrap { max-height: calc(100vh - 250px); }
+.supplier-matrix-table { min-width: max-content; }
+.supplier-matrix-table th,.supplier-matrix-table td { min-width: 148px; padding: 13px 16px; text-align: center; }
+.supplier-matrix-table th { position: sticky; top: 0; z-index: 2; }
+.supplier-matrix-table .supplier-matrix-sticky { position: sticky; left: 0; z-index: 3; min-width: 164px; text-align: left; background: #fafbfc; }
+.supplier-matrix-table td.supplier-matrix-sticky { background: #fff; }
+.supplier-matrix-total { position: sticky; right: 0; z-index: 2; min-width: 138px !important; background: #f4f7ff !important; }
+.supplier-matrix-table thead .supplier-matrix-total { z-index: 3; }
+.supplier-matrix-table tfoot th,.supplier-matrix-table tfoot td { position: sticky; bottom: 0; z-index: 2; background: #f4f7ff; }
+.supplier-matrix-table tfoot .supplier-matrix-sticky { z-index: 4; }
+.supplier-matrix-cell { cursor: pointer; vertical-align: middle; transition: background-color .18s; }
+.supplier-matrix-cell:hover { background: #eef3ff; }
+.supplier-matrix-cell strong,.supplier-matrix-cell small { display: block; }
+.supplier-matrix-cell strong { color: var(--primary); font-size: 14px; }
+.supplier-matrix-cell small { margin-top: 4px; color: var(--muted); font-size: 11px; }
+.supplier-matrix-cell > span { color: #98a2b3; font-size: 18px; }
+.supplier-matrix-cell.is-readonly { cursor: not-allowed; background: #f8fafc; opacity: .72; }
+.supplier-matrix-cell.is-readonly:hover { background: #f8fafc; }
 .table-sort { appearance:none; border:0; background:transparent; color:inherit; font:inherit; font-weight:inherit; padding:0; cursor:pointer; white-space:nowrap; }
 .table-sort:hover,.table-sort.is-active { color:var(--primary); }
 .pagination-bar { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:14px 18px; color:var(--muted); font-size:13px; border-top:1px solid var(--line); }
@@ -333,6 +365,7 @@ table { width: 100%; border-collapse: collapse; }
 th, td { padding: 16px 24px; text-align: left; white-space: nowrap; }
 th { color: var(--muted); background: #fafbfc; font-size: 12px; letter-spacing: .03em; }
 td { border-top: 1px solid #f0f2f5; font-size: 14px; }
+.stall-table tfoot th,.stall-table tfoot td { border-top: 2px solid #cfd9ec; color: #344054; background: #f4f7ff; font-weight: 700; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #475467; }
 .status { display: inline-block; padding: 5px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
 .status.active { color: #087a55; background: #e9f8f2; }
@@ -439,11 +472,30 @@ dt { color: var(--muted); font-size: 13px; } dd { margin: 0; font-weight: 650; }
 .work-log-presets{display:flex;gap:8px;margin-top:8px}.work-log-presets button{border:1px solid #dbe3f0;background:#f8fafc;color:#2457e6;border-radius:8px;padding:5px 8px;cursor:pointer}
 .monthly-expense-form { display: grid; gap: 14px; padding: 0 22px 22px; }
 .monthly-expense-fields, .monthly-expense-metrics { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 12px; }
-.monthly-expense-fields label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.monthly-expense-fields label { display: grid; grid-template-rows: 16px 40px 16px; align-content: start; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .monthly-expense-fields input { width: 100%; height: 40px; padding: 0 11px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: #fff; }
-.monthly-expense-fields small { min-height: 16px; color: var(--muted); font-weight: 500; }
+.monthly-expense-fields small { grid-row: 3; min-height: 16px; color: var(--muted); font-weight: 500; }
 .monthly-expense-metrics .fixed-rule-field { min-height: 72px; }
 .monthly-expense-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; padding-top: 2px; }
 .monthly-expense-auto-save { margin-right: auto; color: var(--muted); font-size: 12px; font-weight: 650; }
 @media (max-width: 1050px) { .monthly-expense-fields, .monthly-expense-metrics { grid-template-columns: repeat(2, minmax(160px, 1fr)); } }
 @media (max-width: 620px) { .monthly-expense-fields, .monthly-expense-metrics { grid-template-columns: 1fr; } .monthly-expense-actions { justify-content: flex-start; } .monthly-expense-auto-save { width: 100%; } }
+
+/* 账户安全页使用更明确的层级和对比度，避免侧栏“修改密码”入口不易辨认。 */
+.account-password-layout { display: grid; grid-template-columns: minmax(250px,.8fr) minmax(420px,1.2fr); gap: 24px; align-items: start; margin-top: 24px; }
+.account-password-intro { display: grid; grid-template-columns: 44px minmax(0,1fr); gap: 12px 14px; padding: 26px; border: 1px solid #cad8ff; border-radius: 18px; background: linear-gradient(145deg,#f3f7ff,#ffffff); box-shadow: 0 10px 24px rgba(36,87,230,.07); }
+.account-password-icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 13px; color: #fff; background: #2457e6; font-size: 17px; font-weight: 800; }
+.account-password-intro h2 { margin: 2px 0 5px; color: #172b4d; font-size: 18px; }.account-password-intro p { margin: 0; color: #52647e; line-height: 1.65; font-size: 13px; }
+.account-password-intro ul { grid-column: 1 / -1; display: grid; gap: 9px; margin: 8px 0 0; padding: 15px 0 0 19px; border-top: 1px solid #dce6fd; color: #40516a; font-size: 13px; line-height: 1.5; }
+.account-password-card { overflow: hidden; }.account-password-card .table-header { padding: 24px 26px 16px; border-bottom: 1px solid #edf0f5; }
+.account-password-form { display: grid; gap: 18px; padding: 24px 26px 0; max-width: none; }
+.account-password-form label { display: grid; gap: 8px; color: #22314b; font-size: 13px; font-weight: 750; }.account-password-form label span { display: flex; align-items: center; gap: 5px; }
+.account-password-form label span::after { content: "*"; color: #d92d20; }
+.account-password-form input { width: 100%; height: 46px; padding: 0 13px; border: 1px solid #cbd5e4; border-radius: 10px; color: #172b4d; background: #fff; font: inherit; outline: none; transition: border-color .18s,box-shadow .18s; }.account-password-form input::placeholder { color: #98a8bd; }.account-password-form input:focus { border-color: #2457e6; box-shadow: 0 0 0 4px rgba(36,87,230,.12); }
+.account-password-form .form-actions { margin: 4px -26px 0; padding: 18px 26px; border-top: 1px solid #edf0f5; background: #fafcff; }
+.sidebar-footer small a,.sidebar-footer small button { color: #dbe7ff; font-weight: 750; text-decoration: none; }.sidebar-footer small a:hover,.sidebar-footer small button:hover { color: #fff; text-decoration: underline; }
+.module-hidden { display: none !important; }
+/* 分成参与方改为动态配置后，明细表保留旧甲乙字段供历史兼容，但不再展示固定两列。 */
+.stall-table-v2 th:nth-child(13),.stall-table-v2 th:nth-child(14),.stall-table-v2 td:nth-child(13),.stall-table-v2 td:nth-child(14) { display: none; }
+.profit-share-settings { margin-top: 18px; }.profit-share-settings input { width: 100%; min-width: 140px; padding: 8px 10px; border: 1px solid #d7deea; border-radius: 8px; color: var(--ink); font: inherit; }.profit-share-settings .form-actions { align-items: center; }.profit-share-settings [data-profit-share-total] { color: #087a55; font-variant-numeric: tabular-nums; }.profit-share-settings [data-profit-share-total].profit-share-invalid { color: #b42318; }.profit-share-summary { display: grid; gap: 4px; }.profit-share-summary small { color: #475467; font-weight: 700; }
+@media (max-width: 900px) { .account-password-layout { grid-template-columns: 1fr; } }

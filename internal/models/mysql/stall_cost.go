@@ -171,6 +171,104 @@ func (s *Store) SaveStallCost(ctx context.Context, id, actor uint64, input reque
 	return id, tx.Commit()
 }
 
+// SaveSupplierMatrixCost 保存供货商-档口矩阵的一个单元格；清空两个金额会删除未入账单元格。
+func (s *Store) SaveSupplierMatrixCost(ctx context.Context, actor uint64, input request.SupplierMatrixCostInput) (uint64, error) {
+	if err := s.ready(); err != nil {
+		return 0, err
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, apperror.Wrap(err, "开始保存供货商对账事务失败")
+	}
+	defer tx.Rollback()
+	var exists int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM supplier_accounts WHERE name=? AND active=1`, input.SupplierName).Scan(&exists); err == sql.ErrNoRows {
+		return 0, MiniInputError{"供货商不存在或已停用"}
+	} else if err != nil {
+		return 0, apperror.Wrap(err, "校验供货商失败")
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM stall_accounts WHERE id=? AND active=1`, input.StallID).Scan(&exists); err == sql.ErrNoRows {
+		return 0, ErrNotFound
+	} else if err != nil {
+		return 0, apperror.Wrap(err, "校验档口失败")
+	}
+
+	rows, err := tx.QueryContext(ctx, `SELECT id,ledger_entry_id FROM stall_cost_entries WHERE stall_id=? AND cost_month=? AND supplier_name=? AND active=1 FOR UPDATE`, input.StallID, input.Month+"-01", input.SupplierName)
+	if err != nil {
+		return 0, apperror.Wrap(err, "读取供货商档口对账失败")
+	}
+	defer rows.Close()
+	type existingCost struct {
+		id     uint64
+		posted bool
+	}
+	existing := make([]existingCost, 0, 1)
+	for rows.Next() {
+		var id uint64
+		var ledgerID sql.NullInt64
+		if err := rows.Scan(&id, &ledgerID); err != nil {
+			return 0, apperror.Wrap(err, "读取供货商档口对账失败")
+		}
+		existing = append(existing, existingCost{id: id, posted: ledgerID.Valid})
+	}
+	if err := rows.Err(); err != nil {
+		return 0, apperror.Wrap(err, "遍历供货商档口对账失败")
+	}
+	if err := rows.Close(); err != nil {
+		return 0, apperror.Wrap(err, "关闭供货商档口对账失败")
+	}
+	if len(existing) > 1 {
+		return 0, MiniInputError{"该供货商和档口存在多条历史对账，请先在档口成本页整理后再编辑"}
+	}
+
+	ingredient := stallNumber(input.IngredientAmount)
+	riceOil := stallNumber(input.RiceOilAmount)
+	total := ingredient + riceOil
+	if len(existing) == 0 {
+		if total == 0 {
+			return 0, tx.Commit()
+		}
+		result, err := tx.ExecContext(ctx, `INSERT INTO stall_cost_entries(stall_id,cost_month,cost_type,all_self_operated,amount,rice_oil_amount,supplier_name,remark) VALUES(?,?,?,0,?,?,?,?)`, input.StallID, input.Month+"-01", "ingredient", input.IngredientAmount, input.RiceOilAmount, input.SupplierName, "供货商对账矩阵录入")
+		if err != nil {
+			return 0, apperror.Wrap(err, "新增供货商档口对账失败")
+		}
+		lastID, err := result.LastInsertId()
+		if err != nil {
+			return 0, apperror.Wrap(err, "读取供货商档口对账编号失败")
+		}
+		if err := miniAudit(ctx, tx, actor, "supplier_costs", uint64(lastID), "供货商对账："+input.SupplierName); err != nil {
+			return 0, err
+		}
+		if err := tx.Commit(); err != nil {
+			return 0, err
+		}
+		return uint64(lastID), nil
+	}
+
+	if existing[0].posted {
+		return 0, MiniInputError{"该对账已入账，不能修改"}
+	}
+	if total == 0 {
+		if _, err := tx.ExecContext(ctx, `UPDATE stall_cost_entries SET active=0 WHERE id=?`, existing[0].id); err != nil {
+			return 0, apperror.Wrap(err, "清空供货商档口对账失败")
+		}
+		if err := miniAudit(ctx, tx, actor, "supplier_costs", existing[0].id, "清空供货商对账："+input.SupplierName); err != nil {
+			return 0, err
+		}
+		return 0, tx.Commit()
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE stall_cost_entries SET amount=?,rice_oil_amount=? WHERE id=?`, input.IngredientAmount, input.RiceOilAmount, existing[0].id); err != nil {
+		return 0, apperror.Wrap(err, "更新供货商档口对账失败")
+	}
+	if err := miniAudit(ctx, tx, actor, "supplier_costs", existing[0].id, "更新供货商对账："+input.SupplierName); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return existing[0].id, nil
+}
+
 // DeleteStallCost 软删除未入账的成本，保留已入账支出的可追溯关系。
 func (s *Store) DeleteStallCost(ctx context.Context, id, actor uint64) error {
 	if err := s.ready(); err != nil {

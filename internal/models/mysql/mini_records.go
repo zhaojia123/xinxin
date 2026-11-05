@@ -41,6 +41,9 @@ func (s *Store) MiniPermissionAction(ctx context.Context, id uint64, module, act
 	if err := s.ready(); err != nil {
 		return false, err
 	}
+	if !isMiniProgramModule(module) {
+		return false, nil
+	}
 	column := map[string]string{"view": "can_view", "create": "can_create", "edit": "can_edit", "delete": "can_delete"}[action]
 	if column == "" {
 		return false, nil
@@ -58,11 +61,7 @@ func (s *Store) MiniPermissionAction(ctx context.Context, id uint64, module, act
 		return false, nil
 	}
 	switch module {
-	case "ledger":
-		err = s.DB.QueryRowContext(ctx, `SELECT can_ledger FROM mini_users WHERE id=? AND enabled=1`, id).Scan(&allowed)
-	case "purchases":
-		err = s.DB.QueryRowContext(ctx, `SELECT can_purchases FROM mini_users WHERE id=? AND enabled=1`, id).Scan(&allowed)
-	case "employees":
+	case "employees", "attendance":
 		err = s.DB.QueryRowContext(ctx, `SELECT can_employees FROM mini_users WHERE id=? AND enabled=1`, id).Scan(&allowed)
 	default:
 		return false, nil
@@ -78,7 +77,7 @@ func (s *Store) MiniPermissions(ctx context.Context, id uint64) ([]string, error
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT module_key,enabled,can_view FROM mini_user_permissions WHERE mini_user_id=? ORDER BY id`, id)
+	rows, err := s.DB.QueryContext(ctx, `SELECT module_key,enabled,can_view FROM mini_user_permissions WHERE mini_user_id=? AND module_key IN ('employees','attendance') ORDER BY id`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -103,21 +102,16 @@ func (s *Store) MiniPermissions(ctx context.Context, id uint64) ([]string, error
 		return permissions, nil
 	}
 	// 兼容旧表数据，未生成权限记录时从三个旧字段读取。
-	var ledger, purchases, employees bool
-	if err := s.DB.QueryRowContext(ctx, `SELECT can_ledger,can_purchases,can_employees FROM mini_users WHERE id=?`, id).Scan(&ledger, &purchases, &employees); err != nil {
+	var employees bool
+	if err := s.DB.QueryRowContext(ctx, `SELECT can_employees FROM mini_users WHERE id=?`, id).Scan(&employees); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return []string{}, nil
 		}
 		return nil, err
 	}
-	if ledger {
-		permissions = append(permissions, "ledger")
-	}
-	if purchases {
-		permissions = append(permissions, "purchases")
-	}
 	if employees {
 		permissions = append(permissions, "employees")
+		permissions = append(permissions, "attendance")
 	}
 	return permissions, nil
 }
@@ -127,7 +121,7 @@ func (s *Store) MiniActionPermissions(ctx context.Context, id uint64) (map[strin
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT module_key,enabled,can_view,can_create,can_edit,can_delete FROM mini_user_permissions WHERE mini_user_id=? ORDER BY id`, id)
+	rows, err := s.DB.QueryContext(ctx, `SELECT module_key,enabled,can_view,can_create,can_edit,can_delete FROM mini_user_permissions WHERE mini_user_id=? AND module_key IN ('employees','attendance') ORDER BY id`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -153,14 +147,14 @@ func (s *Store) MiniActionPermissions(ctx context.Context, id uint64) (map[strin
 	if hasRows {
 		return result, nil
 	}
-	var ledger, purchases, employees bool
-	if err := s.DB.QueryRowContext(ctx, `SELECT can_ledger,can_purchases,can_employees FROM mini_users WHERE id=?`, id).Scan(&ledger, &purchases, &employees); err != nil {
+	var employees bool
+	if err := s.DB.QueryRowContext(ctx, `SELECT can_employees FROM mini_users WHERE id=?`, id).Scan(&employees); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return result, nil
 		}
 		return nil, err
 	}
-	for key, allowed := range map[string]bool{"ledger": ledger, "purchases": purchases, "employees": employees} {
+	for key, allowed := range map[string]bool{"employees": employees, "attendance": employees} {
 		result[key] = MiniActionAccess{View: allowed, Create: allowed, Edit: allowed, Delete: allowed}
 	}
 	return result, nil
@@ -172,7 +166,7 @@ func (s *Store) MiniAnyPermission(ctx context.Context, id uint64) (bool, error) 
 		return false, err
 	}
 	var total, active int
-	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(enabled=1 AND can_view=1),0) FROM mini_user_permissions WHERE mini_user_id=?`, id).Scan(&total, &active)
+	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(enabled=1 AND can_view=1),0) FROM mini_user_permissions WHERE mini_user_id=? AND module_key IN ('employees','attendance')`, id).Scan(&total, &active)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -182,9 +176,9 @@ func (s *Store) MiniAnyPermission(ctx context.Context, id uint64) (bool, error) 
 	if total > 0 {
 		return active > 0, nil
 	}
-	var ledger, purchases, employees bool
-	err = s.DB.QueryRowContext(ctx, `SELECT can_ledger,can_purchases,can_employees FROM mini_users WHERE id=? AND enabled=1`, id).Scan(&ledger, &purchases, &employees)
-	return ledger || purchases || employees, err
+	var employees bool
+	err = s.DB.QueryRowContext(ctx, `SELECT can_employees FROM mini_users WHERE id=? AND enabled=1`, id).Scan(&employees)
+	return employees, err
 }
 
 type MiniOption struct {
@@ -203,9 +197,7 @@ func (s *Store) MiniOptions(ctx context.Context) (map[string][]MiniOption, error
 	}
 	result := map[string][]MiniOption{}
 	queries := map[string]string{
-		// 系统经营流水账户仅供自动入账使用，手工台账不显示，避免误选为对方资金账户。
-		"accounts":    `SELECT id,name,'',0,account_type,remark FROM ledger_accounts WHERE enabled=1 AND account_no<>'SYS-OPERATING' ORDER BY id`,
-		"categories":  `SELECT id,name,direction,0,'','' FROM ledger_categories WHERE enabled=1 ORDER BY sort_order,id`,
+		// 小程序只录入员工资料，因此仅返回部门和岗位，避免暴露经营账户与收支分类。
 		"departments": `SELECT id,name,'',0,'','' FROM departments WHERE enabled=1 AND active=1 ORDER BY sort_order,id`,
 		"positions":   `SELECT p.id,p.name,'',p.department_id,'','' FROM positions p JOIN departments d ON d.id=p.department_id WHERE p.enabled=1 AND d.enabled=1 AND p.active=1 AND d.active=1 ORDER BY p.sort_order,p.id`,
 	}

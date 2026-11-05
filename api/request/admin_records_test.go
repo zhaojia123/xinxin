@@ -83,6 +83,16 @@ func TestAttendanceInputSupportsHoliday(t *testing.T) {
 	}
 }
 
+func TestAttendanceInputSupportsCompTimeWithoutSalaryDeduction(t *testing.T) {
+	v := AttendanceInput{EmployeeID: 1, Category: "comp_time", RecordType: "调休", OccurredOn: "2026-10-12", DurationDays: "1.00", SalaryEffect: "deduct"}
+	if err := v.Validate(); err != nil {
+		t.Fatalf("调休记录校验失败: %v", err)
+	}
+	if v.Category != "leave" || v.SalaryEffect != "none" || v.SubsidyAmount != "0" {
+		t.Fatalf("调休必须不影响工资，实际为: %+v", v)
+	}
+}
+
 func TestAttendanceInputNormalizesLeaveAndSubsidy(t *testing.T) {
 	v := AttendanceInput{EmployeeID: 1, Category: "exception", RecordType: "特殊请假", OccurredOn: "2026-10-01", DurationDays: "1.00", SalaryEffect: "deduct", SubsidyAmount: "50"}
 	if err := v.Validate(); err != nil {

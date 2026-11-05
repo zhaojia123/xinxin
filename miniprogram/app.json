@@ -1,16 +1,10 @@
 {
   "pages": [
     "pages/login/index",
-    "pages/ledger/index",
-    "pages/ledger-edit/index",
-    "pages/ledger-detail/index",
-    "pages/purchases/index",
-    "pages/purchases-edit/index",
     "pages/employees/index",
     "pages/employee-edit/index",
     "pages/employee-detail/index",
-    "pages/attendance/index",
-    "pages/work-logs/index"
+    "pages/attendance/index"
   ],
   "window": {
     "navigationBarTitleText": "欣欣的日常记录",

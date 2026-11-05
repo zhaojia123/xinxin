@@ -2,6 +2,7 @@ const api = require('../../utils/api')
 
 const TYPES = [
   { name: '公休', category: 'public_rest', recordType: '公休' },
+  { name: '调休', category: 'comp_time', recordType: '调休' },
   { name: '请假', category: 'leave', recordType: '请假' },
   { name: '法定节假日', category: 'holiday', recordType: '节假日' },
   { name: '特殊请假补贴', category: 'leave', recordType: '特殊请假' }
@@ -17,7 +18,7 @@ function currentMonth() { return today().slice(0, 7) }
 Page({
   data: {
     month: currentMonth(), records: [], employees: [], employeeNames: [], selectedEmployees: [], dates: [], formDate: today(),
-    types: TYPES, typeIndex: 0, duration: '1', subsidy: '', reason: '', showForm: false, editingID: 0,
+    types: TYPES, typeIndex: 0, isSpecialLeave: false, duration: '1', subsidy: '', reason: '', showForm: false, editingID: 0,
     q: '', typeFilter: '', loading: false, saving: false, loaded: false, error: '', canCreate: false, canEdit: false, canDelete: false
   },
   onShow() {
@@ -46,7 +47,7 @@ Page({
   filterType(e) { const typeFilter = e.currentTarget.dataset.value; this.setData({ typeFilter }); this.load({ typeFilter }) },
   add() {
     if (!this.data.canCreate) { api.errorModal(new Error('当前账号没有新增请假记录权限')); return }
-    this.setData({ showForm: true, editingID: 0, selectedEmployees: [], employeeNames: [], employees: this.data.employees.map(item => ({ ...item, selected: false })), dates: [], formDate: today(), typeIndex: 0, duration: '1', subsidy: '', reason: '', error: '' })
+    this.setData({ showForm: true, editingID: 0, selectedEmployees: [], employeeNames: [], employees: this.data.employees.map(item => ({ ...item, selected: false })), dates: [], formDate: today(), typeIndex: 0, isSpecialLeave: false, duration: '1', subsidy: '', reason: '', error: '' })
   },
   cancel() { this.setData({ showForm: false, editingID: 0 }) },
   employeeChange(e) {
@@ -61,7 +62,10 @@ Page({
     this.setData({ dates: this.data.dates.concat(this.data.formDate).sort() })
   },
   removeDate(e) { this.setData({ dates: this.data.dates.filter(value => value !== e.currentTarget.dataset.date) }) },
-  typeChange(e) { this.setData({ typeIndex: Number(e.detail.value), subsidy: Number(e.detail.value) === 3 ? this.data.subsidy : '' }) },
+  typeChange(e) {
+    const typeIndex = Number(e.detail.value)
+    this.setData({ typeIndex, isSpecialLeave: TYPES[typeIndex].recordType === '特殊请假', subsidy: TYPES[typeIndex].recordType === '特殊请假' ? this.data.subsidy : '' })
+  },
   durationChange(e) { this.setData({ duration: e.detail.value }) },
   subsidyChange(e) { this.setData({ subsidy: e.detail.value }) },
   reasonChange(e) { this.setData({ reason: e.detail.value }) },
@@ -72,7 +76,7 @@ Page({
       const index = Math.max(0, TYPES.findIndex(item => item.recordType === value.record_type))
       const employee = this.data.employees.find(item => Number(item.id) === Number(value.employee_id))
       const selectedID = Number(value.employee_id)
-      this.setData({ showForm: true, editingID: value.id, selectedEmployees: [selectedID], employeeNames: employee ? [employee.name] : [], employees: this.data.employees.map(item => ({ ...item, selected: Number(item.id) === selectedID })), dates: [value.occurred_on], formDate: value.occurred_on, typeIndex: index, duration: value.duration_days || '1', subsidy: value.subsidy_amount === '0' ? '' : value.subsidy_amount, reason: value.reason || '', error: '' })
+      this.setData({ showForm: true, editingID: value.id, selectedEmployees: [selectedID], employeeNames: employee ? [employee.name] : [], employees: this.data.employees.map(item => ({ ...item, selected: Number(item.id) === selectedID })), dates: [value.occurred_on], formDate: value.occurred_on, typeIndex: index, isSpecialLeave: TYPES[index].recordType === '特殊请假', duration: value.duration_days || '1', subsidy: value.subsidy_amount === '0' ? '' : value.subsidy_amount, reason: value.reason || '', error: '' })
     } catch (error) { api.errorModal(error) }
   },
   async save() {
@@ -83,7 +87,8 @@ Page({
     const days = Number(this.data.duration)
     if (!Number.isFinite(days) || days <= 0 || Math.round(days * 2) !== days * 2) { api.errorModal(new Error('天数必须是大于0的0.5倍数')); return }
     const subsidy = type.recordType === '特殊请假' ? (this.data.subsidy || '0') : '0'
-    const salaryEffect = type.recordType === '公休' || type.recordType === '节假日' ? 'none' : (Number(subsidy) > 0 ? 'deduct_and_subsidy' : 'deduct')
+    // 与后台同一规则：公休、调休、节假日不扣工资，调休不占用公休额度。
+    const salaryEffect = ['公休', '调休', '节假日'].indexOf(type.recordType) >= 0 ? 'none' : (Number(subsidy) > 0 ? 'deduct_and_subsidy' : 'deduct')
     const body = employeeID => ({ employee_id: employeeID, category: type.category, record_type: type.recordType, occurred_on: this.data.dates[0], duration_days: String(this.data.duration), salary_effect: salaryEffect, subsidy_amount: subsidy, reason: this.data.reason.trim() })
     this.setData({ saving: true })
     try {

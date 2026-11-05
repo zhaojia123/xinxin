@@ -9,12 +9,27 @@ import (
 	"friends-records/internal/apperror"
 )
 
+// supplierDisplayOrder 与供货商对账单的既定顺序一致；未配置的新供货商排在末尾。
+const supplierDisplayOrder = `CASE name
+	WHEN '菜卜卜' THEN 1
+	WHEN '阿淘水产' THEN 2
+	WHEN '好享尝' THEN 3
+	WHEN '群利鑫（调味品）' THEN 4
+	WHEN '秀源鑫欢猪肉店' THEN 5
+	WHEN '凌慢慢鲜面' THEN 6
+	WHEN '宸盛杰' THEN 7
+	WHEN '速达宇' THEN 8
+	WHEN '豫集翔（易耗品）' THEN 9
+	WHEN '米油' THEN 10
+	ELSE 999
+END`
+
 // Suppliers 返回仍可用于录入对账的供货商。
 func (s *Store) Suppliers(ctx context.Context) ([]response.Supplier, error) {
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT id,name,contact_name,mobile,remark FROM supplier_accounts WHERE active=1 ORDER BY name,id`)
+	rows, err := s.DB.QueryContext(ctx, `SELECT id,name,contact_name,mobile,remark FROM supplier_accounts WHERE active=1 ORDER BY `+supplierDisplayOrder+`,name,id`)
 	if err != nil {
 		return nil, apperror.Wrap(err, "查询供货商失败")
 	}

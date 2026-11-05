@@ -30,7 +30,8 @@ function hasPermission(module, action = 'view') {
   const user = wx.getStorageSync(USER_KEY) || {}
   if (user.actions && user.actions[module] && user.actions[module][action] !== undefined) return user.actions[module][action] === true
   if (action === 'view' && Array.isArray(user.permissions)) return user.permissions.indexOf(module) >= 0
-  return user['can_' + module] !== false
+  // 权限数据缺失时按无权限处理，避免旧缓存让界面误展示可编辑按钮。
+  return user['can_' + module] === true
 }
 function clearToken() { wx.removeStorageSync(TOKEN_KEY); wx.removeStorageSync(USER_KEY) }
 function toLogin() {
@@ -78,20 +79,6 @@ function uploadFile(path, filePath, formData = {}, name = 'proof') {
     fail() { reject(new Error('图片上传失败，请检查网络连接')) }
   }))
 }
-function downloadFile(path) {
-  const host = baseURL()
-  if (!host) return Promise.reject(new Error('尚未配置此版本的服务器地址，请先设置 config.js'))
-  if (!token()) { toLogin(); return Promise.reject(new Error('请先登录')) }
-  return new Promise((resolve, reject) => wx.downloadFile({
-    url: host + '/api/mini' + path,
-    header: { Authorization: 'Bearer ' + token() }, timeout: 30000,
-    success(res) {
-      if (res.statusCode >= 200 && res.statusCode < 300) { resolve(res.tempFilePath); return }
-      reject(new Error('采购清单下载失败，请稍后重试'))
-    },
-    fail() { reject(new Error('采购清单下载失败，请检查网络连接')) }
-  }))
-}
 function login() {
   return new Promise((resolve, reject) => wx.login({
     timeout: 10000,
@@ -105,4 +92,4 @@ function query(values) {
     .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(values[k])).join('&')
 }
 function errorModal(error) { wx.showModal({ title: '未能完成', content: error.message || '请稍后重试', showCancel: false }) }
-module.exports = { environment, baseURL, setDevelopHost, token, saveToken, saveMiniUser, hasPermission, clearToken, toLogin, guard, request, uploadFile, downloadFile, login, query, errorModal }
+module.exports = { environment, baseURL, setDevelopHost, token, saveToken, saveMiniUser, hasPermission, clearToken, toLogin, guard, request, uploadFile, login, query, errorModal }

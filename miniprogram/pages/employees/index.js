@@ -4,16 +4,12 @@ const employeeList = listPage({ endpoint: '/employees', tab: 'employees', module
 
 Page({
   ...employeeList,
-  onShow() {
-    employeeList.onShow.call(this)
-    this.setData({ canWorkLogs: api.hasPermission('work_logs', 'view') })
-  },
+  onShow() { employeeList.onShow.call(this) },
   filter(e) { this.setData({ status: e.currentTarget.dataset.value }); this.load(true) },
   filterType(e) { this.setData({ employmentType: e.currentTarget.dataset.value }); this.load(true) },
   add(e) { wx.navigateTo({ url: '/pages/employee-edit/index' + (String(e.currentTarget.dataset.temporary) === '1' ? '?temporary=1' : '') }) },
   detail(e) { wx.navigateTo({ url: '/pages/employee-detail/index?id=' + e.currentTarget.dataset.id }) },
   edit(e) { wx.navigateTo({ url: '/pages/employee-edit/index?id=' + e.currentTarget.dataset.id }) },
-  workLogs() { wx.navigateTo({ url: '/pages/work-logs/index' }) },
   remove(e) {
     const id = e.currentTarget.dataset.id
     wx.showModal({ title: '删除员工', content: '删除后将从列表隐藏，但不会物理删除档案。确定继续吗？', success: async res => {

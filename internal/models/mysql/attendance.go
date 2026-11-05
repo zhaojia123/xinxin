@@ -66,12 +66,14 @@ func (s *Store) AttendanceCalendar(ctx context.Context, month string) ([]Attenda
 		switch {
 		case category.String == "leave" && recordType.String == "特殊请假" && (salaryEffect.String == "subsidy" || salaryEffect.String == "deduct_and_subsidy" || subsidy.Float64 > 0):
 			mark = "◎"
-		case category.String == "leave" && recordType.String != "公休" && recordType.String != "节假日":
+		case category.String == "leave" && recordType.String != "公休" && recordType.String != "调休" && recordType.String != "节假日":
 			mark = "✕"
 		case recordType.String == "节假日":
 			mark = "☆"
 		case recordType.String == "公休":
 			mark = "○"
+		case recordType.String == "调休":
+			mark = "△"
 		}
 		if mark != "" {
 			if markPriority[mark] > markPriority[item.marks[idx]] {
@@ -142,6 +144,8 @@ func (s *Store) AttendanceRecords(ctx context.Context) ([]response.AttendanceRec
 		if category == "leave" {
 			if item.Type == "公休" {
 				item.Category = "公休"
+			} else if item.Type == "调休" {
+				item.Category = "调休"
 			} else if item.Type == "节假日" {
 				item.Category = "节假日"
 			} else if item.Type == "特殊请假" {
@@ -217,7 +221,7 @@ func (s *Store) AttendanceStatisticsAt(ctx context.Context, period, month string
 		base = parsed
 	}
 	period, label, start, end := periodRange(period, base)
-	rows, err := s.DB.QueryContext(ctx, `SELECT e.employee_no,e.name,COALESCE(SUM(CASE WHEN a.category='leave' AND a.record_type NOT IN ('公休','节假日') AND a.status IN ('pending','approved') THEN a.duration_days ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.category='leave' AND a.record_type NOT IN ('公休','节假日') AND a.status IN ('pending','approved') THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='迟到' AND a.status IN ('pending','recorded','confirmed','approved') THEN a.duration_minutes ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='迟到' AND a.status IN ('pending','recorded','confirmed','approved') THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='早退' AND a.status IN ('pending','recorded','confirmed','approved') THEN a.duration_minutes ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='早退' AND a.status IN ('pending','recorded','confirmed','approved') THEN 1 ELSE 0 END),0) FROM employees e LEFT JOIN attendance_records a ON a.employee_id=e.id AND a.occurred_on>=? AND a.occurred_on<? AND a.active=1 WHERE e.employment_status IN ('active','probation') AND e.active=1 GROUP BY e.id,e.employee_no,e.name ORDER BY e.employee_no`, start, end)
+	rows, err := s.DB.QueryContext(ctx, `SELECT e.employee_no,e.name,COALESCE(SUM(CASE WHEN a.category='leave' AND a.record_type NOT IN ('公休','调休','节假日') AND a.status IN ('pending','approved') THEN a.duration_days ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.category='leave' AND a.record_type NOT IN ('公休','调休','节假日') AND a.status IN ('pending','approved') THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='迟到' AND a.status IN ('pending','recorded','confirmed','approved') THEN a.duration_minutes ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='迟到' AND a.status IN ('pending','recorded','confirmed','approved') THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='早退' AND a.status IN ('pending','recorded','confirmed','approved') THEN a.duration_minutes ELSE 0 END),0),COALESCE(SUM(CASE WHEN a.record_type='早退' AND a.status IN ('pending','recorded','confirmed','approved') THEN 1 ELSE 0 END),0) FROM employees e LEFT JOIN attendance_records a ON a.employee_id=e.id AND a.occurred_on>=? AND a.occurred_on<? AND a.active=1 WHERE e.employment_status IN ('active','probation') AND e.active=1 GROUP BY e.id,e.employee_no,e.name ORDER BY e.employee_no`, start, end)
 	if err != nil {
 		return response.AttendanceStatistics{}, apperror.Wrap(err, "查询员工出勤统计失败")
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"friends-records/internal/apperror"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var ErrInvalidCredentials = apperror.New("用户名或密码错误")
@@ -15,6 +16,31 @@ type AdminUser struct {
 	Username, PasswordHash, DisplayName string
 	Enabled                             bool
 }
+
+// ChangeAdminPassword 校验当前密码后更新管理员自己的登录密码。
+func (s *Store) ChangeAdminPassword(ctx context.Context, id uint64, currentPassword, newPassword string) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	var passwordHash string
+	if err := s.DB.QueryRowContext(ctx, `SELECT password_hash FROM admin_users WHERE id=? AND enabled=1`, id).Scan(&passwordHash); errors.Is(err, sql.ErrNoRows) {
+		return ErrInvalidCredentials
+	} else if err != nil {
+		return apperror.Wrap(err, "读取后台账号失败")
+	}
+	if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(currentPassword)) != nil {
+		return ErrInvalidCredentials
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return apperror.Wrap(err, "生成密码失败")
+	}
+	if _, err := s.DB.ExecContext(ctx, `UPDATE admin_users SET password_hash=? WHERE id=? AND enabled=1`, string(hash), id); err != nil {
+		return apperror.Wrap(err, "更新后台密码失败")
+	}
+	return nil
+}
+
 type MiniUser struct {
 	ID           uint64                      `json:"id"`
 	DisplayName  string                      `json:"display_name"`
@@ -59,8 +85,8 @@ func (s *Store) MiniLogin(ctx context.Context, openID, unionID string, autoRegis
 	if err := s.DB.QueryRowContext(ctx, `SELECT id,display_name,enabled,can_ledger,can_purchases,can_employees FROM mini_users WHERE openid=? LIMIT 1`, openID).Scan(&user.ID, &user.DisplayName, &user.Enabled, &user.CanLedger, &user.CanPurchases, &user.CanEmployees); err != nil {
 		return MiniUser{}, apperror.Wrap(err, "读取小程序用户失败")
 	}
-	// 新用户沿用旧字段初始化模块权限；请假和临时工工时均跟随员工档案权限。
-	if _, err := s.DB.ExecContext(ctx, `INSERT IGNORE INTO mini_user_permissions (mini_user_id,module_key,enabled) VALUES (?,?,?),(?,?,?),(?,?,?),(?,?,?),(?,?,?)`, user.ID, "ledger", user.CanLedger, user.ID, "purchases", user.CanPurchases, user.ID, "employees", user.CanEmployees, user.ID, "attendance", user.CanEmployees, user.ID, "work_logs", user.CanEmployees); err != nil {
+	// 小程序仅开放员工档案和请假/调休，沿用旧员工权限初始化两项权限。
+	if _, err := s.DB.ExecContext(ctx, `INSERT IGNORE INTO mini_user_permissions (mini_user_id,module_key,enabled) VALUES (?,?,?),(?,?,?)`, user.ID, "employees", user.CanEmployees, user.ID, "attendance", user.CanEmployees); err != nil {
 		return MiniUser{}, apperror.Wrap(err, "初始化小程序用户权限失败")
 	}
 	permissions, err := s.MiniPermissions(ctx, user.ID)

@@ -284,7 +284,18 @@ func (s *Store) AttendanceRecordInput(ctx context.Context, id uint64) (Attendanc
 	}
 	return v, err
 }
+
+// SaveAttendance 保存后台登记的请假、公休、调休等记录。
 func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.AttendanceInput) (uint64, error) {
+	return s.saveAttendance(ctx, id, 0, "manual", v)
+}
+
+// SaveMiniAttendance 与后台共用同一套校验、存储和工资规则，仅记录来源和操作者不同。
+func (s *Store) SaveMiniAttendance(ctx context.Context, id, actor uint64, v request.AttendanceInput) (uint64, error) {
+	return s.saveAttendance(ctx, id, actor, "mini_program", v)
+}
+
+func (s *Store) saveAttendance(ctx context.Context, id, actor uint64, source string, v request.AttendanceInput) (uint64, error) {
 	if err := s.ready(); err != nil {
 		return 0, err
 	}
@@ -292,6 +303,12 @@ func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.Attenda
 		v.Category = "leave"
 		if v.RecordType == "" {
 			v.RecordType = "公休"
+		}
+	}
+	if v.Category == "comp_time" {
+		v.Category = "leave"
+		if v.RecordType == "" {
+			v.RecordType = "调休"
 		}
 	}
 	if v.Category == "holiday" {
@@ -312,7 +329,7 @@ func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.Attenda
 			v.SalaryEffect = "none"
 		}
 	}
-	if v.RecordType == "公休" || v.RecordType == "节假日" {
+	if v.RecordType == "公休" || v.RecordType == "调休" || v.RecordType == "节假日" {
 		v.SalaryEffect = "none"
 		v.SubsidyAmount = "0"
 	}
@@ -355,7 +372,7 @@ func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.Attenda
 		return 0, err
 	}
 	if id == 0 {
-		result, e := tx.ExecContext(ctx, `INSERT INTO attendance_records(employee_id,category,record_type,occurred_on,start_at,end_at,start_time,end_time,duration_minutes,duration_days,salary_effect,subsidy_amount,reason,source,status) VALUES(?,?,?,?,?,?,TIME(?),TIME(?),?,?,?,?,?,'manual',?)`, v.EmployeeID, v.Category, v.RecordType, v.OccurredOn, startAt, endAt, startAt, endAt, v.DurationMinutes, v.DurationDays, v.SalaryEffect, v.SubsidyAmount, v.Reason, status)
+		result, e := tx.ExecContext(ctx, `INSERT INTO attendance_records(employee_id,category,record_type,occurred_on,start_at,end_at,start_time,end_time,duration_minutes,duration_days,salary_effect,subsidy_amount,reason,source,status) VALUES(?,?,?,?,?,?,TIME(?),TIME(?),?,?,?,?,?,?,?)`, v.EmployeeID, v.Category, v.RecordType, v.OccurredOn, startAt, endAt, startAt, endAt, v.DurationMinutes, v.DurationDays, v.SalaryEffect, v.SubsidyAmount, v.Reason, source, status)
 		if e != nil {
 			return 0, e
 		}
@@ -370,7 +387,7 @@ func (s *Store) SaveAttendance(ctx context.Context, id uint64, v request.Attenda
 			return 0, err
 		}
 	}
-	if err := miniAudit(ctx, tx, 0, "attendance", id, v.RecordType); err != nil {
+	if err := miniAudit(ctx, tx, actor, "attendance", id, v.RecordType); err != nil {
 		return 0, err
 	}
 	return id, tx.Commit()

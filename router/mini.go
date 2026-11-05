@@ -20,30 +20,16 @@ func registerMiniRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmysq
 	mini := service.Mini{Store: store, Exchanger: exchanger, Tokens: tokens, AutoRegister: cfg.WeChat.AutoRegister}
 	// POST /api/mini/login：使用 wx.login 返回的 code 登录小程序。
 	mux.HandleFunc("/api/mini/login", h.MiniLogin(mini))
-	ledgerAccess := func(ctx context.Context, id uint64, action string) (bool, error) {
-		return store.MiniPermissionAction(ctx, id, "ledger", action)
-	}
-	purchaseAccess := func(ctx context.Context, id uint64, action string) (bool, error) {
-		return store.MiniPermissionAction(ctx, id, "purchases", action)
-	}
 	employeeAccess := func(ctx context.Context, id uint64, action string) (bool, error) {
 		return store.MiniPermissionAction(ctx, id, "employees", action)
 	}
 	attendanceAccess := func(ctx context.Context, id uint64, action string) (bool, error) {
 		return store.MiniPermissionAction(ctx, id, "attendance", action)
 	}
-	workLogAccess := func(ctx context.Context, id uint64, action string) (bool, error) {
-		return store.MiniPermissionAction(ctx, id, "work_logs", action)
-	}
-	anyAccess := store.MiniAnyPermission
-	// 每个业务接口都校验对应模块权限，避免仅隐藏导航而仍可直接写入其他模块。
-	mux.HandleFunc("/api/mini/ledger", handler.RequireMiniCRUD(tokens, store.MiniEnabled, ledgerAccess, h.MiniLedgerAPI))
-	mux.HandleFunc("/api/mini/purchases", handler.RequireMiniCRUD(tokens, store.MiniEnabled, purchaseAccess, h.MiniPurchasesAPI))
-	mux.HandleFunc("/api/mini/purchases/export", handler.RequireMiniPermission(tokens, store.MiniEnabled, func(ctx context.Context, id uint64) (bool, error) {
-		return store.MiniPermissionAction(ctx, id, "purchases", "view")
-	}, h.MiniPurchaseExport))
+	// 小程序只提供员工资料和请假/调休，其他经营数据仍只在后台维护。
 	mux.HandleFunc("/api/mini/employees", handler.RequireMiniCRUD(tokens, store.MiniEnabled, employeeAccess, h.MiniEmployeesAPI))
 	mux.HandleFunc("/api/mini/attendance", handler.RequireMiniCRUD(tokens, store.MiniEnabled, attendanceAccess, h.MiniAttendanceAPI))
-	mux.HandleFunc("/api/mini/work-logs", handler.RequireMiniCRUD(tokens, store.MiniEnabled, workLogAccess, h.MiniWorkLogsAPI))
-	mux.HandleFunc("/api/mini/options", handler.RequireMiniPermission(tokens, store.MiniEnabled, anyAccess, h.MiniOptionsAPI))
+	mux.HandleFunc("/api/mini/options", handler.RequireMiniPermission(tokens, store.MiniEnabled, func(ctx context.Context, id uint64) (bool, error) {
+		return store.MiniPermissionAction(ctx, id, "employees", "view")
+	}, h.MiniOptionsAPI))
 }

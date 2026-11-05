@@ -399,7 +399,7 @@ func (h *Handler) MiniAttendanceAPI(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		saved, err := h.Store.SaveAttendance(r.Context(), id, input)
+		saved, err := h.Store.SaveMiniAttendance(r.Context(), id, miniActor(r), input)
 		if err != nil {
 			miniFail(w, err)
 			return
@@ -502,11 +502,11 @@ func (h *Handler) MiniOptionsAPI(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, 400, err.Error())
 			return
 		}
-		module := "ledger"
-		if input.Kind == "departments" || input.Kind == "positions" {
-			module = "employees"
+		if input.Kind != "departments" && input.Kind != "positions" {
+			httpx.Error(w, http.StatusBadRequest, "小程序仅可维护部门和岗位选项")
+			return
 		}
-		allowed, err := h.Store.MiniPermissionAction(r.Context(), miniActor(r), module, "create")
+		allowed, err := h.Store.MiniPermissionAction(r.Context(), miniActor(r), "employees", "create")
 		if err != nil {
 			miniFail(w, err)
 			return

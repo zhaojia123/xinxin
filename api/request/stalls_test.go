@@ -121,8 +121,19 @@ func TestStallCostSplitsIngredientAndRiceOil(t *testing.T) {
 }
 
 func TestSupplierInputValidation(t *testing.T) {
-	v := SupplierInput{Name: "菜卜", Contact: "张三", Mobile: "13800000000"}
+	v := SupplierInput{Name: " 群利鑫 （调味品） ", Contact: "张三", Mobile: "13800000000"}
 	if err := v.Validate(); err != nil {
 		t.Fatalf("供货商资料应允许保存：%v", err)
+	}
+	if v.Name != "群利鑫（调味品）" {
+		t.Fatalf("供货商名称应统一括号和空格，实际=%q", v.Name)
+	}
+
+	matrix := SupplierMatrixCostInput{StallID: 1, Month: "2026-09", SupplierName: "豫集翔 (易耗品)", IngredientAmount: "1", RiceOilAmount: "0"}
+	if err := matrix.Validate(); err != nil {
+		t.Fatalf("供货商矩阵资料应允许保存：%v", err)
+	}
+	if matrix.SupplierName != "豫集翔（易耗品）" {
+		t.Fatalf("矩阵供货商名称应统一括号和空格，实际=%q", matrix.SupplierName)
 	}
 }

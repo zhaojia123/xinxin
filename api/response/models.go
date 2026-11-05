@@ -326,6 +326,8 @@ type Stall struct {
 	Month                   string `json:"month"`
 	SchoolCardAmount        string `json:"school_card_amount"`
 	HuilaimiAmount          string `json:"huilaimi_amount"`
+	IngredientCostAmount    string `json:"ingredient_cost_amount"`
+	RiceOilCostAmount       string `json:"rice_oil_cost_amount"`
 	CostAmount              string `json:"cost_amount"`
 	GuaranteedAmount        string `json:"guaranteed_amount"`
 	CostDeductedTurnover    string `json:"cost_deducted_turnover"`
@@ -377,13 +379,43 @@ type StallSummary struct {
 	SelfOperatedCommission string `json:"self_operated_commission"`
 	// OtherStallCommission 是非自营档口按规则或手动填写后的我方抽成。
 	OtherStallCommission string `json:"other_stall_commission"`
+	// OtherStallRiceOilCost 是已计入自营档口成本的非自营档口米油费用，用于本月盈亏回加。
+	OtherStallRiceOilCost string `json:"other_stall_rice_oil_cost"`
 	// OtherStallUnallocatedBalance 是非自营档口扣除成本和我方抽成后，需作为对外支出结算的正向余额。
 	OtherStallUnallocatedBalance string `json:"other_stall_unallocated_balance"`
 	// CommissionBeforeOperatingExpense 是水电和人工成本扣除前，甲乙可分配的档口抽成合计。
 	CommissionBeforeOperatingExpense string `json:"commission_before_operating_expense"`
 	// MonthlyLoss 是当月支出超过甲乙可抽成金额时的亏损额度。
-	MonthlyLoss    string `json:"monthly_loss"`
-	HasMonthlyLoss bool   `json:"has_monthly_loss"`
+	MonthlyLoss    string           `json:"monthly_loss"`
+	HasMonthlyLoss bool             `json:"has_monthly_loss"`
+	ProfitShares   []ProfitShare    `json:"profit_shares"`
+	TableTotals    StallTableTotals `json:"table_totals"`
+}
+
+// ProfitShare 是当月参与利润分配的人员及其比例、金额。
+type ProfitShare struct {
+	ID        uint64 `json:"id"`
+	Name      string `json:"name"`
+	Rate      string `json:"rate"`
+	Amount    string `json:"amount"`
+	SortOrder int    `json:"sort_order"`
+}
+
+// StallTableTotals 是档口月度明细表底部的金额列汇总，不受月度盈亏分配结果覆盖。
+type StallTableTotals struct {
+	SchoolCardAmount     string `json:"school_card_amount"`
+	HuilaimiAmount       string `json:"huilaimi_amount"`
+	TotalTurnover        string `json:"total_turnover"`
+	IngredientCostAmount string `json:"ingredient_cost_amount"`
+	RiceOilCostAmount    string `json:"rice_oil_cost_amount"`
+	CostAmount           string `json:"cost_amount"`
+	CostDeductedTurnover string `json:"cost_deducted_turnover"`
+	ConradCommission     string `json:"conrad_commission"`
+	NetTurnover          string `json:"net_turnover"`
+	JiaCommission        string `json:"jia_commission"`
+	YiCommission         string `json:"yi_commission"`
+	OwnCommission        string `json:"own_commission"`
+	Remaining            string `json:"remaining"`
 }
 
 // StallMonthlyExpense 是档口月度核算使用的水电与工资经营支出。
