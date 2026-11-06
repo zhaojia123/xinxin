@@ -4,11 +4,10 @@
 </head><body><div class="admin-shell">{{template "sidebar" .}}
 <main class="admin-main">
   <header class="admin-topbar"><div><p class="breadcrumb">人员管理 / 员工档案</p><h1>员工档案</h1><p class="page-description">维护员工基本资料、任职状态与联系方式</p></div><div class="header-actions"><a class="ghost-button compact link-button" data-employee-create href="/admin/employees/new?temporary=1">＋ 新增临时工</a><a class="primary-button compact link-button" data-employee-create href="/admin/employees/new">＋ 新增员工</a></div></header>
-  <section class="stat-grid four-cols employee-stats">
-    <article class="stat-card"><span>员工总数</span><strong>{{.Summary.Total}}</strong><small>含离职员工</small></article>
-    <article class="stat-card"><span>当前在职</span><strong>{{.Summary.Active}}</strong><small>正式在职员工</small></article>
-    <article class="stat-card"><span>试用期</span><strong>{{.Summary.Probation}}</strong><small>待转正员工</small></article>
-    <article class="stat-card"><span>本月离职</span><strong>{{.Summary.LeftThisMonth}}</strong><small>本月异动数据</small></article>
+  <section class="stat-grid employee-stats">
+    <article class="stat-card"><span>员工总数</span><strong>{{.Summary.Total}}</strong><small>仅正式工与临时工</small></article>
+    <article class="stat-card"><span>正式工</span><strong>{{.Summary.FullTime}}</strong><small>正式员工人数</small></article>
+    <article class="stat-card"><span>临时工</span><strong>{{.Summary.PartTime}}</strong><small>临时员工人数</small></article>
   </section>
   <section class="health-reminder-card"><div class="health-reminder-heading"><span>证</span><div><h2>20 天内健康证到期提醒</h2><p>每次进入员工档案都会实时查询，按到期日期从近到远展示</p></div><strong>{{len .HealthReminders}} 人</strong></div>{{if .HealthReminders}}<div class="health-reminder-list">{{range .HealthReminders}}<a href="/admin/employees/view?id={{.EmployeeID}}"><span><b>{{.Name}}</b><small>{{.EmployeeNo}} · 到期日期 {{.ExpiresOn}}</small></span><i class="status {{.StatusClass}}">{{.Status}}</i></a>{{end}}</div>{{else}}<p class="health-reminder-empty">未来 20 天暂无健康证到期员工</p>{{end}}</section>
   <section class="table-card">

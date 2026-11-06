@@ -112,7 +112,12 @@ func (s *Store) EmployeeSummary(ctx context.Context) (response.EmployeeSummary, 
 		return response.EmployeeSummary{}, err
 	}
 	var v response.EmployeeSummary
-	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(employment_status='active'),0),COALESCE(SUM(employment_status='probation'),0),COALESCE(SUM(employment_status='left' AND left_on>=DATE_FORMAT(CURDATE(),'%Y-%m-01') AND left_on<DATE_ADD(DATE_FORMAT(CURDATE(),'%Y-%m-01'),INTERVAL 1 MONTH)),0) FROM employees WHERE active=1`).Scan(&v.Total, &v.Active, &v.Probation, &v.LeftThisMonth)
+	err := s.DB.QueryRowContext(ctx, `SELECT
+		COALESCE(SUM(employment_type IN ('full_time','part_time')),0),
+		COALESCE(SUM(employment_type='full_time'),0),
+		COALESCE(SUM(employment_type='part_time'),0)
+		FROM employees
+		WHERE active=1`).Scan(&v.Total, &v.FullTime, &v.PartTime)
 	if err != nil {
 		return response.EmployeeSummary{}, apperror.Wrap(err, "统计员工数据失败")
 	}

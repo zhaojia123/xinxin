@@ -71,10 +71,10 @@ type HealthCertificateReminder struct {
 	StatusClass   string `json:"status_class"`
 }
 type EmployeeSummary struct {
-	Total         int `json:"total"`
-	Active        int `json:"active"`
-	Probation     int `json:"probation"`
-	LeftThisMonth int `json:"left_this_month"`
+	// Total 仅统计正式工和临时工，实习等其他用工类型不计入员工总数。
+	Total    int `json:"total"`
+	FullTime int `json:"full_time"`
+	PartTime int `json:"part_time"`
 }
 type EmployeeEvent struct {
 	Date   string `json:"date"`
