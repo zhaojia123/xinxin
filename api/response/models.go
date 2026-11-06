@@ -71,7 +71,7 @@ type HealthCertificateReminder struct {
 	StatusClass   string `json:"status_class"`
 }
 type EmployeeSummary struct {
-	// Total 仅统计正式工和临时工，实习等其他用工类型不计入员工总数。
+	// Total 仅统计在职或试用期的正式工和临时工；离职、实习等其他人员不计入员工总数。
 	Total    int `json:"total"`
 	FullTime int `json:"full_time"`
 	PartTime int `json:"part_time"`

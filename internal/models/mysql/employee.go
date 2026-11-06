@@ -117,7 +117,7 @@ func (s *Store) EmployeeSummary(ctx context.Context) (response.EmployeeSummary, 
 		COALESCE(SUM(employment_type='full_time'),0),
 		COALESCE(SUM(employment_type='part_time'),0)
 		FROM employees
-		WHERE active=1`).Scan(&v.Total, &v.FullTime, &v.PartTime)
+		WHERE active=1 AND employment_status IN ('active','probation')`).Scan(&v.Total, &v.FullTime, &v.PartTime)
 	if err != nil {
 		return response.EmployeeSummary{}, apperror.Wrap(err, "统计员工数据失败")
 	}
