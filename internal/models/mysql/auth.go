@@ -78,15 +78,21 @@ func (s *Store) MiniLogin(ctx context.Context, openID, unionID string, autoRegis
 	if err := s.ready(); err != nil {
 		return MiniUser{}, err
 	}
-	if _, err := s.DB.ExecContext(ctx, `INSERT INTO mini_users(openid,unionid,enabled,last_login_at) VALUES(?,?,?,NOW()) ON DUPLICATE KEY UPDATE unionid=IF(VALUES(unionid)='',unionid,VALUES(unionid)),last_login_at=NOW()`, openID, unionID, autoRegister); err != nil {
+	result, err := s.DB.ExecContext(ctx, `INSERT INTO mini_users(openid,unionid,enabled,can_employees,last_login_at) VALUES(?,?,?,?,NOW()) ON DUPLICATE KEY UPDATE unionid=IF(VALUES(unionid)='',unionid,VALUES(unionid)),last_login_at=NOW()`, openID, unionID, autoRegister, autoRegister)
+	if err != nil {
 		return MiniUser{}, apperror.Wrap(err, "创建或更新小程序用户失败")
+	}
+	created, err := result.RowsAffected()
+	if err != nil {
+		return MiniUser{}, apperror.Wrap(err, "读取小程序用户创建状态失败")
 	}
 	var user MiniUser
 	if err := s.DB.QueryRowContext(ctx, `SELECT id,display_name,enabled,can_ledger,can_purchases,can_employees FROM mini_users WHERE openid=? LIMIT 1`, openID).Scan(&user.ID, &user.DisplayName, &user.Enabled, &user.CanLedger, &user.CanPurchases, &user.CanEmployees); err != nil {
 		return MiniUser{}, apperror.Wrap(err, "读取小程序用户失败")
 	}
-	// 小程序仅开放员工档案和请假/调休，沿用旧员工权限初始化两项权限。
-	if _, err := s.DB.ExecContext(ctx, `INSERT IGNORE INTO mini_user_permissions (mini_user_id,module_key,enabled) VALUES (?,?,?),(?,?,?)`, user.ID, "employees", user.CanEmployees, user.ID, "attendance", user.CanEmployees); err != nil {
+	// 新用户仅默认开放两个导航的查看权限；新增、修改、删除必须由后台单独授权。
+	defaultView := autoRegister && created == 1
+	if _, err := s.DB.ExecContext(ctx, `INSERT IGNORE INTO mini_user_permissions (mini_user_id,module_key,enabled,can_view,can_create,can_edit,can_delete) VALUES (?,?,?,?,?,?,?),(?,?,?,?,?,?,?)`, user.ID, "employees", defaultView, defaultView, false, false, false, user.ID, "attendance", defaultView, defaultView, false, false, false); err != nil {
 		return MiniUser{}, apperror.Wrap(err, "初始化小程序用户权限失败")
 	}
 	permissions, err := s.MiniPermissions(ctx, user.ID)

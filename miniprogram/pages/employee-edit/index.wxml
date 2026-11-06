@@ -22,10 +22,6 @@
       <view class="field"><view class="label">籍贯</view><input class="control" value="{{form.hometown}}" data-field="hometown" bindinput="input" placeholder="选填" maxlength="128" disabled="{{saving}}"/></view>
       <view class="field"><view class="label">备注</view><textarea class="control" value="{{form.remark}}" data-field="remark" bindinput="input" placeholder="关于这位伙伴的补充信息…" maxlength="500" disabled="{{saving}}"/></view>
     </view>
-    <view wx:if="{{!temporary}}" class="card"><view class="section-title">证件图片</view>
-      <view class="upload-doc-grid"><view class="upload-doc-box" wx:for="{{documentKinds}}" wx:key="kind" data-kind="{{item.kind}}" bindtap="chooseDocument"><view class="upload-plus">＋</view><view>{{item.label}}</view><view class="hint">{{selectedDocuments[item.kind] ? '已选择图片' : '点击从相册选择'}}</view></view></view>
-      <view wx:if="{{pendingDocuments.length}}" class="upload-names">已选择 {{pendingDocuments.length}} 张图片，保存员工后自动上传</view>
-    </view>
   </block>
-  <view class="form-footer"><button class="secondary" bindtap="back" disabled="{{saving || uploading}}">返回</button><button class="primary" bindtap="save" disabled="{{!ready || saving || uploading}}" loading="{{saving || uploading}}">{{uploading ? '上传证件…' : (saving ? '保存中…' : '保存员工资料')}}</button></view>
+  <view class="form-footer"><button class="secondary" bindtap="back" disabled="{{saving}}">返回</button><button class="primary" bindtap="save" disabled="{{!ready || saving}}" loading="{{saving}}">{{saving ? '保存中…' : '保存员工资料'}}</button></view>
 </view>

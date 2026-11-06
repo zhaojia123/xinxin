@@ -18,4 +18,4 @@ max_size_mb = 5
 app_id = "wx61a14738b3d98047"
 app_secret = "请填写微信公众平台的小程序密钥"
 mock_login = false
-auto_register = false
+auto_register = true

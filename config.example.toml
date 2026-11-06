@@ -19,5 +19,5 @@ max_size_mb = 5
 app_id = "wx61a14738b3d98047"
 app_secret = "请填写微信公众平台的小程序密钥"
 mock_login = false
-# 新用户默认停用，需管理员手动启用后才能使用小程序
-auto_register = false
+# 新用户首次登录默认启用员工档案和请假管理的查看权限；写权限仍由后台逐项分配。
+auto_register = true

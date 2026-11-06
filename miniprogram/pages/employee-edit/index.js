@@ -13,15 +13,9 @@ const selections = {
   pay_basis: [{ value: 'monthly', name: '月薪' }, { value: 'daily', name: '日薪' }, { value: 'hourly', name: '时薪' }, { value: 'half_daily', name: '半天工资' }]
 }
 const temporaryPayBases = [{ value: 'hourly', name: '按小时' }, { value: 'daily', name: '按天' }, { value: 'half_daily', name: '按半天' }]
-const documentKinds = [
-  { kind: 'id_card_front', label: '身份证人像面' },
-  { kind: 'id_card_back', label: '身份证国徽面' },
-  { kind: 'health_certificate_front', label: '健康证正面' },
-  { kind: 'health_certificate_back', label: '健康证反面' }
-]
 Page({
   data: {
-    id: 0, temporary: false, ready: false, saving: false, uploading: false, error: '', basicFields, visibleBasicFields: basicFields, selections, temporaryPayBases, documentKinds, pendingDocuments: [], selectedDocuments: {},
+    id: 0, temporary: false, ready: false, saving: false, error: '', basicFields, visibleBasicFields: basicFields, selections, temporaryPayBases,
     choiceFields: [{ key: 'gender', label: '性别' }, { key: 'employment_status', label: '在职状态' }, { key: 'employment_type', label: '用工类型' }, { key: 'pay_basis', label: '计薪方式' }], visibleChoiceFields: [{ key: 'gender', label: '性别' }, { key: 'employment_status', label: '在职状态' }, { key: 'employment_type', label: '用工类型' }, { key: 'pay_basis', label: '计薪方式' }],
     dates: [{ key: 'joined_on', label: '入职日期' }, { key: 'regularized_on', label: '转正日期' }, { key: 'left_on', label: '离职日期（离职时必填）' }], visibleDates: [{ key: 'joined_on', label: '入职日期' }, { key: 'regularized_on', label: '转正日期' }, { key: 'left_on', label: '离职日期（离职时必填）' }],
     form: { employee_no: '', name: '', gender: 'unknown', id_card: '', mobile: '', department_id: 0, position_id: 0, employment_status: 'probation', employment_type: 'full_time', pay_basis: 'monthly', joined_on: '', regularized_on: '', left_on: '', entry_salary: '', current_salary: '', education: '', hometown: '', remark: '' },
@@ -103,23 +97,6 @@ Page({
     if (kind === 'positions' && !this.data.form.department_id) { api.errorModal(new Error('请先选择岗位所属部门')); return }
     formUtil.createOption(this, kind, kind === 'departments' ? '新建部门' : '新建岗位', { department_id: this.data.form.department_id })
   },
-  chooseDocument(e) {
-    const kind = e.currentTarget.dataset.kind
-    const options = {
-      count: 1,
-      sourceType: ['album', 'camera'],
-      success: result => {
-        const item = (result.tempFiles || result.tempFilePaths || [])[0]
-        const path = typeof item === 'string' ? item : item && item.tempFilePath
-        if (!path) return
-        const pendingDocuments = this.data.pendingDocuments.filter(document => document.kind !== kind).concat({ kind, path })
-        this.setData({ pendingDocuments, ['selectedDocuments.' + kind]: true })
-      },
-      fail: error => { if (!error.errMsg || !error.errMsg.includes('cancel')) this.setData({ error: '打开相册失败，请重试' }) }
-    }
-    if (wx.chooseMedia) wx.chooseMedia({ ...options, mediaType: ['image'] })
-    else wx.chooseImage(options)
-  },
   async save() {
     if (!this.data.ready || this.data.saving) return
     const form = { ...this.data.form, name: this.data.form.name.trim(), employee_no: this.data.form.employee_no.trim() }
@@ -136,20 +113,10 @@ Page({
     if (message) { api.errorModal(new Error(message)); return }
     this.setData({ saving: true })
     try {
-      const saved = await api.request('/employees' + (this.data.id ? '?id=' + this.data.id : ''), { method: this.data.id ? 'PUT' : 'POST', data: form })
-      const employeeID = saved.id || this.data.id
-      if (this.data.pendingDocuments.length) {
-        this.setData({ uploading: true })
-        try {
-          await Promise.all(this.data.pendingDocuments.map(document => api.uploadFile('/employee-document', document.path, { employee_id: String(employeeID), attachment_type: document.kind }, 'document')))
-        } catch (error) {
-          wx.showModal({ title: '员工已保存', content: '证件图片上传失败，请进入详情页重新上传。', showCancel: false, success: () => wx.redirectTo({ url: '/pages/employee-detail/index?id=' + employeeID }) })
-          return
-        }
-      }
+      await api.request('/employees' + (this.data.id ? '?id=' + this.data.id : ''), { method: this.data.id ? 'PUT' : 'POST', data: form })
       formUtil.finished(this, '/pages/employees/index')
     } catch (error) { api.errorModal(error) }
-    finally { this.setData({ saving: false, uploading: false }) }
+    finally { this.setData({ saving: false }) }
   },
   back() { formUtil.back('/pages/employees/index') }
 })

@@ -62,23 +62,6 @@ function request(path, { method = 'GET', data, auth = true } = {}) {
     })
   })
 }
-function uploadFile(path, filePath, formData = {}, name = 'proof') {
-  const host = baseURL()
-  if (!host) return Promise.reject(new Error('尚未配置此版本的服务器地址，请先设置 config.js'))
-  if (!token()) { toLogin(); return Promise.reject(new Error('请先登录')) }
-  return new Promise((resolve, reject) => wx.uploadFile({
-    url: host + '/api/mini' + path, filePath, name, formData,
-    header: { Authorization: 'Bearer ' + token() }, timeout: 30000,
-    success(res) {
-      let data = {}
-      try { data = JSON.parse(res.data || '{}') } catch (_) {}
-      if (res.statusCode >= 200 && res.statusCode < 300) { resolve(data); return }
-      if (res.statusCode === 401 || res.statusCode === 403) toLogin()
-      reject(new Error(data.error || '图片上传失败，请稍后重试'))
-    },
-    fail() { reject(new Error('图片上传失败，请检查网络连接')) }
-  }))
-}
 function login() {
   return new Promise((resolve, reject) => wx.login({
     timeout: 10000,
@@ -92,4 +75,4 @@ function query(values) {
     .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(values[k])).join('&')
 }
 function errorModal(error) { wx.showModal({ title: '未能完成', content: error.message || '请稍后重试', showCancel: false }) }
-module.exports = { environment, baseURL, setDevelopHost, token, saveToken, saveMiniUser, hasPermission, clearToken, toLogin, guard, request, uploadFile, login, query, errorModal }
+module.exports = { environment, baseURL, setDevelopHost, token, saveToken, saveMiniUser, hasPermission, clearToken, toLogin, guard, request, login, query, errorModal }
