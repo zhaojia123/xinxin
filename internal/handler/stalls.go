@@ -28,6 +28,8 @@ type StallMonthlyPageData struct {
 	Settings     response.StallSettings
 	Expenses     response.StallMonthlyExpense
 	ProfitShares []response.ProfitShare
+	// HasMonthlyProfitShareOverride 标记当前月份是否使用独立分成，而非公共规则。
+	HasMonthlyProfitShareOverride bool
 }
 
 type StallCostsPageData struct {
@@ -137,7 +139,7 @@ func (h *Handler) StallsMonthlyPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mysql.ApplyMonthlyOperatingExpense(&summary, expenses)
-	shares, err := h.Store.ProfitShares(r.Context(), month)
+	shares, hasMonthlyProfitShareOverride, err := h.Store.ProfitSharesWithSource(r.Context(), month)
 	if err != nil {
 		fail(w, err, "当月分成参与方读取失败")
 		return
@@ -146,7 +148,7 @@ func (h *Handler) StallsMonthlyPage(w http.ResponseWriter, r *http.Request) {
 	expenses.ConradAmount = summary.ConradCommission
 	expenses.CardIncomeAmount = summary.TotalCardTurnover
 	expenses.HuilaimiIncomeAmount = summary.TotalHuilaimi
-	h.render(w, "stall_settlement.html", StallMonthlyPageData{ActiveMenu: "stall-monthly", Month: month, Keyword: keyword, Stalls: items, Summary: summary, Settings: settings, Expenses: expenses, ProfitShares: summary.ProfitShares})
+	h.render(w, "stall_settlement.html", StallMonthlyPageData{ActiveMenu: "stall-monthly", Month: month, Keyword: keyword, Stalls: items, Summary: summary, Settings: settings, Expenses: expenses, ProfitShares: summary.ProfitShares, HasMonthlyProfitShareOverride: hasMonthlyProfitShareOverride})
 }
 
 // StallCostsPage 按档口展示成本汇总，供货商拆分仅在供货商对账页维护。
@@ -383,6 +385,20 @@ func (h *Handler) StallsAPI(tokens *token.Manager) http.HandlerFunc {
 			if _, err := time.Parse("2006-01", month); err != nil {
 				month = time.Now().AddDate(0, -1, 0).Format("2006-01")
 			}
+			if idText := r.URL.Query().Get("id"); idText != "" {
+				id, err := strconv.ParseUint(idText, 10, 64)
+				if err != nil || id == 0 {
+					httpx.Error(w, http.StatusBadRequest, "档口ID不正确")
+					return
+				}
+				item, err := h.Store.StallMonthlyRecord(r.Context(), id, month)
+				if err != nil {
+					adminWriteError(w, err)
+					return
+				}
+				httpx.JSON(w, http.StatusOK, map[string]any{"stall": item, "month": month})
+				return
+			}
 			items, summary, err := h.Store.StallsWithTurnover(r.Context(), month, r.URL.Query().Get("q"))
 			if err != nil {
 				adminWriteError(w, err)
@@ -473,15 +489,28 @@ func (h *Handler) StallSettingsAPI(tokens *token.Manager) http.HandlerFunc {
 	}
 }
 
-// ProfitShareParticipantsAPI 维护指定月份参与利润分成的人员和比例。
+// ProfitShareParticipantsAPI 维护公共分成规则或指定月份的专属覆盖。
 func (h *Handler) ProfitShareParticipantsAPI(tokens *token.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut {
-			httpx.MethodNotAllowed(w, http.MethodPut)
+		if r.Method != http.MethodPut && r.Method != http.MethodDelete {
+			httpx.MethodNotAllowed(w, http.MethodPut, http.MethodDelete)
 			return
 		}
 		actor, ok := adminActor(w, r, tokens)
 		if !ok {
+			return
+		}
+		if r.Method == http.MethodDelete {
+			month := r.URL.Query().Get("month")
+			if _, err := time.Parse("2006-01", month); err != nil {
+				httpx.Error(w, http.StatusBadRequest, "月份格式不正确")
+				return
+			}
+			if err := h.Store.DeleteMonthlyProfitShares(r.Context(), actor, month); err != nil {
+				adminWriteError(w, err)
+				return
+			}
+			httpx.JSON(w, http.StatusOK, map[string]any{"month": month, "scope": "global"})
 			return
 		}
 		var input request.ProfitShareParticipantsInput
@@ -496,7 +525,7 @@ func (h *Handler) ProfitShareParticipantsAPI(tokens *token.Manager) http.Handler
 			adminWriteError(w, err)
 			return
 		}
-		httpx.JSON(w, http.StatusOK, map[string]any{"month": input.Month})
+		httpx.JSON(w, http.StatusOK, map[string]any{"month": input.Month, "scope": input.Scope})
 	}
 }
 

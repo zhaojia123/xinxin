@@ -392,13 +392,14 @@ type StallSummary struct {
 	TableTotals    StallTableTotals `json:"table_totals"`
 }
 
-// ProfitShare 是当月参与利润分配的人员及其比例、金额。
+// ProfitShare 是当月参与利润分配的人员及其比例、分成金额或亏损承担金额。
 type ProfitShare struct {
-	ID        uint64 `json:"id"`
-	Name      string `json:"name"`
-	Rate      string `json:"rate"`
-	Amount    string `json:"amount"`
-	SortOrder int    `json:"sort_order"`
+	ID         uint64 `json:"id"`
+	Name       string `json:"name"`
+	Rate       string `json:"rate"`
+	Amount     string `json:"amount"`
+	LossAmount string `json:"loss_amount"`
+	SortOrder  int    `json:"sort_order"`
 }
 
 // StallTableTotals 是档口月度明细表底部的金额列汇总，不受月度盈亏分配结果覆盖。

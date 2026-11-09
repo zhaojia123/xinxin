@@ -1399,12 +1399,28 @@ document.addEventListener("DOMContentLoaded", () => {
       document.body.appendChild(overlay); const close = () => overlay.remove(); overlay.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", close)); overlay.addEventListener("click", event => { if (event.target === overlay) close(); });
       overlay.querySelector("form").addEventListener("submit", async event => { event.preventDefault(); const form = event.currentTarget; const submit = form.querySelector("button[type=submit]"); submit.disabled = true; try { const values = Object.fromEntries(new FormData(form).entries()); values.stall_id = Number(data.stallId); await fetchJSON(`/api/admin/stall-turnovers${edit ? `?id=${data.turnoverId}` : ""}`, {method: edit ? "PUT" : "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(values)}); window.location.reload(); } catch (error) { form.querySelector(".record-dialog-error").textContent = error.message; submit.disabled = false; } });
     };
-    document.querySelector("[data-stall-settings]")?.addEventListener("submit", async event => {
-      event.preventDefault();
-      const form = event.currentTarget; const button = form.querySelector("button[type=submit]"); button.disabled = true;
-      try { const values = Object.fromEntries(new FormData(form).entries()); await fetchJSON("/api/admin/stall-settings", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(values)}); showMessage("康莱德当月卡机抽点比例已保存"); window.location.reload(); }
-      catch (error) { form.querySelector("[data-stall-settings-error]").textContent = error.message; }
-      finally { button.disabled = false; }
+    document.querySelector("[data-open-profit-settings]")?.addEventListener("click", () => {
+      const root = document.querySelector("[data-stall-monthly-expenses]");
+      const currentMonth = root?.dataset.month || month();
+      const profitSettings = document.querySelector("[data-profit-share-settings]");
+      if (!profitSettings) return;
+      const placeholder = document.createComment("利润分成设置占位");
+      profitSettings.before(placeholder);
+      const currentRate = document.querySelector(".stall-table-v2 thead")?.textContent.match(/卡机([\d.]+)%/)?.[1] || "2.80";
+      const overlay = document.createElement("div"); overlay.className = "record-dialog";
+      overlay.innerHTML = `<div class="record-dialog-card profit-settings-dialog"><div class="record-dialog-head"><div><small>公共规则自动用于未单独设置的月份</small><h2>利润分成与康莱德抽点</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form" data-conrad-settings-form><div class="record-form-grid"><label>核算月份<input name="month" type="month" value="${escapeHTML(currentMonth)}" readonly></label><label>康莱德卡机抽点比例（%）<input name="conrad_rate" type="number" min="0" max="100" step="0.01" required value="${escapeHTML(currentRate)}"><small>康莱德按月单独保存，只扣学校卡机；例如 2.8 表示卡机营业额的 2.8%</small></label><input name="canteen_name" type="hidden" value="厦门理工知行2食堂"><input name="remark" type="hidden" value=""></div><div class="record-dialog-error" role="alert"></div><div class="form-actions"><button class="primary-button" type="submit">保存本月康莱德抽点</button></div></form><div data-profit-settings-slot></div></div>`;
+      document.body.appendChild(overlay);
+      const settingsSlot = overlay.querySelector("[data-profit-settings-slot]");
+      profitSettings.hidden = false;
+      settingsSlot.appendChild(profitSettings);
+      const close = () => { placeholder.before(profitSettings); profitSettings.hidden = true; overlay.remove(); };
+      overlay.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", close));
+      overlay.addEventListener("click", event => { if (event.target === overlay) close(); });
+      overlay.querySelector("[data-conrad-settings-form]").addEventListener("submit", async event => {
+        event.preventDefault(); const form = event.currentTarget; const button = form.querySelector("button[type=submit]"); button.disabled = true;
+        try { const values = Object.fromEntries(new FormData(form).entries()); await fetchJSON("/api/admin/stall-settings", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(values)}); showMessage("康莱德当月卡机抽点比例已保存"); window.location.reload(); }
+        catch (error) { form.querySelector(".record-dialog-error").textContent = error.message; button.disabled = false; }
+      });
     });
     const inlineTurnoverHTML = value => `<strong>¥${value || "0.00"}</strong><small>点击修改</small>`;
     const inlineOwnCommissionHTML = item => {
@@ -1418,15 +1434,17 @@ document.addEventListener("DOMContentLoaded", () => {
       cells[3].innerHTML = inlineTurnoverHTML(item.school_card_amount);
       cells[4].innerHTML = inlineTurnoverHTML(item.huilaimi_amount);
       cells[5].innerHTML = `<strong>${money(item.total_turnover)}</strong>`;
-      cells[6].innerHTML = `${money(item.cost_amount)}<small class="cell-subtitle">成本页维护</small>`;
-      cells[7].textContent = money(item.cost_deducted_turnover);
-      cells[8].textContent = money(item.conrad_commission);
-      cells[9].innerHTML = `<strong>${money(item.net_turnover)}</strong>`;
-      cells[10].textContent = money(item.jia_commission);
-      cells[11].textContent = money(item.yi_commission);
-      cells[12].innerHTML = inlineOwnCommissionHTML(item);
-      cells[13].textContent = money(item.remaining);
-      const turnoverButton = cells[14].querySelector("[data-turnover-edit]");
+      cells[6].innerHTML = `${money(item.ingredient_cost_amount)}<small class="cell-subtitle">成本页维护</small>`;
+      cells[7].innerHTML = `${money(item.rice_oil_cost_amount)}<small class="cell-subtitle">余额扣减</small>`;
+      cells[8].innerHTML = `<strong>${money(item.cost_amount)}</strong><small class="cell-subtitle">食材＋米油</small>`;
+      cells[9].textContent = money(item.cost_deducted_turnover);
+      cells[10].textContent = money(item.conrad_commission);
+      cells[11].innerHTML = `<strong>${money(item.net_turnover)}</strong>`;
+      cells[12].textContent = money(item.jia_commission);
+      cells[13].textContent = money(item.yi_commission);
+      cells[14].innerHTML = inlineOwnCommissionHTML(item);
+      cells[15].textContent = money(item.remaining);
+      const turnoverButton = cells[16].querySelector("[data-turnover-edit]");
       if (turnoverButton) {
         turnoverButton.dataset.turnoverId = item.turnover_id || "";
         turnoverButton.dataset.month = item.month || "";
@@ -1504,10 +1522,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const button = row.querySelector("[data-turnover-edit]");
         const values = {stall_id: Number(row.dataset.id), month: month(), card_amount: button?.dataset.card || "0", huilaimi_amount: button?.dataset.huilaimi || "0", cost_amount: "0", guaranteed_amount: button?.dataset.guaranteed || "0", manual_own_commission: button?.dataset.manualOwn || "", school_amount: button?.dataset.card || "0", remark: ""};
         startInlineEdit(turnoverCell, values[field], async value => { values[field] = value; if (field === "card_amount") values.school_amount = value; const turnoverID = Number(button?.dataset.turnoverId || 0); await fetchJSON(`/api/admin/stall-turnovers${turnoverID > 0 ? `?id=${turnoverID}` : ""}`, {method: turnoverID > 0 ? "PUT" : "POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(values)}); }, async () => {
-          const data = await fetchJSON(`/api/admin/stalls?month=${encodeURIComponent(month())}&q=${encodeURIComponent(row.dataset.stallNo || "")}`);
-          const item = (data.stalls || []).find(value => String(value.id) === String(row.dataset.id));
-          if (!item) throw new Error("没有找到当前档口");
-          updateCalculatedRow(row, item);
+          const data = await fetchJSON(`/api/admin/stalls?id=${encodeURIComponent(row.dataset.id)}&month=${encodeURIComponent(month())}`);
+          updateCalculatedRow(row, data.stall);
         });
         return;
       }
@@ -1516,10 +1532,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (calculateButton) {
         calculateButton.disabled = true;
         try {
-          const data = await fetchJSON(`/api/admin/stalls?month=${encodeURIComponent(month())}&q=${encodeURIComponent(row.dataset.stallNo || "")}`);
-          const item = (data.stalls || []).find(value => String(value.id) === String(row.dataset.id));
-          if (!item) throw new Error("没有找到当前档口");
-          updateCalculatedRow(row, item);
+          const data = await fetchJSON(`/api/admin/stalls?id=${encodeURIComponent(row.dataset.id)}&month=${encodeURIComponent(month())}`);
+          updateCalculatedRow(row, data.stall);
           showMessage(`${row.dataset.name || "当前档口"}已重新计算`);
         } catch (error) { showMessage(error.message); }
         finally { calculateButton.disabled = false; }

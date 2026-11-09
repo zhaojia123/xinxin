@@ -54,9 +54,10 @@ type ProfitShareInput struct {
 	Rate string `json:"rate"`
 }
 
-// ProfitShareParticipantsInput 按月保存全部参与方；比例合计必须刚好为100%。
+// ProfitShareParticipantsInput 保存公共或当月覆盖的利润分成参与方；比例合计必须刚好为100%。
 type ProfitShareParticipantsInput struct {
 	Month        string             `json:"month"`
+	Scope        string             `json:"scope"`
 	Participants []ProfitShareInput `json:"participants"`
 }
 
@@ -65,6 +66,13 @@ func (v *ProfitShareParticipantsInput) Validate() error {
 		return fmt.Errorf("月份格式不正确")
 	}
 	v.Month = strings.TrimSpace(v.Month)
+	v.Scope = strings.TrimSpace(v.Scope)
+	if v.Scope == "" {
+		v.Scope = "monthly"
+	}
+	if v.Scope != "global" && v.Scope != "monthly" {
+		return fmt.Errorf("分成设置范围不正确")
+	}
 	if len(v.Participants) < 2 {
 		return fmt.Errorf("至少保留两位分成参与方")
 	}

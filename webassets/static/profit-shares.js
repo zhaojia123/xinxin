@@ -28,15 +28,26 @@
     if (rows().length <= 2) { error.textContent = "至少保留两位分成参与方"; return; }
     event.target.closest("tr").remove(); error.textContent = ""; refresh();
   });
+  root.querySelector("[data-profit-share-reset]")?.addEventListener("click", async () => {
+    if (!window.confirm("恢复公共规则后，本月单独设置将被移除。确认继续吗？")) return;
+    try {
+      const response = await fetch(`/api/admin/profit-share-participants?month=${encodeURIComponent(root.dataset.month)}`, {method: "DELETE"});
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "恢复公共规则失败");
+      window.location.reload();
+    } catch (err) { error.textContent = err.message; }
+  });
   root.querySelector("form").addEventListener("submit", async event => {
     event.preventDefault(); error.textContent = "";
     const sum = refresh();
     if (Math.abs(sum - 100) > 0.0001) { error.textContent = "所有参与方比例合计必须等于100%"; return; }
     const participants = rows().map(row => ({name: row.querySelector("[data-profit-share-name]").value.trim(), rate: row.querySelector("[data-profit-share-rate]").value}));
     if (participants.some(item => !item.name || Number(item.rate) <= 0)) { error.textContent = "请填写参与方姓名和大于0的比例"; return; }
-    const submit = event.currentTarget.querySelector("button[type=submit]"); submit.disabled = true;
+    const submit = event.submitter || event.currentTarget.querySelector("button[type=submit]");
+    const scope = submit.dataset.profitShareScope || "monthly";
+    submit.disabled = true;
     try {
-      const response = await fetch("/api/admin/profit-share-participants", {method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({month: root.dataset.month, participants})});
+      const response = await fetch("/api/admin/profit-share-participants", {method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({month: root.dataset.month, scope, participants})});
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "保存分成比例失败");
       window.location.reload();

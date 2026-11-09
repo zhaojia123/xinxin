@@ -11,7 +11,7 @@ import (
 	"friends-records/internal/apperror"
 )
 
-const defaultConradRate = 0.03
+const defaultConradRate = 0.028
 
 func stallNumber(value string) float64 {
 	n, _ := strconv.ParseFloat(strings.TrimSpace(value), 64)
@@ -20,7 +20,7 @@ func stallNumber(value string) float64 {
 
 func stallRate(value float64) string { return Decimal(value * 100) }
 
-// conradRateForMonth 读取当月统一康莱德卡机抽点；未配置时默认3%。
+// conradRateForMonth 读取当月统一康莱德卡机抽点；未配置时默认2.8%。
 func conradRateForMonth(ctx context.Context, queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, month string) (float64, error) {
@@ -193,7 +193,7 @@ func stallMonthlySelect() string {
 	 t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE((SELECT SUM(c.amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE((SELECT SUM(c.rice_oil_amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
 }
 
-// StallSettings 查询指定月份的康莱德公司抽成比例；未设置时默认3%。
+// StallSettings 查询指定月份的康莱德公司抽成比例；未设置时默认2.8%。
 func (s *Store) StallSettings(ctx context.Context, month string) (response.StallSettings, error) {
 	if err := s.ready(); err != nil {
 		return response.StallSettings{}, err
@@ -201,7 +201,7 @@ func (s *Store) StallSettings(ctx context.Context, month string) (response.Stall
 	var item response.StallSettings
 	var rate sql.NullFloat64
 	if err := s.DB.QueryRowContext(ctx, `SELECT DATE_FORMAT(turnover_month,'%Y-%m'),canteen_name,conrad_rate,remark FROM stall_commission_settings WHERE turnover_month=?`, month+"-01").Scan(&item.Month, &item.CanteenName, &rate, &item.Remark); err == sql.ErrNoRows {
-		return response.StallSettings{Month: month, CanteenName: "厦门理工知行2食堂", ConradRate: "3.00"}, nil
+		return response.StallSettings{Month: month, CanteenName: "厦门理工知行2食堂", ConradRate: "2.80"}, nil
 	} else if err != nil {
 		return response.StallSettings{}, apperror.Wrap(err, "查询档口抽成设置失败")
 	}
@@ -359,6 +359,23 @@ func (s *Store) StallsWithTurnover(ctx context.Context, month, keyword string) (
 	summary.ConradCommission = Decimal(stallNumber(summary.TotalCardTurnover) * conradRate)
 	summary.TotalCardAfterConrad = Decimal(stallNumber(summary.TotalCardTurnover) - stallNumber(summary.ConradCommission))
 	return items, summary, nil
+}
+
+// StallMonthlyRecord 只读取一个档口当月数据，供单点修改后局部刷新，避免重新查询整张核算列表。
+func (s *Store) StallMonthlyRecord(ctx context.Context, id uint64, month string) (response.Stall, error) {
+	if err := s.ready(); err != nil {
+		return response.Stall{}, err
+	}
+	row := s.DB.QueryRowContext(ctx, stallMonthlySelect()+` FROM stall_accounts s LEFT JOIN stall_turnovers t ON t.stall_id=s.id AND t.turnover_month=? AND t.active=1 LEFT JOIN stall_monthly_rules r ON r.stall_id=s.id AND r.turnover_month=? WHERE s.id=? AND s.active=1`, month+"-01", month+"-01", id)
+	item, err := scanStall(row)
+	if err == sql.ErrNoRows {
+		return response.Stall{}, ErrNotFound
+	}
+	if err != nil {
+		return response.Stall{}, apperror.Wrap(err, "读取档口当月数据失败")
+	}
+	item.Seq = 1
+	return item, nil
 }
 
 func (s *Store) StallRecord(ctx context.Context, id uint64) (response.Stall, error) {
