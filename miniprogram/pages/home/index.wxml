@@ -1,0 +1,20 @@
+<view class="home-page">
+  <view class="hero">
+    <view class="brand-row"><view class="brand-mark">欣</view><view><view class="product-name">欣欣的日常记录</view><view class="product-subtitle">人员管理工作台</view></view></view>
+    <view class="eyebrow">无需登录即可浏览功能</view>
+    <view class="home-title">把每位伙伴的<text>工作记录</text>理清楚</view>
+    <view class="home-intro">用于集中查看员工档案、请假与公休记录。进入具体资料前，才会校验访问权限。</view>
+  </view>
+
+  <view class="section-title">功能服务</view>
+  <view class="feature-card" bindtap="browseEmployees" role="button" aria-label="浏览员工档案功能说明">
+    <view class="feature-icon">人</view><view class="feature-copy"><view>员工档案</view><text>正式工、临时工分类管理，按权限查看和维护。</text></view><view class="arrow">›</view>
+  </view>
+  <view class="feature-card" bindtap="browseAttendance" role="button" aria-label="浏览请假管理功能说明">
+    <view class="feature-icon green">假</view><view class="feature-copy"><view>请假管理</view><text>登记公休、调休、请假与特殊补贴记录。</text></view><view class="arrow">›</view>
+  </view>
+
+  <view class="privacy-card"><view class="privacy-title">隐私说明</view><text>本小程序不收集手机号、头像、昵称；登录仅使用微信临时登录凭证校验后台已配置的访问权限。</text></view>
+  <button class="primary home-button" bindtap="enterWorkspace">{{hasLogin ? '进入已授权资料' : '登录后进入已授权资料'}}</button>
+  <view class="filing-info">备案号：{{filingNumber}}</view>
+</view>

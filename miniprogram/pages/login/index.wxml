@@ -9,8 +9,8 @@
       <view class="preview-top"><view><text>常用功能</text><text class="preview-caption">登录后即可使用</text></view><view class="preview-badge">2 个模块</view></view>
       <view class="feature-grid"><view class="feature-item"><view class="mini-mark">人</view><view class="preview-copy"><text>员工档案</text><text class="muted">正式工与临时工分类管理</text></view></view><view class="feature-item"><view class="mini-mark green">假</view><view class="preview-copy"><text>请假管理</text><text class="muted">公休、请假与特殊补贴</text></view></view></view>
     </view>
-    <button class="primary login-button" bindtap="login" loading="{{loading}}" disabled="{{loading}}">{{loading ? '正在登录…' : '微信授权登录'}}</button>
-    <view class="login-note">仅用于识别登录身份，不读取微信聊天记录</view>
+    <button class="primary login-button" bindtap="login" loading="{{loading}}" disabled="{{loading}}">{{loading ? '正在登录…' : '登录并查看已授权资料'}}</button>
+    <view class="login-note">登录仅用于校验访问权限，不获取手机号、头像或昵称</view>
   </view>
   <view class="filing-info">备案号：{{filingNumber}}</view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
