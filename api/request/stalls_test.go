@@ -120,6 +120,20 @@ func TestStallCostSplitsIngredientAndRiceOil(t *testing.T) {
 	}
 }
 
+func TestStallCostSpecialAdjustmentAllowsClearing(t *testing.T) {
+	v := StallCostSpecialAdjustmentInput{StallID: 1, Month: "2026-09", Amount: ""}
+	if err := v.Validate(); err != nil {
+		t.Fatalf("清空特殊调整应允许保存：%v", err)
+	}
+	if v.Amount != "0" {
+		t.Fatalf("空的特殊调整应标准化为0，实际=%s", v.Amount)
+	}
+	v.Amount = "-1"
+	if err := v.Validate(); err == nil {
+		t.Fatal("负数特殊调整应被拒绝")
+	}
+}
+
 func TestSupplierInputValidation(t *testing.T) {
 	v := SupplierInput{Name: " 群利鑫 （调味品） ", Contact: "张三", Mobile: "13800000000"}
 	if err := v.Validate(); err != nil {

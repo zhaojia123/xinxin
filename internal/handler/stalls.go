@@ -660,6 +660,34 @@ func (h *Handler) StallCostsAPI(tokens *token.Manager) http.HandlerFunc {
 	}
 }
 
+// StallCostSpecialAdjustmentAPI 在成本汇总表中直接更新一个档口的特殊调整总额。
+func (h *Handler) StallCostSpecialAdjustmentAPI(tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			httpx.MethodNotAllowed(w, http.MethodPut)
+			return
+		}
+		var input request.StallCostSpecialAdjustmentInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if err := input.Validate(); err != nil {
+			httpx.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		actor, ok := adminActor(w, r, tokens)
+		if !ok {
+			return
+		}
+		id, err := h.Store.SaveStallCostSpecialAdjustment(r.Context(), actor, input)
+		if err != nil {
+			adminWriteError(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"id": id})
+	}
+}
+
 // SupplierCostMatrixAPI 保存供货商对账矩阵中一个供货商和档口交叉格的费用。
 func (h *Handler) SupplierCostMatrixAPI(tokens *token.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

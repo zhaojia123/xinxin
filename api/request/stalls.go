@@ -206,6 +206,14 @@ type StallCostInput struct {
 	AllSelfOperated  bool   `json:"all_self_operated"`
 }
 
+// StallCostSpecialAdjustmentInput 用于在档口成本汇总表内直接维护特殊调整总额。
+// 该金额不进入供货商对账，服务端会以一个汇总调整记录保存。
+type StallCostSpecialAdjustmentInput struct {
+	StallID uint64 `json:"stall_id"`
+	Month   string `json:"month"`
+	Amount  string `json:"amount"`
+}
+
 // SupplierMatrixCostInput 是供货商-档口对账矩阵中单元格的成本输入。
 type SupplierMatrixCostInput struct {
 	StallID          uint64 `json:"stall_id"`
@@ -370,6 +378,21 @@ func (v *StallCostInput) Validate() error {
 		return fmt.Errorf("备注不能超过255字")
 	}
 	return nil
+}
+
+func (v *StallCostSpecialAdjustmentInput) Validate() error {
+	if v.StallID == 0 {
+		return fmt.Errorf("档口不能为空")
+	}
+	if _, err := time.Parse("2006-01", strings.TrimSpace(v.Month)); err != nil {
+		return fmt.Errorf("成本月份格式必须是YYYY-MM")
+	}
+	v.Month = strings.TrimSpace(v.Month)
+	v.Amount = strings.TrimSpace(v.Amount)
+	if v.Amount == "" {
+		v.Amount = "0"
+	}
+	return validateDecimal(v.Amount, "特殊调整金额", 100000000)
 }
 
 func validateDecimal(value, label string, max float64) error {

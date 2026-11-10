@@ -112,6 +112,8 @@ func registerAdminRoutes(mux *http.ServeMux, h *handler.Handler, store *modelmys
 	// POST/PUT/DELETE /api/admin/stall-turnovers：档口月度营业额。
 	mux.HandleFunc("/api/admin/stall-turnovers", h.StallTurnoverAPI(tokens))
 	mux.HandleFunc("/api/admin/stall-costs", h.StallCostsAPI(tokens))
+	// PUT /api/admin/stall-costs/special-adjustment：直接修改档口当月特殊调整总额。
+	mux.HandleFunc("/api/admin/stall-costs/special-adjustment", h.StallCostSpecialAdjustmentAPI(tokens))
 	// PUT /api/admin/supplier-cost-matrix：保存供货商对账矩阵单元格。
 	mux.HandleFunc("/api/admin/supplier-cost-matrix", h.SupplierCostMatrixAPI(tokens))
 	mux.HandleFunc("/api/admin/stall-costs/ledger", h.StallCostLedgerAPI(tokens))

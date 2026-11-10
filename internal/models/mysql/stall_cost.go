@@ -171,6 +171,81 @@ func (s *Store) SaveStallCost(ctx context.Context, id, actor uint64, input reque
 	return id, tx.Commit()
 }
 
+// SaveStallCostSpecialAdjustment 将一个档口当月的手动特殊调整维护为单个汇总值。
+// 供货商对账数据不会受影响；已入账的调整不能改动，避免台账与成本金额不一致。
+func (s *Store) SaveStallCostSpecialAdjustment(ctx context.Context, actor uint64, input request.StallCostSpecialAdjustmentInput) (uint64, error) {
+	if err := s.ready(); err != nil {
+		return 0, err
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, apperror.Wrap(err, "开始保存特殊调整事务失败")
+	}
+	defer tx.Rollback()
+
+	var stallName string
+	if err := tx.QueryRowContext(ctx, `SELECT name FROM stall_accounts WHERE id=? AND active=1`, input.StallID).Scan(&stallName); err == sql.ErrNoRows {
+		return 0, ErrNotFound
+	} else if err != nil {
+		return 0, apperror.Wrap(err, "读取档口失败")
+	}
+
+	rows, err := tx.QueryContext(ctx, `SELECT id,ledger_entry_id FROM stall_cost_entries WHERE stall_id=? AND cost_month=? AND supplier_name='' AND all_self_operated=0 AND active=1 FOR UPDATE`, input.StallID, input.Month+"-01")
+	if err != nil {
+		return 0, apperror.Wrap(err, "读取特殊调整失败")
+	}
+	defer rows.Close()
+	ids := make([]uint64, 0, 1)
+	for rows.Next() {
+		var id uint64
+		var ledgerID sql.NullInt64
+		if err := rows.Scan(&id, &ledgerID); err != nil {
+			return 0, apperror.Wrap(err, "读取特殊调整失败")
+		}
+		if ledgerID.Valid {
+			return 0, MiniInputError{"该档口已有已入账的特殊调整，不能直接修改"}
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, apperror.Wrap(err, "遍历特殊调整失败")
+	}
+	if err := rows.Close(); err != nil {
+		return 0, apperror.Wrap(err, "关闭特殊调整失败")
+	}
+
+	if len(ids) > 0 {
+		if _, err := tx.ExecContext(ctx, `UPDATE stall_cost_entries SET active=0 WHERE stall_id=? AND cost_month=? AND supplier_name='' AND all_self_operated=0 AND active=1`, input.StallID, input.Month+"-01"); err != nil {
+			return 0, apperror.Wrap(err, "清空旧特殊调整失败")
+		}
+	}
+	amount := stallNumber(input.Amount)
+	if amount == 0 {
+		if len(ids) > 0 {
+			if err := miniAudit(ctx, tx, actor, "stall_costs", ids[0], "清空档口特殊调整："+stallName); err != nil {
+				return 0, err
+			}
+		}
+		return 0, tx.Commit()
+	}
+
+	result, err := tx.ExecContext(ctx, `INSERT INTO stall_cost_entries(stall_id,cost_month,cost_type,all_self_operated,amount,rice_oil_amount,supplier_name,remark) VALUES(?,?,?,0,?,?,?,?)`, input.StallID, input.Month+"-01", "other", input.Amount, "0", "", "档口成本直接调整")
+	if err != nil {
+		return 0, apperror.Wrap(err, "保存特殊调整失败")
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, apperror.Wrap(err, "读取特殊调整编号失败")
+	}
+	if err := miniAudit(ctx, tx, actor, "stall_costs", uint64(id), "更新档口特殊调整："+stallName); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return uint64(id), nil
+}
+
 // SaveSupplierMatrixCost 保存供货商-档口矩阵的一个单元格；清空两个金额会删除未入账单元格。
 func (s *Store) SaveSupplierMatrixCost(ctx context.Context, actor uint64, input request.SupplierMatrixCostInput) (uint64, error) {
 	if err := s.ready(); err != nil {
