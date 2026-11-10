@@ -127,7 +127,7 @@ func exportPercentage(value float64) string {
 	return text + "%"
 }
 
-// stallMonthlyActualPayment 计算导出表的实际支付：自营档口按营业额扣食材和米油，其他档口保留未分配余额。
+// stallMonthlyActualPayment 计算导出表的实际支付：自营档口按营业额扣食材和米油，其他档口使用实际需交付金额。
 func stallMonthlyActualPayment(item response.Stall) float64 {
 	if item.AllocationMode == "profit_share" {
 		return exportAmount(item.TotalTurnover) - exportAmount(item.IngredientCostAmount) - exportAmount(item.RiceOilCostAmount)

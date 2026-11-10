@@ -111,6 +111,10 @@ func calculateStall(item *response.Stall, _ float64) {
 	if item.AllocationMode == "profit_share" {
 		remaining -= rent + fixed
 	}
+	// 每日鲜果按约定只以学校卡机与档口可分成利润结算，汇来米不进入交付金额。
+	if item.StallNo == "S01" || item.Name == "每日鲜果" {
+		remaining = card - own
+	}
 	item.Remaining = Decimal(remaining)
 }
 
@@ -167,7 +171,7 @@ func scanStall(row interface{ Scan(...any) error }) (response.Stall, error) {
 	item.HuilaimiAmount = Decimal(huilaimi.Float64)
 	item.IngredientCostAmount = Decimal(ingredientCost.Float64)
 	item.RiceOilCostAmount = Decimal(riceOilCost.Float64)
-	// 每个档口的未分配余额均扣除食材和米油；月度成本汇总避免重复累计非自营米油。
+	// 每个档口的实际需交付金额均扣除食材和米油；月度成本汇总避免重复累计非自营米油。
 	item.CostAmount = Decimal(ingredientCost.Float64 + riceOilCost.Float64)
 	item.GuaranteedAmount = Decimal(guaranteedAmount.Float64)
 	item.ManualOwnCommission = Decimal(manualOwnCommission.Float64)
@@ -346,7 +350,7 @@ func (s *Store) StallsWithTurnover(ctx context.Context, month, keyword string) (
 			summary.OtherStallCommission = Decimal(stallNumber(summary.OtherStallCommission) + stallNumber(item.OwnCommission))
 			// 非自营档口米油已计入自营档口成本，月度盈亏中回加以避免重复扣减。
 			summary.OtherStallRiceOilCost = Decimal(stallNumber(summary.OtherStallRiceOilCost) + stallNumber(item.RiceOilCostAmount))
-			// 非自营档口的正向未分配余额需要在月度核算时作为对外支出结算。
+			// 非自营档口的正向实际需交付金额需要在月度核算时作为对外支出结算。
 			if remaining := stallNumber(item.Remaining); remaining > 0 {
 				summary.OtherStallUnallocatedBalance = Decimal(stallNumber(summary.OtherStallUnallocatedBalance) + remaining)
 			}

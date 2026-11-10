@@ -119,7 +119,7 @@ func (s *Store) PostMonthlyOperatingExpenseLedger(ctx context.Context, actor uin
 	if err := s.ready(); err != nil {
 		return err
 	}
-	// 非自营档口扣除成本和我方抽成后的余额，是当月需要对外结算的支出。
+	// 非自营档口扣除成本和我方抽成后的实际需交付金额，是当月需要对外结算的支出。
 	_, stallSummary, err := s.StallsWithTurnover(ctx, input.Month, "")
 	if err != nil {
 		return err
@@ -153,6 +153,10 @@ func (s *Store) PostMonthlyOperatingExpenseLedger(ctx context.Context, actor uin
 	var cardAmount, huilaimiAmount float64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(card_amount),0),COALESCE(SUM(huilaimi_amount),0) FROM stall_turnovers WHERE turnover_month=? AND active=1`, input.Month+"-01").Scan(&cardAmount, &huilaimiAmount); err != nil {
 		return apperror.Wrap(err, "统计档口当月营业额失败")
+	}
+	var dailyFreshFruitHuilaimi float64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(t.huilaimi_amount),0) FROM stall_turnovers t JOIN stall_accounts s ON s.id=t.stall_id WHERE t.turnover_month=? AND t.active=1 AND s.active=1 AND (s.stall_no='S01' OR s.name='每日鲜果')`, input.Month+"-01").Scan(&dailyFreshFruitHuilaimi); err != nil {
+		return apperror.Wrap(err, "统计每日鲜果汇来米营业额失败")
 	}
 	conradRate, err := conradRateForMonth(ctx, tx, input.Month)
 	if err != nil {
@@ -199,6 +203,11 @@ func (s *Store) PostMonthlyOperatingExpenseLedger(ctx context.Context, actor uin
 	if err != nil {
 		return apperror.Wrap(err, "写入汇来米营业收入台账失败")
 	}
+	// 每日鲜果的汇来米不参与实际需交付档口金额，需以独立支出完整结算。
+	dailyFreshFruitHuilaimiID, err := post("expense", "每日鲜果汇来米交付", "每日鲜果汇来米交付", dailyFreshFruitHuilaimi)
+	if err != nil {
+		return apperror.Wrap(err, "写入每日鲜果汇来米交付台账失败")
+	}
 	var stallCostAmount float64
 	// 非自营档口米油已由自营档口统一承担，月度统一成本不重复入账。
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(c.amount+CASE WHEN s.allocation_mode='profit_share' THEN c.rice_oil_amount ELSE 0 END),0) FROM stall_cost_entries c JOIN stall_accounts s ON s.id=c.stall_id WHERE c.cost_month=? AND c.active=1 AND c.ledger_entry_id IS NULL`, input.Month+"-01").Scan(&stallCostAmount); err != nil {
@@ -214,17 +223,17 @@ func (s *Store) PostMonthlyOperatingExpenseLedger(ctx context.Context, actor uin
 			return apperror.Wrap(err, "关联档口成本台账失败")
 		}
 	}
-	otherBalanceID, err := post("expense", "非自营档口未分配余额", "非自营档口未分配余额", otherUnallocatedBalance)
+	deliveryID, err := post("expense", "实际需交付档口金额", "实际需交付档口金额", otherUnallocatedBalance)
 	if err != nil {
-		return apperror.Wrap(err, "写入非自营档口未分配余额台账失败")
+		return apperror.Wrap(err, "写入实际需交付档口金额台账失败")
 	}
-	if waterID == 0 && electricityID == 0 && conradID == 0 && cardIncomeID == 0 && huilaimiIncomeID == 0 && stallCostID == 0 && otherBalanceID == 0 {
-		return MiniInputError{"本月没有可确认入账的水电、康莱德抽点、档口成本、非自营未分配余额或营业收入"}
+	if waterID == 0 && electricityID == 0 && conradID == 0 && cardIncomeID == 0 && huilaimiIncomeID == 0 && dailyFreshFruitHuilaimiID == 0 && stallCostID == 0 && deliveryID == 0 {
+		return MiniInputError{"本月没有可确认入账的水电、康莱德抽点、档口成本、实际需交付档口金额、每日鲜果汇来米或营业收入"}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE stall_monthly_expenses SET water_ledger_entry_id=NULLIF(?,0),electricity_ledger_entry_id=NULLIF(?,0),conrad_ledger_entry_id=NULLIF(?,0),card_income_ledger_entry_id=NULLIF(?,0),huilaimi_income_ledger_entry_id=NULLIF(?,0) WHERE expense_month=?`, waterID, electricityID, conradID, cardIncomeID, huilaimiIncomeID, input.Month+"-01"); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO audit_logs(admin_user_id,module,action,target_type,target_text,detail) VALUES(?,?,?,?,?,?)`, actor, "stalls", "月度核算确认入账", "stall_monthly_expenses", input.Month, "水电、档口成本、非自营未分配余额、康莱德支出及卡机、汇来米收入确认入账；工资由工资模块发放时入账"); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO audit_logs(admin_user_id,module,action,target_type,target_text,detail) VALUES(?,?,?,?,?,?)`, actor, "stalls", "月度核算确认入账", "stall_monthly_expenses", input.Month, "水电、档口成本、实际需交付档口金额、每日鲜果汇来米交付、康莱德支出及卡机、汇来米收入确认入账；工资由工资模块发放时入账"); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -255,8 +264,8 @@ func (s *Store) RevokeMonthlyOperatingExpenseLedger(ctx context.Context, actor u
 			ids = append(ids, id.Int64)
 		}
 	}
-	// 档口成本和非自营未分配余额没有单独存入月度表，通过自动流水标识反查，避免影响手工入账记录。
-	costRows, err := tx.QueryContext(ctx, `SELECT l.id FROM ledger_entries l WHERE l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 MONTH) AND l.summary IN (?,?) AND l.remark='档口月度核算自动入账' FOR UPDATE`, month+"-01", month+"-01", month+"全部档口成本", month+"非自营档口未分配余额")
+	// 档口成本和档口交付支出没有单独存入月度表，通过自动流水标识反查，兼容旧名称。
+	costRows, err := tx.QueryContext(ctx, `SELECT l.id FROM ledger_entries l WHERE l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 MONTH) AND l.summary IN (?,?,?,?) AND l.remark='档口月度核算自动入账' FOR UPDATE`, month+"-01", month+"-01", month+"全部档口成本", month+"实际需交付档口金额", month+"每日鲜果汇来米交付", month+"非自营档口未分配余额")
 	if err != nil {
 		return apperror.Wrap(err, "读取月度核算档口成本流水失败")
 	}

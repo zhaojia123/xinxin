@@ -120,9 +120,27 @@ func TestCalculateOtherStallCostDeductsRemaining(t *testing.T) {
 
 	calculateStall(&item, defaultConradRate)
 
-	// 可计算额 200，按 20% 抽成 40；非自营成本必须从未分配余额中扣除。
+	// 可计算额 200，按 20% 抽成 40；非自营成本必须从实际需交付档口金额中扣除。
 	if item.OwnCommission != "40.00" || item.CostDeductedTurnover != "150.00" || item.Remaining != "110.00" {
-		t.Fatalf("非自营成本应扣未分配余额，抽成=%s，扣成本后=%s，余额=%s", item.OwnCommission, item.CostDeductedTurnover, item.Remaining)
+		t.Fatalf("非自营成本应扣实际需交付档口金额，抽成=%s，扣成本后=%s，金额=%s", item.OwnCommission, item.CostDeductedTurnover, item.Remaining)
+	}
+}
+
+func TestCalculateDailyFreshFruitDeliveryUsesSchoolCardOnly(t *testing.T) {
+	item := response.Stall{
+		StallNo:          "S01",
+		Name:             "每日鲜果",
+		AllocationMode:   "custom",
+		SchoolCardAmount: "100.00",
+		HuilaimiAmount:   "20.00",
+		TotalAmountRate:  "10.00",
+	}
+
+	calculateStall(&item, defaultConradRate)
+
+	// 每日鲜果实际需交付金额只取学校卡机减档口可分成利润，汇来米不参与。
+	if item.OwnCommission != "12.00" || item.Remaining != "88.00" {
+		t.Fatalf("每日鲜果交付金额应为学校卡机减档口利润，利润=%s，交付=%s", item.OwnCommission, item.Remaining)
 	}
 }
 

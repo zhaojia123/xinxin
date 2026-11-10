@@ -83,14 +83,25 @@ func (s *Store) LedgerSummaryRangeFiltered(ctx context.Context, start, end strin
 		year = time.Now().Format("2006")
 	}
 	var v response.LedgerSummary
-	var mi, me, balance, yi, ye, maxi, maxe float64
-	query := `SELECT COALESCE(SUM(CASE WHEN l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='income' THEN l.amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='expense' THEN l.amount ELSE 0 END),0),COALESCE((SELECT SUM(opening_balance) FROM ledger_accounts),0)+COALESCE(SUM(CASE WHEN l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) THEN IF(l.direction='income',l.amount,-l.amount) ELSE 0 END),0),COALESCE(SUM(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='income' THEN l.amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='expense' THEN l.amount ELSE 0 END),0),COALESCE(MAX(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='income' THEN l.amount END),0),COALESCE(MAX(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='expense' THEN l.amount END),0),COALESCE(SUM(YEAR(l.occurred_on)=?),0) FROM ledger_entries l WHERE l.active=1`
-	args := []any{start, end, start, end, end, year, year, year, year, year}
+	var mi, me, balance, conrad, yi, ye, maxi, maxe float64
+	// 兼容旧流水按摘要入账的情况，分类或摘要标注康莱德的支出均单独统计。
+	query := `SELECT
+		COALESCE(SUM(CASE WHEN l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='income' THEN l.amount ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='expense' THEN l.amount ELSE 0 END),0),
+		COALESCE((SELECT SUM(opening_balance) FROM ledger_accounts),0)+COALESCE(SUM(CASE WHEN l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) THEN IF(l.direction='income',l.amount,IF(COALESCE(c.name,'') LIKE '%康莱德%' OR l.summary LIKE '%康莱德%',0,-l.amount)) ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='expense' AND (COALESCE(c.name,'') LIKE '%康莱德%' OR l.summary LIKE '%康莱德%') THEN l.amount ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='income' THEN l.amount ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='expense' THEN l.amount ELSE 0 END),0),
+		COALESCE(MAX(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='income' THEN l.amount END),0),
+		COALESCE(MAX(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='expense' THEN l.amount END),0),
+		COALESCE(SUM(YEAR(l.occurred_on)=?),0)
+		FROM ledger_entries l LEFT JOIN ledger_categories c ON c.id=l.category_id WHERE l.active=1`
+	args := []any{start, end, start, end, end, end, year, year, year, year, year}
 	if categoryID != 0 {
 		query += ` AND l.category_id=?`
 		args = append(args, categoryID)
 	}
-	err := s.DB.QueryRowContext(ctx, query, args...).Scan(&mi, &me, &balance, &yi, &ye, &maxi, &maxe, &v.EntryCount)
+	err := s.DB.QueryRowContext(ctx, query, args...).Scan(&mi, &me, &balance, &conrad, &yi, &ye, &maxi, &maxe, &v.EntryCount)
 	if err != nil {
 		return response.LedgerSummary{}, apperror.Wrap(err, "统计台账数据失败")
 	}
@@ -101,6 +112,7 @@ func (s *Store) LedgerSummaryRangeFiltered(ctx context.Context, start, end strin
 		v.Period = "全部历史记录"
 	}
 	v.MonthIncome, v.MonthExpense, v.MonthNet, v.CurrentBalance = Money(mi), Money(me), Money(mi-me), Money(balance)
+	v.ConradExpense = Money(conrad)
 	v.YearIncome, v.YearExpense, v.YearNet, v.MaxIncome, v.MaxExpense = Money(yi), Money(ye), Money(yi-ye), Money(maxi), Money(maxe)
 	return v, nil
 }

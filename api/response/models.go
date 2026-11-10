@@ -381,7 +381,7 @@ type StallSummary struct {
 	OtherStallCommission string `json:"other_stall_commission"`
 	// OtherStallRiceOilCost 是已计入自营档口成本的非自营档口米油费用，用于本月盈亏回加。
 	OtherStallRiceOilCost string `json:"other_stall_rice_oil_cost"`
-	// OtherStallUnallocatedBalance 是非自营档口扣除成本和我方抽成后，需作为对外支出结算的正向余额。
+	// OtherStallUnallocatedBalance 保留字段名兼容已有接口，值表示非自营档口实际需交付的正向金额。
 	OtherStallUnallocatedBalance string `json:"other_stall_unallocated_balance"`
 	// CommissionBeforeOperatingExpense 是水电和人工成本扣除前，甲乙可分配的档口抽成合计。
 	CommissionBeforeOperatingExpense string `json:"commission_before_operating_expense"`
@@ -495,6 +495,7 @@ type LedgerSummary struct {
 	MonthExpense   string `json:"month_expense"`
 	MonthNet       string `json:"month_net"`
 	CurrentBalance string `json:"current_balance"`
+	ConradExpense  string `json:"conrad_expense"`
 	YearIncome     string `json:"year_income"`
 	YearExpense    string `json:"year_expense"`
 	YearNet        string `json:"year_net"`
