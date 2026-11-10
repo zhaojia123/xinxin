@@ -189,7 +189,7 @@ func stallMonthlySelect() string {
 	return `SELECT s.id,s.stall_no,s.name,s.responsible_name,s.responsible_mobile,
 	 COALESCE(r.monthly_rent,s.monthly_rent),COALESCE(r.fixed_commission_amount,s.fixed_commission_amount),COALESCE(r.default_guaranteed_amount,s.default_guaranteed_amount),
  COALESCE(r.allocation_mode,s.allocation_mode),COALESCE(r.profit_jia_rate,s.profit_jia_rate),COALESCE(r.profit_yi_rate,s.profit_yi_rate),
- COALESCE(r.guaranteed_rate,s.guaranteed_rate),COALESCE(r.base_amount_rate,s.base_amount_rate),COALESCE(r.base_amount_factor,s.base_amount_factor),COALESCE(r.total_amount_rate,s.total_amount_rate),s.remark,
+	COALESCE(r.guaranteed_rate,s.guaranteed_rate),COALESCE(r.base_amount_rate,s.base_amount_rate),COALESCE(r.base_amount_factor,s.base_amount_factor),COALESCE(r.total_amount_rate,s.total_amount_rate),COALESCE(r.remark,s.remark),
 	 t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE((SELECT SUM(c.amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE((SELECT SUM(c.rice_oil_amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
 }
 
