@@ -209,8 +209,8 @@ func (s *Store) PostMonthlyOperatingExpenseLedger(ctx context.Context, actor uin
 		return apperror.Wrap(err, "写入每日鲜果汇来米交付台账失败")
 	}
 	var stallCostAmount float64
-	// 非自营档口米油已由自营档口统一承担，月度统一成本不重复入账。
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(c.amount+CASE WHEN s.allocation_mode='profit_share' THEN c.rice_oil_amount ELSE 0 END),0) FROM stall_cost_entries c JOIN stall_accounts s ON s.id=c.stall_id WHERE c.cost_month=? AND c.active=1 AND c.ledger_entry_id IS NULL`, input.Month+"-01").Scan(&stallCostAmount); err != nil {
+	// 自营档口的米油已包含在食材费用中，统一入账时仅统计食材，避免重复支出。
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(c.amount),0) FROM stall_cost_entries c WHERE c.cost_month=? AND c.active=1 AND c.ledger_entry_id IS NULL`, input.Month+"-01").Scan(&stallCostAmount); err != nil {
 		return apperror.Wrap(err, "统计未入账档口成本失败")
 	}
 	stallCostID, err := post("expense", "档口成本", "全部档口成本", stallCostAmount)

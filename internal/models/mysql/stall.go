@@ -323,13 +323,8 @@ func (s *Store) StallsWithTurnover(ctx context.Context, month, keyword string) (
 		totals.YiCommission = Decimal(stallNumber(totals.YiCommission) + stallNumber(item.YiCommission))
 		totals.OwnCommission = Decimal(stallNumber(totals.OwnCommission) + stallNumber(item.OwnCommission))
 		totals.Remaining = Decimal(stallNumber(totals.Remaining) + stallNumber(item.Remaining))
-		// 非自营档口米油已先由自营档口承担，月度成本汇总不重复累计；
-		// 但其单档口余额仍使用包含米油的 CostAmount 扣减。
-		costForMonthlyTotal := stallNumber(item.IngredientCostAmount)
-		if item.AllocationMode == "profit_share" {
-			costForMonthlyTotal = stallNumber(item.CostAmount)
-		}
-		summary.TotalCost = Decimal(stallNumber(summary.TotalCost) + costForMonthlyTotal)
+		// 自营档口的米油已包含在食材费用中，月度汇总只累计食材，避免重复计算。
+		summary.TotalCost = Decimal(stallNumber(summary.TotalCost) + stallNumber(item.IngredientCostAmount))
 		summary.JiaCommission = Decimal(stallNumber(summary.JiaCommission) + stallNumber(item.JiaCommission))
 		summary.YiCommission = Decimal(stallNumber(summary.YiCommission) + stallNumber(item.YiCommission))
 		summary.OwnCommission = Decimal(stallNumber(summary.OwnCommission) + stallNumber(item.OwnCommission))
