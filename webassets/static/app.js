@@ -1408,7 +1408,7 @@ document.addEventListener("DOMContentLoaded", () => {
       profitSettings.before(placeholder);
       const currentRate = document.querySelector(".stall-table-v2 thead")?.textContent.match(/卡机([\d.]+)%/)?.[1] || "2.80";
       const overlay = document.createElement("div"); overlay.className = "record-dialog";
-      overlay.innerHTML = `<div class="record-dialog-card profit-settings-dialog"><div class="record-dialog-head"><div><small>公共规则自动用于未单独设置的月份</small><h2>利润分成与康莱德抽点</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form profit-settings-form" data-conrad-settings-form><div class="record-form-grid"><label>核算月份<input name="month" type="month" value="${escapeHTML(currentMonth)}" readonly></label><label>康莱德卡机抽点比例（%）<input name="conrad_rate" type="number" min="0" max="100" step="0.01" required value="${escapeHTML(currentRate)}"><small>康莱德按月单独保存，只扣学校卡机；例如 2.8 表示卡机营业额的 2.8%</small></label><input name="canteen_name" type="hidden" value="厦门理工知行2食堂"><input name="remark" type="hidden" value=""></div><div class="record-dialog-error" role="alert"></div><div class="form-actions profit-settings-actions"><button class="primary-button" type="submit">保存本月康莱德抽点</button></div></form><div data-profit-settings-slot></div></div>`;
+      overlay.innerHTML = `<div class="record-dialog-card profit-settings-dialog"><div class="record-dialog-head"><div><small>公共规则自动用于未单独设置的月份</small><h2>利润分成与康莱德抽点</h2></div><button type="button" data-close-dialog>×</button></div><form class="record-dialog-form profit-settings-form" data-conrad-settings-form><div class="record-form-grid"><label>核算月份<input name="month" type="month" value="${escapeHTML(currentMonth)}" readonly></label><label>康莱德卡机抽点比例（%）<input name="conrad_rate" type="number" min="0" max="100" step="0.01" required value="${escapeHTML(currentRate)}"><small>康莱德按月单独保存，只扣学校卡机；例如 2.8 表示卡机营业额的 2.8%</small></label><input name="canteen_name" type="hidden" value="厦门理工知行二食堂"><input name="remark" type="hidden" value=""></div><div class="record-dialog-error" role="alert"></div><div class="form-actions profit-settings-actions"><button class="primary-button" type="submit">保存本月康莱德抽点</button></div></form><div data-profit-settings-slot></div></div>`;
       document.body.appendChild(overlay);
       const settingsSlot = overlay.querySelector("[data-profit-settings-slot]");
       profitSettings.hidden = false;
@@ -1423,12 +1423,9 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
     const inlineTurnoverHTML = value => `<strong>¥${value || "0.00"}</strong><small>点击修改</small>`;
-    const inlineOwnCommissionHTML = item => {
-      if (item.can_manual_own_commission) return `<strong class="salary">¥${item.own_commission || "0.00"}</strong><small class="cell-subtitle">${item.manual_own_commission_set ? "当月手动覆盖，点击修改" : "默认全额分成，点击调整"}</small>`;
-      const modeText = item.allocation_mode === "profit_share" ? "甲乙净额分成" : item.allocation_mode === "none" ? "不抽成" : "月租+自定义比例";
-      return `<strong class="salary">¥${item.own_commission || "0.00"}</strong><small class="cell-subtitle">${modeText}</small>`;
-    };
     const updateCalculatedRow = (row, item) => {
+      // 大众快餐与自选餐使用跨行合计，保存后刷新以保证两档合计同步。
+      if (row.dataset.stallNo === "S05" || row.dataset.stallNo === "S06") { window.location.reload(); return; }
       const money = value => `¥${value || "0.00"}`;
       const cells = row.cells;
       cells[3].innerHTML = inlineTurnoverHTML(item.school_card_amount);
@@ -1436,15 +1433,12 @@ document.addEventListener("DOMContentLoaded", () => {
       cells[5].innerHTML = `<strong>${money(item.total_turnover)}</strong>`;
       cells[6].innerHTML = `${money(item.ingredient_cost_amount)}<small class="cell-subtitle">成本页维护</small>`;
       cells[7].innerHTML = `${money(item.rice_oil_cost_amount)}<small class="cell-subtitle">余额扣减</small>`;
-      cells[8].innerHTML = `<strong>${money(item.cost_amount)}</strong><small class="cell-subtitle">食材＋米油</small>`;
-      cells[9].textContent = money(item.cost_deducted_turnover);
-      cells[10].textContent = money(item.conrad_commission);
-      cells[11].innerHTML = `<strong>${money(item.net_turnover)}</strong>`;
-      cells[12].textContent = money(item.jia_commission);
-      cells[13].textContent = money(item.yi_commission);
-      cells[14].innerHTML = inlineOwnCommissionHTML(item);
-      cells[15].textContent = money(item.remaining);
-      const turnoverButton = cells[16].querySelector("[data-turnover-edit]");
+      [[8, "advertising_amount"], [9, "uniform_amount"], [10, "coupon_amount"]].forEach(([index, field]) => {
+        cells[index].dataset.inlineExtraCostValue = item[field] || "0.00";
+        cells[index].innerHTML = inlineTurnoverHTML(item[field]);
+      });
+      cells[11].textContent = money(item.remaining);
+      const turnoverButton = cells[12].querySelector("[data-turnover-edit]");
       if (turnoverButton) {
         turnoverButton.dataset.turnoverId = item.turnover_id || "";
         turnoverButton.dataset.month = item.month || "";
@@ -1499,7 +1493,7 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     document.querySelector("[data-stall-add]")?.addEventListener("click", () => openStallDialog());
     root?.addEventListener("keydown", event => {
-      const cell = event.target.closest("[data-inline-turnover-field], [data-inline-master-field]");
+      const cell = event.target.closest("[data-inline-turnover-field], [data-inline-master-field], [data-inline-extra-cost-field]");
       if (!cell || (event.key !== "Enter" && event.key !== " ")) return;
       event.preventDefault();
       cell.click();
@@ -1513,6 +1507,17 @@ document.addEventListener("DOMContentLoaded", () => {
         startInlineEdit(masterCell, values[field], async value => { values[field] = value; await fetchJSON(`/api/admin/stalls?id=${row.dataset.id}`, {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(values)}); }, () => {
           row.dataset[field.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())] = values[field];
           masterCell.textContent = field.endsWith("rate") || field.endsWith("factor") ? `${values[field]}%` : `¥${values[field]}`;
+        });
+        return;
+      }
+      const extraCostCell = event.target.closest("[data-inline-extra-cost-field]");
+      if (extraCostCell && pagePath === "/admin/stalls/monthly") {
+        const field = extraCostCell.dataset.inlineExtraCostField;
+        startInlineEdit(extraCostCell, extraCostCell.dataset.inlineExtraCostValue || "0", async value => {
+          await fetchJSON("/api/admin/stall-monthly-extra-costs", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({stall_id:Number(row.dataset.id), month:month(), field, amount:value})});
+        }, async () => {
+          const data = await fetchJSON(`/api/admin/stalls?id=${encodeURIComponent(row.dataset.id)}&month=${encodeURIComponent(month())}`);
+          updateCalculatedRow(row, data.stall);
         });
         return;
       }

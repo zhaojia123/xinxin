@@ -109,24 +109,29 @@ func calculateStall(item *response.Stall, _ float64) {
 	item.TotalCommission = Decimal(conrad + own)
 	remaining := availableAfterCost - own
 	if item.AllocationMode == "profit_share" {
+		// 自营档口的可分成利润也属于实际需交付金额的一部分，不能在交付列中被抵销。
 		remaining -= rent + fixed
+		remaining += own
 	}
 	// 每日鲜果按约定只以学校卡机与档口可分成利润结算，汇来米不进入交付金额。
 	if item.StallNo == "S01" || item.Name == "每日鲜果" {
 		remaining = card - own
 	}
+	// 广告和工装由档口自行承担，优惠券可抵扣应交金额；三项不进入档口可分成利润。
+	remaining = remaining - stallNumber(item.AdvertisingAmount) - stallNumber(item.UniformAmount) + stallNumber(item.CouponAmount)
 	item.Remaining = Decimal(remaining)
 }
 
-// ApplyMonthlyOperatingExpense 以各档口已计算出的甲乙可抽成金额为基数，扣除当月实际经营支出后统一分配。
+// ApplyMonthlyOperatingExpense 按自营实际交付、其他档口抽成及各项费用计算当月盈亏后统一分配。
 func ApplyMonthlyOperatingExpense(summary *response.StallSummary, expense response.StallMonthlyExpense) {
-	// 自营档口的金额已扣自身成本、房租等；其他档口的金额已按其抽点规则计算。
+	// 自营档口以实际需交付金额为准；其他档口以本方抽成金额为准。
 	// 康莱德只保留为独立台账支出，不参与本月盈亏计算。
 	// 非自营档口米油已先计入自营档口成本，因此本月盈亏需回加，避免重复扣减。
 	operating := stallNumber(expense.TotalAmount)
-	commissionBeforeExpense := stallNumber(summary.SelfOperatedCommission) + stallNumber(summary.OtherStallCommission)
-	// 自营成本已在单档口计算时扣除；这里继续扣水电和人工等当月经营支出。
-	result := commissionBeforeExpense - operating + stallNumber(summary.OtherStallRiceOilCost)
+	commissionBeforeExpense := stallNumber(summary.SelfOperatedPayableAmount) + stallNumber(summary.OtherStallCommission)
+	// 广告、工装与非自营米油按约定作为正值加入盈亏；水、电、工资统一扣除。
+	extraOperatingCost := stallNumber(summary.TotalAdvertisingAmount) + stallNumber(summary.TotalUniformAmount)
+	result := commissionBeforeExpense - operating + extraOperatingCost + stallNumber(summary.OtherStallRiceOilCost)
 	summary.OperatingExpense = Decimal(operating)
 	summary.CommissionBeforeOperatingExpense = Decimal(commissionBeforeExpense)
 	summary.BalanceBeforeExpenses = Decimal(commissionBeforeExpense)
@@ -148,8 +153,8 @@ func scanStall(row interface{ Scan(...any) error }) (response.Stall, error) {
 	var month sql.NullString
 	var mode sql.NullString
 	var rent, fixed, defaultGuaranteed, jiaRate, yiRate, guaranteedRate, baseRate, baseFactor, totalRate sql.NullFloat64
-	var card, huilaimi, ingredientCost, riceOilCost, guaranteedAmount, manualOwnCommission sql.NullFloat64
-	if err := row.Scan(&item.ID, &item.StallNo, &item.Name, &item.ResponsibleName, &item.ResponsibleMobile, &rent, &fixed, &defaultGuaranteed, &mode, &jiaRate, &yiRate, &guaranteedRate, &baseRate, &baseFactor, &totalRate, &item.Remark, &turnoverID, &month, &card, &huilaimi, &ingredientCost, &riceOilCost, &guaranteedAmount, &manualOwnCommission); err != nil {
+	var card, huilaimi, ingredientCost, riceOilCost, advertisingAmount, uniformAmount, couponAmount, guaranteedAmount, manualOwnCommission sql.NullFloat64
+	if err := row.Scan(&item.ID, &item.StallNo, &item.Name, &item.ResponsibleName, &item.ResponsibleMobile, &rent, &fixed, &defaultGuaranteed, &mode, &jiaRate, &yiRate, &guaranteedRate, &baseRate, &baseFactor, &totalRate, &item.Remark, &turnoverID, &month, &card, &huilaimi, &ingredientCost, &riceOilCost, &advertisingAmount, &uniformAmount, &couponAmount, &guaranteedAmount, &manualOwnCommission); err != nil {
 		return response.Stall{}, err
 	}
 	item.MonthlyRent = Decimal(rent.Float64)
@@ -171,8 +176,15 @@ func scanStall(row interface{ Scan(...any) error }) (response.Stall, error) {
 	item.HuilaimiAmount = Decimal(huilaimi.Float64)
 	item.IngredientCostAmount = Decimal(ingredientCost.Float64)
 	item.RiceOilCostAmount = Decimal(riceOilCost.Float64)
-	// 每个档口的实际需交付金额均扣除食材和米油；月度成本汇总避免重复累计非自营米油。
-	item.CostAmount = Decimal(ingredientCost.Float64 + riceOilCost.Float64)
+	item.AdvertisingAmount = Decimal(advertisingAmount.Float64)
+	item.UniformAmount = Decimal(uniformAmount.Float64)
+	item.CouponAmount = Decimal(couponAmount.Float64)
+	// 自营档口的米油已计入食材费用，计算时不重复扣减；非自营档口仍单独计入米油。
+	costAmount := ingredientCost.Float64 + riceOilCost.Float64
+	if item.AllocationMode == "profit_share" {
+		costAmount = ingredientCost.Float64
+	}
+	item.CostAmount = Decimal(costAmount)
 	item.GuaranteedAmount = Decimal(guaranteedAmount.Float64)
 	item.ManualOwnCommission = Decimal(manualOwnCommission.Float64)
 	item.ManualOwnCommissionSet = manualOwnCommission.Valid
@@ -186,7 +198,7 @@ func scanStall(row interface{ Scan(...any) error }) (response.Stall, error) {
 func stallSelect() string {
 	return `SELECT s.id,s.stall_no,s.name,s.responsible_name,s.responsible_mobile,s.monthly_rent,s.fixed_commission_amount,s.default_guaranteed_amount,
  s.allocation_mode,s.profit_jia_rate,s.profit_yi_rate,s.guaranteed_rate,s.base_amount_rate,s.base_amount_factor,s.total_amount_rate,s.remark,
-	 t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE((SELECT SUM(c.amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE((SELECT SUM(c.rice_oil_amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
+	 t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE((SELECT SUM(c.amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE((SELECT SUM(c.rice_oil_amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),0,0,0,COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
 }
 
 func stallMonthlySelect() string {
@@ -194,7 +206,7 @@ func stallMonthlySelect() string {
 	 COALESCE(r.monthly_rent,s.monthly_rent),COALESCE(r.fixed_commission_amount,s.fixed_commission_amount),COALESCE(r.default_guaranteed_amount,s.default_guaranteed_amount),
  COALESCE(r.allocation_mode,s.allocation_mode),COALESCE(r.profit_jia_rate,s.profit_jia_rate),COALESCE(r.profit_yi_rate,s.profit_yi_rate),
 	COALESCE(r.guaranteed_rate,s.guaranteed_rate),COALESCE(r.base_amount_rate,s.base_amount_rate),COALESCE(r.base_amount_factor,s.base_amount_factor),COALESCE(r.total_amount_rate,s.total_amount_rate),COALESCE(r.remark,s.remark),
-	 t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE((SELECT SUM(c.amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE((SELECT SUM(c.rice_oil_amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
+	 t.id,DATE_FORMAT(t.turnover_month,'%Y-%m'),COALESCE(t.card_amount,0),COALESCE(t.huilaimi_amount,0),COALESCE((SELECT SUM(c.amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE((SELECT SUM(c.rice_oil_amount) FROM stall_cost_entries c WHERE c.stall_id=s.id AND c.cost_month=t.turnover_month AND c.active=1),0),COALESCE(e.advertising_amount,0),COALESCE(e.uniform_amount,0),COALESCE(e.coupon_amount,0),COALESCE(t.guaranteed_amount,0),t.manual_own_commission`
 }
 
 // StallSettings 查询指定月份的康莱德公司抽成比例；未设置时默认2.8%。
@@ -205,10 +217,12 @@ func (s *Store) StallSettings(ctx context.Context, month string) (response.Stall
 	var item response.StallSettings
 	var rate sql.NullFloat64
 	if err := s.DB.QueryRowContext(ctx, `SELECT DATE_FORMAT(turnover_month,'%Y-%m'),canteen_name,conrad_rate,remark FROM stall_commission_settings WHERE turnover_month=?`, month+"-01").Scan(&item.Month, &item.CanteenName, &rate, &item.Remark); err == sql.ErrNoRows {
-		return response.StallSettings{Month: month, CanteenName: "厦门理工知行2食堂", ConradRate: "2.80"}, nil
+		return response.StallSettings{Month: month, CanteenName: "厦门理工知行二食堂", ConradRate: "2.80"}, nil
 	} else if err != nil {
 		return response.StallSettings{}, apperror.Wrap(err, "查询档口抽成设置失败")
 	}
+	// 兼容既有设置，统一将页面标题中的阿拉伯数字改为中文数字。
+	item.CanteenName = strings.ReplaceAll(item.CanteenName, "知行2食堂", "知行二食堂")
 	item.ConradRate = stallRate(rate.Float64)
 	return item, nil
 }
@@ -273,6 +287,29 @@ func (s *Store) SaveStallMonthlyRule(ctx context.Context, actor uint64, v reques
 	return err
 }
 
+// SaveStallMonthlyExtraCost 保存档口当月的广告、工装或优惠券费用。
+// 三项只调整实际需交付档口金额，不改变档口可分成利润。
+func (s *Store) SaveStallMonthlyExtraCost(ctx context.Context, actor uint64, v request.StallMonthlyExtraCostInput) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	columns := map[string]string{
+		"advertising_amount": "advertising_amount",
+		"uniform_amount":     "uniform_amount",
+		"coupon_amount":      "coupon_amount",
+	}
+	column := columns[v.Field]
+	if column == "" {
+		return apperror.New("费用字段不正确")
+	}
+	query := `INSERT INTO stall_monthly_extra_costs(stall_id,cost_month,` + column + `) VALUES(?,?,?) ON DUPLICATE KEY UPDATE ` + column + `=VALUES(` + column + `)`
+	if _, err := s.DB.ExecContext(ctx, query, v.StallID, v.Month+"-01", v.Amount); err != nil {
+		return apperror.Wrap(err, "保存档口当月费用失败")
+	}
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO audit_logs(admin_user_id,module,action,target_type,target_id,target_text,detail) VALUES(?,?,?,?,?,?,?)`, actor, "stalls", "保存档口当月费用", "stall_monthly_extra_costs", v.StallID, v.Month, v.Field)
+	return err
+}
+
 // StallsWithTurnover 查询档口和指定月份营业额，并返回三方汇总。
 func (s *Store) StallsWithTurnover(ctx context.Context, month, keyword string) ([]response.Stall, response.StallSummary, error) {
 	if err := s.ready(); err != nil {
@@ -283,8 +320,8 @@ func (s *Store) StallsWithTurnover(ctx context.Context, month, keyword string) (
 		return nil, response.StallSummary{}, err
 	}
 	keyword = strings.TrimSpace(keyword)
-	query := stallMonthlySelect() + ` FROM stall_accounts s LEFT JOIN stall_turnovers t ON t.stall_id=s.id AND t.turnover_month=? AND t.active=1 LEFT JOIN stall_monthly_rules r ON r.stall_id=s.id AND r.turnover_month=? WHERE s.active=1`
-	args := []any{month + "-01", month + "-01"}
+	query := stallMonthlySelect() + ` FROM stall_accounts s LEFT JOIN stall_turnovers t ON t.stall_id=s.id AND t.turnover_month=? AND t.active=1 LEFT JOIN stall_monthly_rules r ON r.stall_id=s.id AND r.turnover_month=? LEFT JOIN stall_monthly_extra_costs e ON e.stall_id=s.id AND e.cost_month=? WHERE s.active=1`
+	args := []any{month + "-01", month + "-01", month + "-01"}
 	if keyword != "" {
 		query += ` AND (s.stall_no LIKE ? OR s.name LIKE ? OR s.responsible_name LIKE ? OR s.responsible_mobile LIKE ?)`
 		value := "%" + keyword + "%"
@@ -309,20 +346,13 @@ func (s *Store) StallsWithTurnover(ctx context.Context, month, keyword string) (
 		summary.TotalCardTurnover = Decimal(stallNumber(summary.TotalCardTurnover) + stallNumber(item.SchoolCardAmount))
 		summary.TotalHuilaimi = Decimal(stallNumber(summary.TotalHuilaimi) + stallNumber(item.HuilaimiAmount))
 		summary.TotalTurnover = Decimal(stallNumber(summary.TotalTurnover) + stallNumber(item.TotalTurnover))
+		// 广告和工装费用按档口月度记录汇总，只参与本月盈亏，不改变档口可分成利润。
+		summary.TotalAdvertisingAmount = Decimal(stallNumber(summary.TotalAdvertisingAmount) + stallNumber(item.AdvertisingAmount))
+		summary.TotalUniformAmount = Decimal(stallNumber(summary.TotalUniformAmount) + stallNumber(item.UniformAmount))
 		totals := &summary.TableTotals
-		totals.SchoolCardAmount = Decimal(stallNumber(totals.SchoolCardAmount) + stallNumber(item.SchoolCardAmount))
-		totals.HuilaimiAmount = Decimal(stallNumber(totals.HuilaimiAmount) + stallNumber(item.HuilaimiAmount))
-		totals.TotalTurnover = Decimal(stallNumber(totals.TotalTurnover) + stallNumber(item.TotalTurnover))
 		totals.IngredientCostAmount = Decimal(stallNumber(totals.IngredientCostAmount) + stallNumber(item.IngredientCostAmount))
-		totals.RiceOilCostAmount = Decimal(stallNumber(totals.RiceOilCostAmount) + stallNumber(item.RiceOilCostAmount))
-		totals.CostAmount = Decimal(stallNumber(totals.CostAmount) + stallNumber(item.CostAmount))
-		totals.CostDeductedTurnover = Decimal(stallNumber(totals.CostDeductedTurnover) + stallNumber(item.CostDeductedTurnover))
-		totals.ConradCommission = Decimal(stallNumber(totals.ConradCommission) + stallNumber(item.ConradCommission))
-		totals.NetTurnover = Decimal(stallNumber(totals.NetTurnover) + stallNumber(item.NetTurnover))
-		totals.JiaCommission = Decimal(stallNumber(totals.JiaCommission) + stallNumber(item.JiaCommission))
-		totals.YiCommission = Decimal(stallNumber(totals.YiCommission) + stallNumber(item.YiCommission))
-		totals.OwnCommission = Decimal(stallNumber(totals.OwnCommission) + stallNumber(item.OwnCommission))
-		totals.Remaining = Decimal(stallNumber(totals.Remaining) + stallNumber(item.Remaining))
+		totals.AdvertisingAmount = Decimal(stallNumber(totals.AdvertisingAmount) + stallNumber(item.AdvertisingAmount))
+		totals.UniformAmount = Decimal(stallNumber(totals.UniformAmount) + stallNumber(item.UniformAmount))
 		// 自营档口的米油已包含在食材费用中，月度汇总只累计食材，避免重复计算。
 		summary.TotalCost = Decimal(stallNumber(summary.TotalCost) + stallNumber(item.IngredientCostAmount))
 		summary.JiaCommission = Decimal(stallNumber(summary.JiaCommission) + stallNumber(item.JiaCommission))
@@ -338,7 +368,13 @@ func (s *Store) StallsWithTurnover(ctx context.Context, month, keyword string) (
 			summary.SelfOperatedHuilaimi = Decimal(stallNumber(summary.SelfOperatedHuilaimi) + stallNumber(item.HuilaimiAmount))
 			summary.SelfOperatedRevenueAfterConrad = Decimal(stallNumber(summary.SelfOperatedRevenueAfterConrad) + stallNumber(item.SchoolCardAmount) - stallNumber(item.ConradCommission) + stallNumber(item.HuilaimiAmount))
 			summary.SelfOperatedCommission = Decimal(stallNumber(summary.SelfOperatedCommission) + stallNumber(item.OwnCommission))
+			// 自营档口展示的可交付金额取各档口实际需交付金额之和，不使用利润池金额替代。
+			summary.SelfOperatedPayableAmount = Decimal(stallNumber(summary.SelfOperatedPayableAmount) + stallNumber(item.Remaining))
 		} else {
+			// 底部米油合计仅统计非自营档口，避免把自营档口已包含在食材费用里的米油重复展示。
+			totals.RiceOilCostAmount = Decimal(stallNumber(totals.RiceOilCostAmount) + stallNumber(item.RiceOilCostAmount))
+			// 实际需支付档口金额合计仅统计非自营档口，自营档口不进入该项对外支付合计。
+			totals.Remaining = Decimal(stallNumber(totals.Remaining) + stallNumber(item.Remaining))
 			summary.BalanceBeforeExpenses = Decimal(stallNumber(summary.BalanceBeforeExpenses) + stallNumber(item.Remaining))
 			summary.OtherStallRevenueAfterConrad = Decimal(stallNumber(summary.OtherStallRevenueAfterConrad) + stallNumber(item.NetTurnover))
 			// 非自营档口只把本方实际抽成加入甲乙可分配额，营业额本身不重复计入。
@@ -354,10 +390,33 @@ func (s *Store) StallsWithTurnover(ctx context.Context, month, keyword string) (
 	if err := rows.Err(); err != nil {
 		return nil, response.StallSummary{}, apperror.Wrap(err, "遍历档口列表失败")
 	}
+	markCombinedSelfOperatedStalls(items)
 	// 康莱德为全月统一成本：全部卡机营业额 × 当月比例，只在汇总层扣除一次。
 	summary.ConradCommission = Decimal(stallNumber(summary.TotalCardTurnover) * conradRate)
 	summary.TotalCardAfterConrad = Decimal(stallNumber(summary.TotalCardTurnover) - stallNumber(summary.ConradCommission))
 	return items, summary, nil
+}
+
+// markCombinedSelfOperatedStalls 为大众快餐与自选餐准备合并展示金额，不参与任何结算计算。
+func markCombinedSelfOperatedStalls(items []response.Stall) {
+	var fastFoodIndex, selfSelectIndex = -1, -1
+	for index := range items {
+		switch items[index].StallNo {
+		case "S05":
+			fastFoodIndex = index
+		case "S06":
+			selfSelectIndex = index
+		}
+	}
+	if fastFoodIndex < 0 || selfSelectIndex < 0 {
+		return
+	}
+	fastFood := &items[fastFoodIndex]
+	selfSelect := &items[selfSelectIndex]
+	fastFood.PairedWithNext = true
+	fastFood.PairedTotalTurnover = Decimal(stallNumber(fastFood.TotalTurnover) + stallNumber(selfSelect.TotalTurnover))
+	fastFood.PairedTotalRemaining = Decimal(stallNumber(fastFood.Remaining) + stallNumber(selfSelect.Remaining))
+	selfSelect.PairedWithPrevious = true
 }
 
 // StallMonthlyRecord 只读取一个档口当月数据，供单点修改后局部刷新，避免重新查询整张核算列表。
@@ -365,7 +424,7 @@ func (s *Store) StallMonthlyRecord(ctx context.Context, id uint64, month string)
 	if err := s.ready(); err != nil {
 		return response.Stall{}, err
 	}
-	row := s.DB.QueryRowContext(ctx, stallMonthlySelect()+` FROM stall_accounts s LEFT JOIN stall_turnovers t ON t.stall_id=s.id AND t.turnover_month=? AND t.active=1 LEFT JOIN stall_monthly_rules r ON r.stall_id=s.id AND r.turnover_month=? WHERE s.id=? AND s.active=1`, month+"-01", month+"-01", id)
+	row := s.DB.QueryRowContext(ctx, stallMonthlySelect()+` FROM stall_accounts s LEFT JOIN stall_turnovers t ON t.stall_id=s.id AND t.turnover_month=? AND t.active=1 LEFT JOIN stall_monthly_rules r ON r.stall_id=s.id AND r.turnover_month=? LEFT JOIN stall_monthly_extra_costs e ON e.stall_id=s.id AND e.cost_month=? WHERE s.id=? AND s.active=1`, month+"-01", month+"-01", month+"-01", id)
 	item, err := scanStall(row)
 	if err == sql.ErrNoRows {
 		return response.Stall{}, ErrNotFound

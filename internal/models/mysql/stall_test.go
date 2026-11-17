@@ -87,8 +87,25 @@ func TestCalculateSelfOperatedStallDeductsCostBeforeFixedSplit(t *testing.T) {
 	calculateStall(&item, defaultConradRate)
 
 	// (100 + 100) - 97 = 103，再按固定90/10拆分；康莱德在月度汇总中统一扣除。
-	if item.OwnCommission != "103.00" || item.JiaCommission != "92.70" || item.YiCommission != "10.30" {
-		t.Fatalf("自营档口应先扣成本再按90/10分配，总额=%s，甲=%s，乙=%s", item.OwnCommission, item.JiaCommission, item.YiCommission)
+	if item.OwnCommission != "103.00" || item.JiaCommission != "92.70" || item.YiCommission != "10.30" || item.Remaining != "103.00" {
+		t.Fatalf("自营档口应先扣成本再按90/10分配，并将可分成利润计入交付金额，总额=%s，甲=%s，乙=%s，交付=%s", item.OwnCommission, item.JiaCommission, item.YiCommission, item.Remaining)
+	}
+}
+
+func TestCalculateSelfOperatedStallDoesNotDeductRiceOilTwice(t *testing.T) {
+	item := response.Stall{
+		AllocationMode:    "profit_share",
+		SchoolCardAmount:  "147485.11",
+		CostAmount:        "115563.91",
+		RiceOilCostAmount: "18785.00",
+		CouponAmount:      "4480.00",
+	}
+
+	calculateStall(&item, 0)
+
+	// 自营米油已包含在食材成本内，交付金额只扣食材再加优惠券。
+	if item.Remaining != "36401.20" {
+		t.Fatalf("自营档口不应重复扣米油，实际交付=%s", item.Remaining)
 	}
 }
 
@@ -104,7 +121,7 @@ func TestCalculateSelfOperatedStallKeepsLoss(t *testing.T) {
 	if item.NetTurnover != "73665.38" || item.CostDeductedTurnover != "-20130.69" {
 		t.Fatalf("成本前后金额应保留真实值，扣点后=%s，扣成本后=%s", item.NetTurnover, item.CostDeductedTurnover)
 	}
-	if item.OwnCommission != "-20130.69" || item.JiaCommission != "-18117.62" || item.YiCommission != "-2013.07" || item.Remaining != "0.00" {
+	if item.OwnCommission != "-20130.69" || item.JiaCommission != "-18117.62" || item.YiCommission != "-2013.07" || item.Remaining != "-20130.69" {
 		t.Fatalf("自营档口亏损不能归零，总额=%s，甲=%s，乙=%s，余额=%s", item.OwnCommission, item.JiaCommission, item.YiCommission, item.Remaining)
 	}
 }
@@ -123,6 +140,25 @@ func TestCalculateOtherStallCostDeductsRemaining(t *testing.T) {
 	// 可计算额 200，按 20% 抽成 40；非自营成本必须从实际需交付档口金额中扣除。
 	if item.OwnCommission != "40.00" || item.CostDeductedTurnover != "150.00" || item.Remaining != "110.00" {
 		t.Fatalf("非自营成本应扣实际需交付档口金额，抽成=%s，扣成本后=%s，金额=%s", item.OwnCommission, item.CostDeductedTurnover, item.Remaining)
+	}
+}
+
+func TestCalculateStallAdjustsActualDeliveryByExtraCosts(t *testing.T) {
+	item := response.Stall{
+		AllocationMode:    "custom",
+		SchoolCardAmount:  "100.00",
+		HuilaimiAmount:    "100.00",
+		TotalAmountRate:   "20.00",
+		AdvertisingAmount: "10.00",
+		UniformAmount:     "5.00",
+		CouponAmount:      "3.00",
+	}
+
+	calculateStall(&item, defaultConradRate)
+
+	// 原交付额 160，减广告 10、减工装 5、加优惠券 3，得到 148；档口可分成利润不受影响。
+	if item.Remaining != "148.00" || item.OwnCommission != "40.00" {
+		t.Fatalf("实际需交付金额应计入广告、工装和优惠券调整，交付=%s，利润=%s", item.Remaining, item.OwnCommission)
 	}
 }
 
@@ -146,7 +182,7 @@ func TestCalculateDailyFreshFruitDeliveryUsesSchoolCardOnly(t *testing.T) {
 
 func TestApplyMonthlyOperatingExpenseCalculatesProfitShareAfterExpenses(t *testing.T) {
 	summary := response.StallSummary{
-		SelfOperatedCommission: "10000.00",
+		SelfOperatedPayableAmount: "10000.00",
 	}
 	expense := response.StallMonthlyExpense{TotalAmount: "2500.00"}
 
@@ -163,10 +199,46 @@ func TestApplyMonthlyOperatingExpenseCalculatesProfitShareAfterExpenses(t *testi
 	}
 }
 
+func TestApplyMonthlyOperatingExpenseAddsAdvertisingAndUniformCosts(t *testing.T) {
+	summary := response.StallSummary{
+		SelfOperatedPayableAmount: "10000.00",
+		TotalAdvertisingAmount:    "800.00",
+		TotalUniformAmount:        "200.00",
+	}
+	expense := response.StallMonthlyExpense{TotalAmount: "2500.00"}
+
+	ApplyMonthlyOperatingExpense(&summary, expense)
+
+	if summary.DistributableBalance != "8500.00" {
+		t.Fatalf("盈亏应加上广告和工装费用，实际：%s", summary.DistributableBalance)
+	}
+	if summary.JiaCommission != "7650.00" || summary.YiCommission != "850.00" {
+		t.Fatalf("加上广告和工装后应按比例分成，实际甲=%s，乙=%s", summary.JiaCommission, summary.YiCommission)
+	}
+}
+
+func TestApplyMonthlyOperatingExpenseUsesPayableFormula(t *testing.T) {
+	summary := response.StallSummary{
+		SelfOperatedPayableAmount: "10000.00",
+		OtherStallCommission:      "2000.00",
+		OtherStallRiceOilCost:     "130.00",
+		TotalAdvertisingAmount:    "800.00",
+		TotalUniformAmount:        "200.00",
+	}
+	expense := response.StallMonthlyExpense{TotalAmount: "2500.00"}
+
+	ApplyMonthlyOperatingExpense(&summary, expense)
+
+	// 10000（自营实际交付）+ 2000（其他档口抽成）+ 130（米油）+ 800（广告）+ 200（工装）- 2500（水电工资）。
+	if summary.DistributableBalance != "10630.00" || summary.CommissionBeforeOperatingExpense != "12000.00" {
+		t.Fatalf("盈亏应使用实际交付口径，结余=%s，扣支出前=%s", summary.DistributableBalance, summary.CommissionBeforeOperatingExpense)
+	}
+}
+
 func TestApplyMonthlyOperatingExpenseUsesSeptemberAllocationFormula(t *testing.T) {
 	summary := response.StallSummary{
-		SelfOperatedCommission: "68000.00",
-		OtherStallCommission:   "20000.00",
+		SelfOperatedPayableAmount: "68000.00",
+		OtherStallCommission:      "20000.00",
 	}
 	expense := response.StallMonthlyExpense{Month: "2026-09", TotalAmount: "8000.00"}
 
@@ -182,7 +254,7 @@ func TestApplyMonthlyOperatingExpenseUsesSeptemberAllocationFormula(t *testing.T
 }
 
 func TestApplyMonthlyOperatingExpenseKeepsMonthlyLoss(t *testing.T) {
-	summary := response.StallSummary{SelfOperatedCommission: "100.00"}
+	summary := response.StallSummary{SelfOperatedPayableAmount: "100.00"}
 	expense := response.StallMonthlyExpense{TotalAmount: "150.00"}
 
 	ApplyMonthlyOperatingExpense(&summary, expense)
@@ -196,7 +268,7 @@ func TestApplyMonthlyOperatingExpenseKeepsMonthlyLoss(t *testing.T) {
 }
 
 func TestApplyMonthlyOperatingExpenseExcludesConradFromMonthlyProfitAndLoss(t *testing.T) {
-	summary := response.StallSummary{SelfOperatedCommission: "1000.00", ConradCommission: "30.00"}
+	summary := response.StallSummary{SelfOperatedPayableAmount: "1000.00", ConradCommission: "30.00"}
 	expense := response.StallMonthlyExpense{TotalAmount: "70.00"}
 
 	ApplyMonthlyOperatingExpense(&summary, expense)
@@ -208,9 +280,9 @@ func TestApplyMonthlyOperatingExpenseExcludesConradFromMonthlyProfitAndLoss(t *t
 
 func TestApplyMonthlyOperatingExpenseAddsBackOtherStallRiceOilCost(t *testing.T) {
 	summary := response.StallSummary{
-		SelfOperatedCommission: "1000.00",
-		OtherStallRiceOilCost:  "130.00",
-		ConradCommission:       "30.00",
+		SelfOperatedPayableAmount: "1000.00",
+		OtherStallRiceOilCost:     "130.00",
+		ConradCommission:          "30.00",
 	}
 	expense := response.StallMonthlyExpense{TotalAmount: "1150.00"}
 
@@ -223,10 +295,10 @@ func TestApplyMonthlyOperatingExpenseAddsBackOtherStallRiceOilCost(t *testing.T)
 
 func TestApplyMonthlyOperatingExpenseUsesMonthlyLossRiceOilReconciliation(t *testing.T) {
 	summary := response.StallSummary{
-		SelfOperatedCommission: "48335.69",
-		OtherStallCommission:   "49802.60",
-		OtherStallRiceOilCost:  "5355.00",
-		ConradCommission:       "11883.26",
+		SelfOperatedPayableAmount: "48335.69",
+		OtherStallCommission:      "49802.60",
+		OtherStallRiceOilCost:     "5355.00",
+		ConradCommission:          "11883.26",
 	}
 	expense := response.StallMonthlyExpense{TotalAmount: "122480.06"}
 

@@ -556,6 +556,33 @@ func (h *Handler) StallMonthlyRuleAPI(tokens *token.Manager) http.HandlerFunc {
 	}
 }
 
+// StallMonthlyExtraCostAPI 保存档口每月的广告费用、工装费用和优惠券。
+func (h *Handler) StallMonthlyExtraCostAPI(tokens *token.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut {
+			httpx.MethodNotAllowed(w, http.MethodPost, http.MethodPut)
+			return
+		}
+		actor, ok := adminActor(w, r, tokens)
+		if !ok {
+			return
+		}
+		var input request.StallMonthlyExtraCostInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if err := input.Validate(); err != nil {
+			httpx.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := h.Store.SaveStallMonthlyExtraCost(r.Context(), actor, input); err != nil {
+			adminWriteError(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"stall_id": input.StallID, "month": input.Month, "field": input.Field})
+	}
+}
+
 func (h *Handler) StallTurnoverAPI(tokens *token.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

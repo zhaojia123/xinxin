@@ -39,12 +39,12 @@ type UploadConfig struct {
 
 const configPathEnv = "FRIENDS_RECORDS_CONFIG"
 
-// LoadDefault 按本地、线上、旧配置的顺序加载，环境变量可明确覆盖配置文件路径。
+// LoadDefault 默认优先使用线上配置，环境变量可明确覆盖配置文件路径。
 func LoadDefault() (Config, error) {
 	if name := strings.TrimSpace(os.Getenv(configPathEnv)); name != "" {
 		return Load(name)
 	}
-	for _, name := range []string{"config.local.toml", "config.production.toml", "config.toml"} {
+	for _, name := range []string{"config.production.toml", "config.local.toml", "config.toml"} {
 		if _, err := find(name); err == nil {
 			return Load(name)
 		}

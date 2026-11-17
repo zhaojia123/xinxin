@@ -192,6 +192,34 @@ type StallMonthlyExpenseLedgerRevokeInput struct {
 	Month string `json:"month"`
 }
 
+// StallMonthlyExtraCostInput 保存档口当月的待核算费用；暂不参与现有成本和抽成计算。
+type StallMonthlyExtraCostInput struct {
+	StallID uint64 `json:"stall_id"`
+	Month   string `json:"month"`
+	Field   string `json:"field"`
+	Amount  string `json:"amount"`
+}
+
+func (v *StallMonthlyExtraCostInput) Validate() error {
+	if v.StallID == 0 {
+		return fmt.Errorf("档口不能为空")
+	}
+	v.Month = strings.TrimSpace(v.Month)
+	if _, err := time.Parse("2006-01", v.Month); err != nil {
+		return fmt.Errorf("月份格式不正确")
+	}
+	v.Field = strings.TrimSpace(v.Field)
+	switch v.Field {
+	case "advertising_amount", "uniform_amount", "coupon_amount":
+	default:
+		return fmt.Errorf("费用字段不正确")
+	}
+	if strings.TrimSpace(v.Amount) == "" {
+		v.Amount = "0"
+	}
+	return validateDecimal(v.Amount, "费用金额", 100000000)
+}
+
 // StallCostInput 是档口月度成本；非自营成本仅记录和入账，不参与甲乙分配。
 type StallCostInput struct {
 	StallID  uint64 `json:"stall_id"`
@@ -510,7 +538,7 @@ func (v *StallSettingsInput) Validate() error {
 		return fmt.Errorf("抽成月份格式必须是YYYY-MM")
 	}
 	if v.CanteenName == "" {
-		v.CanteenName = "厦门理工知行2食堂"
+		v.CanteenName = "厦门理工知行二食堂"
 	}
 	if len([]rune(v.CanteenName)) > 128 || len([]rune(v.Remark)) > 500 {
 		return fmt.Errorf("食堂设置内容过长")

@@ -195,7 +195,7 @@ func (s *Store) PostMonthlyOperatingExpenseLedger(ctx context.Context, actor uin
 	if err != nil {
 		return apperror.Wrap(err, "写入康莱德抽点台账失败")
 	}
-	cardIncomeID, err := post("income", "卡机营业收入", "卡机扣康莱德后营业收入", cardIncomeAmount)
+	cardIncomeID, err := post("income", "卡机营业收入", "学校卡机营业收入", cardIncomeAmount)
 	if err != nil {
 		return apperror.Wrap(err, "写入卡机营业收入台账失败")
 	}

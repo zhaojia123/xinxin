@@ -18,7 +18,7 @@ app_id = "test-app"
 mock_login = true
 `
 
-func TestLoadDefaultPrefersLocalConfig(t *testing.T) {
+func TestLoadDefaultPrefersProductionConfig(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, filepath.Join(dir, "config.local.toml"))
 	writeProductionConfig(t, filepath.Join(dir, "config.production.toml"))
@@ -29,8 +29,8 @@ func TestLoadDefaultPrefersLocalConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("加载默认配置失败：%v", err)
 	}
-	if cfg.App.Env != "development" {
-		t.Fatalf("本地配置未被优先读取：%s", cfg.App.Env)
+	if cfg.App.Env != "production" {
+		t.Fatalf("线上配置未被优先读取：%s", cfg.App.Env)
 	}
 }
 

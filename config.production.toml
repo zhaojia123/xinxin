@@ -18,4 +18,4 @@ max_size_mb = 5
 app_id = "wx61a14738b3d98047"
 app_secret = "6b3f2f143632b03733c805805a0980d4"
 mock_login = false
-auto_register = false
+auto_register = true

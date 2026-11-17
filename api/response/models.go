@@ -328,6 +328,9 @@ type Stall struct {
 	HuilaimiAmount          string `json:"huilaimi_amount"`
 	IngredientCostAmount    string `json:"ingredient_cost_amount"`
 	RiceOilCostAmount       string `json:"rice_oil_cost_amount"`
+	AdvertisingAmount       string `json:"advertising_amount"`
+	UniformAmount           string `json:"uniform_amount"`
+	CouponAmount            string `json:"coupon_amount"`
 	CostAmount              string `json:"cost_amount"`
 	GuaranteedAmount        string `json:"guaranteed_amount"`
 	CostDeductedTurnover    string `json:"cost_deducted_turnover"`
@@ -346,16 +349,26 @@ type Stall struct {
 	TotalRateCommission     string `json:"total_rate_commission"`
 	TotalCommission         string `json:"total_commission"`
 	Remaining               string `json:"remaining"`
-	TurnoverID              uint64 `json:"turnover_id,omitempty"`
+	// PairedWithNext 标记大众快餐与自选餐的合并展示首行，仅用于月度核算页面排版。
+	PairedWithNext bool `json:"paired_with_next,omitempty"`
+	// PairedWithPrevious 标记大众快餐与自选餐的合并展示次行，仅用于月度核算页面排版。
+	PairedWithPrevious   bool   `json:"paired_with_previous,omitempty"`
+	PairedTotalTurnover  string `json:"paired_total_turnover,omitempty"`
+	PairedTotalRemaining string `json:"paired_total_remaining,omitempty"`
+	TurnoverID           uint64 `json:"turnover_id,omitempty"`
 }
 
 type StallSummary struct {
-	StallCount            int    `json:"stall_count"`
-	TotalCardTurnover     string `json:"total_card_turnover"`
-	TotalCardAfterConrad  string `json:"total_card_after_conrad"`
-	TotalHuilaimi         string `json:"total_huilaimi"`
-	TotalTurnover         string `json:"total_turnover"`
-	TotalCost             string `json:"total_cost"`
+	StallCount           int    `json:"stall_count"`
+	TotalCardTurnover    string `json:"total_card_turnover"`
+	TotalCardAfterConrad string `json:"total_card_after_conrad"`
+	TotalHuilaimi        string `json:"total_huilaimi"`
+	TotalTurnover        string `json:"total_turnover"`
+	TotalCost            string `json:"total_cost"`
+	// TotalAdvertisingAmount 是当月所有档口广告费用合计，计入月度盈亏。
+	TotalAdvertisingAmount string `json:"total_advertising_amount"`
+	// TotalUniformAmount 是当月所有档口工装费用合计，计入月度盈亏。
+	TotalUniformAmount    string `json:"total_uniform_amount"`
 	ConradCommission      string `json:"conrad_commission"`
 	JiaCommission         string `json:"jia_commission"`
 	YiCommission          string `json:"yi_commission"`
@@ -377,6 +390,8 @@ type StallSummary struct {
 	OtherStallRevenueAfterConrad string `json:"other_stall_revenue_after_conrad"`
 	// SelfOperatedCommission 是自营档口扣成本、房租等规则后进入甲乙分配的金额。
 	SelfOperatedCommission string `json:"self_operated_commission"`
+	// SelfOperatedPayableAmount 是自营档口实际需交付档口金额的合计，仅用于核算页面展示。
+	SelfOperatedPayableAmount string `json:"self_operated_payable_amount"`
 	// OtherStallCommission 是非自营档口按规则或手动填写后的我方抽成。
 	OtherStallCommission string `json:"other_stall_commission"`
 	// OtherStallRiceOilCost 是已计入自营档口成本的非自营档口米油费用，用于本月盈亏回加。
@@ -404,18 +419,10 @@ type ProfitShare struct {
 
 // StallTableTotals 是档口月度明细表底部的金额列汇总，不受月度盈亏分配结果覆盖。
 type StallTableTotals struct {
-	SchoolCardAmount     string `json:"school_card_amount"`
-	HuilaimiAmount       string `json:"huilaimi_amount"`
-	TotalTurnover        string `json:"total_turnover"`
 	IngredientCostAmount string `json:"ingredient_cost_amount"`
 	RiceOilCostAmount    string `json:"rice_oil_cost_amount"`
-	CostAmount           string `json:"cost_amount"`
-	CostDeductedTurnover string `json:"cost_deducted_turnover"`
-	ConradCommission     string `json:"conrad_commission"`
-	NetTurnover          string `json:"net_turnover"`
-	JiaCommission        string `json:"jia_commission"`
-	YiCommission         string `json:"yi_commission"`
-	OwnCommission        string `json:"own_commission"`
+	AdvertisingAmount    string `json:"advertising_amount"`
+	UniformAmount        string `json:"uniform_amount"`
 	Remaining            string `json:"remaining"`
 }
 
@@ -494,6 +501,9 @@ type LedgerSummary struct {
 	MonthIncome    string `json:"month_income"`
 	MonthExpense   string `json:"month_expense"`
 	MonthNet       string `json:"month_net"`
+	ListIncome     string `json:"list_income"`
+	ListExpense    string `json:"list_expense"`
+	ListNet        string `json:"list_net"`
 	CurrentBalance string `json:"current_balance"`
 	ConradExpense  string `json:"conrad_expense"`
 	YearIncome     string `json:"year_income"`

@@ -227,19 +227,10 @@ h2 { margin-bottom: 6px; font-size: 20px; }
 .stall-summary-grid .stat-card strong { font-size: 23px; }
 .stall-settings-card { margin-top: 18px; }
 
-/* 康莱德抽点按全月卡机统一展示，档口明细不再逐行重复占列。 */
-.admin-main[data-stalls-page] .stall-table-v2 th:nth-child(9),
-.admin-main[data-stalls-page] .stall-table-v2 td:nth-child(9),
+/* 月度汇总卡片保留核心结果，明细费用字段仍完整展示。 */
 .admin-main[data-stalls-page] .monthly-expense-metrics .fixed-rule-field:nth-child(7),
 .admin-main[data-stalls-page] .monthly-expense-metrics .fixed-rule-field:nth-child(8) {
   display: none;
-}
-
-/* 明细不使用康莱德比例，表头明确展示为原始卡机与汇来米合计。 */
-.admin-main[data-stalls-page] .stall-table-v2 th:nth-child(10) { font-size: 0; }
-.admin-main[data-stalls-page] .stall-table-v2 th:nth-child(10)::after {
-  content: "卡机＋汇来米";
-  font-size: 12px;
 }
 .record-inline-form { display:flex; align-items:end; flex-wrap:wrap; gap:12px; padding:0 22px 22px; }
 .record-inline-form label { display:grid; gap:6px; min-width:190px; color:var(--muted); font-size:12px; font-weight:700; }
@@ -341,8 +332,8 @@ h2 { margin-bottom: 6px; font-size: 20px; }
 .table-toolbar .ghost-button { height: 42px; padding: 0 16px; border: 1px solid #dfe5ed; background: white; box-shadow: 0 1px 2px rgba(16,24,40,.04); }
 .table-toolbar .ghost-button:hover { color: var(--primary); border-color: #afc1f8; background: #f7f9ff; }
 .inline-number-input { width: 100%; min-width: 86px; box-sizing: border-box; border: 1px solid #7da0ff; border-radius: 7px; padding: 7px 8px; color: var(--ink); background: #fff; font: inherit; }
-[data-inline-master-field], [data-inline-turnover-field] { cursor: pointer; }
-[data-inline-master-field]:hover, [data-inline-turnover-field]:hover { background: #f4f7ff; }
+[data-inline-master-field], [data-inline-turnover-field], [data-inline-extra-cost-field] { cursor: pointer; }
+[data-inline-master-field]:hover, [data-inline-turnover-field]:hover, [data-inline-extra-cost-field]:hover { background: #f4f7ff; }
 .inline-edit-cell { outline: none; }
 .inline-edit-cell strong { display: block; color: var(--primary); }
 .inline-edit-cell small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 500; }
@@ -352,6 +343,8 @@ h2 { margin-bottom: 6px; font-size: 20px; }
 .date-range-form input { height: 42px; min-width: 145px; padding: 0 10px; border: 1px solid #e2e7ef; border-radius: 12px; color: #344054; background: #fff; }
 .date-range-form .ghost-button, .date-range-form .primary-button { height: 42px; }
 .ledger-toolbar { justify-content: space-between; }
+/* 筛选项带标题，导出和金额范围控件需与其输入框底部对齐。 */
+.ledger-toolbar > .ghost-button, .ledger-toolbar > .table-filter-input { align-self: flex-end; }
 .ledger-filter-form { display: flex; align-items: end; gap: 10px; }
 .ledger-filter-form label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .ledger-filter-form input, .ledger-filter-form select { height: 42px; min-width: 170px; padding: 0 12px; border: 1px solid #e2e7ef; border-radius: 12px; color: #344054; background: #fff; }
@@ -439,6 +432,8 @@ dt { color: var(--muted); font-size: 13px; } dd { margin: 0; font-weight: 650; }
 .bar-group { height: 100%; display: grid; grid-template-rows: 1fr 25px; gap: 8px; }.bar-group > div { display: flex; align-items: end; justify-content: center; gap: 3px; }.bar-group span { color: #98a2b3; text-align: center; font-size: 10px; }.bar { width: min(15px,42%); min-height: 4px; border-radius: 5px 5px 1px 1px; }.bar.income { background: #5a7fe7; }.bar.expense { background: #e9a077; }.bar-group.current .bar.income { background: #2457e6; }.bar-group.current span { color: var(--primary); font-weight: 800; }
 .annual-summary dl { margin: 0; }.annual-summary dl div { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid #f0f2f5; }.annual-summary dl div:last-child { border: 0; }.annual-summary dd { font-size: 14px; }
 .amount-col { text-align: right; font-variant-numeric: tabular-nums; }.balance-cell { background: #f1f6fc; color: #15395f; }.ledger-table tfoot td { border-top: 2px solid #d4dce8; background: #fafbfc; font-weight: 800; }.ledger-table tbody tr:hover td:not(.balance-cell) { background: #fbfcff; }
+.ledger-table .amount-col.positive { color: #d92d20; }
+.ledger-table .amount-col.negative { color: var(--success); }
 .demo-toast { position: fixed; right: 24px; bottom: 24px; z-index: 20; max-width: 360px; padding: 13px 17px; border-radius: 12px; color: white; background: #172033; box-shadow: 0 14px 34px rgba(0,0,0,.2); font-size: 13px; opacity: 0; transform: translateY(10px); pointer-events: none; transition: .22s ease; }.demo-toast.show { opacity: 1; transform: translateY(0); }
 .table-subtext { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
 .mini-user-name { width: 150px; padding: 8px 10px; border: 1px solid #d7dce5; border-radius: 8px; color: var(--ink); background: #fff; font: inherit; }
@@ -495,8 +490,10 @@ dt { color: var(--muted); font-size: 13px; } dd { margin: 0; font-weight: 650; }
 .account-password-form .form-actions { margin: 4px -26px 0; padding: 18px 26px; border-top: 1px solid #edf0f5; background: #fafcff; }
 .sidebar-footer small a,.sidebar-footer small button { color: #dbe7ff; font-weight: 750; text-decoration: none; }.sidebar-footer small a:hover,.sidebar-footer small button:hover { color: #fff; text-decoration: underline; }
 .module-hidden { display: none !important; }
-/* 月度核算只保留经营与可分成利润，隐藏中间计算过程和旧甲乙固定列。 */
-.stall-table-v2 th:nth-child(10),.stall-table-v2 th:nth-child(11),.stall-table-v2 th:nth-child(12),.stall-table-v2 th:nth-child(13),.stall-table-v2 th:nth-child(14),.stall-table-v2 td:nth-child(10),.stall-table-v2 td:nth-child(11),.stall-table-v2 td:nth-child(12),.stall-table-v2 td:nth-child(13),.stall-table-v2 td:nth-child(14) { display: none; }
+/* 大众快餐与自选餐的营业额、交付金额只展示两档合计。 */
+.paired-amount-cell { padding: 0; vertical-align: middle; border: 1px solid #9eb8fa; background: #f8faff; text-align: center; }
+.paired-amount-cell span { display: block; padding: 14px 18px; font-variant-numeric: tabular-nums; }
+.paired-amount-cell span { color: var(--primary); background: #eaf1ff; font-size: 13px; font-weight: 800; }
 .profit-share-settings { margin-top: 18px; }.profit-share-settings input { width: 100%; min-width: 140px; padding: 8px 10px; border: 1px solid #d7deea; border-radius: 8px; color: var(--ink); font: inherit; }.profit-share-settings .form-actions { align-items: center; }.profit-share-settings [data-profit-share-total] { color: #087a55; font-variant-numeric: tabular-nums; }.profit-share-settings [data-profit-share-total].profit-share-invalid { color: #b42318; }.profit-share-summary { display: grid; gap: 4px; }.profit-share-summary small { color: #475467; font-weight: 700; }.profit-settings-dialog { width: min(960px, calc(100vw - 32px)); }.profit-settings-dialog .profit-share-settings { margin: 8px 0 0; box-shadow: none; border: 1px solid #e1e7f0; }.profit-settings-form { display: grid; gap: 16px; }.profit-settings-form .record-form-grid { align-items: start; margin: 0; }.profit-settings-form .record-form-grid label { min-width: 0; }.profit-settings-form .record-form-grid small { display: block; min-height: 34px; line-height: 1.5; }.profit-settings-actions { margin: 0; padding: 16px 0 0; border-top: 1px solid #edf0f5; background: transparent; }
 .stall-adjustment-field { display: inline-grid; min-width: 88px; gap: 3px; margin: -5px -8px; padding: 5px 8px; border-radius: 7px; color: var(--primary); font-weight: 800; font-variant-numeric: tabular-nums; cursor: pointer; }.stall-adjustment-field small { color: var(--muted); font-size: 11px; font-weight: 600; }.stall-adjustment-field:hover,.stall-adjustment-field:focus-visible { outline: none; background: #eef3ff; box-shadow: inset 0 0 0 1px #b7c9ff; }.stall-adjustment-field.is-saving { opacity: .62; cursor: wait; }.stall-adjustment-field .stall-adjustment-input { min-width: 108px; }
 @media (max-width: 900px) { .account-password-layout { grid-template-columns: 1fr; } }
