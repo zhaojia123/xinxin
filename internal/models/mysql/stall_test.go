@@ -267,14 +267,14 @@ func TestApplyMonthlyOperatingExpenseKeepsMonthlyLoss(t *testing.T) {
 	}
 }
 
-func TestApplyMonthlyOperatingExpenseExcludesConradFromMonthlyProfitAndLoss(t *testing.T) {
+func TestApplyMonthlyOperatingExpenseDeductsConradFromMonthlyProfitAndLoss(t *testing.T) {
 	summary := response.StallSummary{SelfOperatedPayableAmount: "1000.00", ConradCommission: "30.00"}
 	expense := response.StallMonthlyExpense{TotalAmount: "70.00"}
 
 	ApplyMonthlyOperatingExpense(&summary, expense)
 
-	if summary.DistributableBalance != "930.00" || summary.JiaCommission != "837.00" || summary.YiCommission != "93.00" {
-		t.Fatalf("康莱德不应计入本月盈亏，结余=%s，甲=%s，乙=%s", summary.DistributableBalance, summary.JiaCommission, summary.YiCommission)
+	if summary.DistributableBalance != "900.00" || summary.JiaCommission != "810.00" || summary.YiCommission != "90.00" {
+		t.Fatalf("康莱德应作为支出计入本月盈亏，结余=%s，甲=%s，乙=%s", summary.DistributableBalance, summary.JiaCommission, summary.YiCommission)
 	}
 }
 
@@ -288,8 +288,8 @@ func TestApplyMonthlyOperatingExpenseAddsBackOtherStallRiceOilCost(t *testing.T)
 
 	ApplyMonthlyOperatingExpense(&summary, expense)
 
-	if summary.DistributableBalance != "-20.00" || !summary.HasMonthlyLoss || summary.MonthlyLoss != "20.00" {
-		t.Fatalf("非自营米油应回加到本月盈亏，结余=%s，亏损=%s，标记=%t", summary.DistributableBalance, summary.MonthlyLoss, summary.HasMonthlyLoss)
+	if summary.DistributableBalance != "-50.00" || !summary.HasMonthlyLoss || summary.MonthlyLoss != "50.00" {
+		t.Fatalf("非自营米油应回加且康莱德应扣入本月盈亏，结余=%s，亏损=%s，标记=%t", summary.DistributableBalance, summary.MonthlyLoss, summary.HasMonthlyLoss)
 	}
 }
 
@@ -304,7 +304,7 @@ func TestApplyMonthlyOperatingExpenseUsesMonthlyLossRiceOilReconciliation(t *tes
 
 	ApplyMonthlyOperatingExpense(&summary, expense)
 
-	if summary.DistributableBalance != "-18986.77" || summary.MonthlyLoss != "18986.77" || !summary.HasMonthlyLoss {
-		t.Fatalf("本月亏损应排除康莱德并回加非自营米油，结余=%s，亏损=%s，标记=%t", summary.DistributableBalance, summary.MonthlyLoss, summary.HasMonthlyLoss)
+	if summary.DistributableBalance != "-30870.03" || summary.MonthlyLoss != "30870.03" || !summary.HasMonthlyLoss {
+		t.Fatalf("本月亏损应扣康莱德并回加非自营米油，结余=%s，亏损=%s，标记=%t", summary.DistributableBalance, summary.MonthlyLoss, summary.HasMonthlyLoss)
 	}
 }

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -94,6 +95,25 @@ type SupplierCostMatrixRow struct {
 	Cells         []SupplierCostMatrixCell
 	TotalAmount   string
 	ReferenceOnly bool
+}
+
+// MonthlyProfitShares 统一计算当月经营盈亏及参与方分配，供页面和台账导出复用同一口径。
+func (h *Handler) MonthlyProfitShares(ctx context.Context, month string) ([]response.ProfitShare, error) {
+	_, summary, err := h.Store.StallsWithTurnover(ctx, month, "")
+	if err != nil {
+		return nil, err
+	}
+	expenses, err := h.Store.MonthlyOperatingExpense(ctx, month)
+	if err != nil {
+		return nil, err
+	}
+	mysql.ApplyMonthlyOperatingExpense(&summary, expenses)
+	shares, _, err := h.Store.ProfitSharesWithSource(ctx, month)
+	if err != nil {
+		return nil, err
+	}
+	mysql.ApplyProfitShares(&summary, shares)
+	return summary.ProfitShares, nil
 }
 
 type SuppliersPageData struct {

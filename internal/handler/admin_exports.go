@@ -5,7 +5,10 @@ import (
 	"strconv"
 
 	"friends-records/internal/httpx"
+	"friends-records/internal/models/mysql"
 	"friends-records/internal/token"
+
+	"github.com/xuri/excelize/v2"
 )
 
 // AdminDataExport 为后台已有列表提供统一的标准 XLSX 导出。
@@ -84,6 +87,20 @@ func (h *Handler) AdminDataExport(tokens *token.Manager, kind string) http.Handl
 			filename, title, sheet, headers, widths = "台账流水.xlsx", "台账流水", "台账流水", []string{"序号", "日期", "部门", "摘要", "对方单位/账户", "分类", "账户", "流入", "流出", "结存"}, []int{48, 95, 100, 180, 150, 100, 100, 90, 90, 90}
 			for i, item := range items {
 				records = append(records, []exportCell{exportInteger(itoa(i + 1)), exportText(item.Date), exportText(item.Department), exportText(item.Summary), exportText(item.Counterparty), exportText(item.Category), exportText(item.Account), exportNumber(item.Income), exportNumber(item.Expense), exportNumber(item.Balance)})
+			}
+			if !ledgerAllHistory(start, end) {
+				month := mysql.NormalizeMonth(start[:7])
+				shares, err := h.MonthlyProfitShares(r.Context(), month)
+				if err != nil {
+					fail(w, err, "台账导出盈亏分配读取失败")
+					return
+				}
+				if err := writeExcelXLSXWithExtraSheet(w, filename, title, sheet, headers, records, widths, func(file *excelize.File) error {
+					return appendLedgerProfitShareSheet(file, month, shares)
+				}); err != nil {
+					fail(w, err, title+"导出失败")
+				}
+				return
 			}
 		default:
 			http.NotFound(w, r)

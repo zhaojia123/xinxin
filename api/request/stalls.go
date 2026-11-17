@@ -173,11 +173,14 @@ func (v *StallMonthlyRuleInput) Validate() error {
 	return nil
 }
 
-// StallMonthlyExpenseInput 保存指定月份的水电；人工成本始终从工资明细实发金额汇总。
+// StallMonthlyExpenseInput 保存指定月份的经营支出；人工成本始终从工资明细实发金额汇总。
 type StallMonthlyExpenseInput struct {
-	Month             string `json:"month"`
-	WaterAmount       string `json:"water_amount"`
-	ElectricityAmount string `json:"electricity_amount"`
+	Month                 string `json:"month"`
+	WaterAmount           string `json:"water_amount"`
+	ElectricityAmount     string `json:"electricity_amount"`
+	SocialInsuranceAmount string `json:"social_insurance_amount"`
+	DisinfectionAmount    string `json:"disinfection_amount"`
+	PrivatePurchaseAmount string `json:"private_purchase_amount"`
 }
 
 // StallMonthlyExpenseLedgerInput 确认月度核算产生的水电、康莱德及营业收支流水。
@@ -554,7 +557,7 @@ func (v *StallMonthlyExpenseInput) Validate() error {
 		return fmt.Errorf("经营支出月份格式必须是YYYY-MM")
 	}
 	v.Month = strings.TrimSpace(v.Month)
-	for _, item := range []struct{ value, label string }{{v.WaterAmount, "水费"}, {v.ElectricityAmount, "电费"}} {
+	for _, item := range []struct{ value, label string }{{v.WaterAmount, "水费"}, {v.ElectricityAmount, "电费"}, {v.SocialInsuranceAmount, "社保"}, {v.DisinfectionAmount, "消杀费用"}, {v.PrivatePurchaseAmount, "私下采购费用"}} {
 		if err := validateDecimal(item.value, item.label, 1000000000); err != nil {
 			return err
 		}
@@ -565,6 +568,15 @@ func (v *StallMonthlyExpenseInput) Validate() error {
 	}
 	if strings.TrimSpace(v.ElectricityAmount) == "" {
 		v.ElectricityAmount = "0"
+	}
+	if strings.TrimSpace(v.SocialInsuranceAmount) == "" {
+		v.SocialInsuranceAmount = "0"
+	}
+	if strings.TrimSpace(v.DisinfectionAmount) == "" {
+		v.DisinfectionAmount = "0"
+	}
+	if strings.TrimSpace(v.PrivatePurchaseAmount) == "" {
+		v.PrivatePurchaseAmount = "0"
 	}
 	return nil
 }

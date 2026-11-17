@@ -125,11 +125,11 @@ func calculateStall(item *response.Stall, _ float64) {
 // ApplyMonthlyOperatingExpense 按自营实际交付、其他档口抽成及各项费用计算当月盈亏后统一分配。
 func ApplyMonthlyOperatingExpense(summary *response.StallSummary, expense response.StallMonthlyExpense) {
 	// 自营档口以实际需交付金额为准；其他档口以本方抽成金额为准。
-	// 康莱德只保留为独立台账支出，不参与本月盈亏计算。
+	// 康莱德抽点是当月实际支出，既单独入台账，也参与本月盈亏计算。
 	// 非自营档口米油已先计入自营档口成本，因此本月盈亏需回加，避免重复扣减。
-	operating := stallNumber(expense.TotalAmount)
+	operating := stallNumber(expense.TotalAmount) + stallNumber(summary.ConradCommission)
 	commissionBeforeExpense := stallNumber(summary.SelfOperatedPayableAmount) + stallNumber(summary.OtherStallCommission)
-	// 广告、工装与非自营米油按约定作为正值加入盈亏；水、电、工资统一扣除。
+	// 广告、工装与非自营米油按约定作为正值加入盈亏；经营支出和康莱德抽点统一扣除。
 	extraOperatingCost := stallNumber(summary.TotalAdvertisingAmount) + stallNumber(summary.TotalUniformAmount)
 	result := commissionBeforeExpense - operating + extraOperatingCost + stallNumber(summary.OtherStallRiceOilCost)
 	summary.OperatingExpense = Decimal(operating)

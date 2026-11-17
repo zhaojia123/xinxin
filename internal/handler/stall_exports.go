@@ -201,6 +201,11 @@ func exportNumber(value string) exportCell {
 
 // writeExcelXLSX 生成标准 XLSX，保证 Excel、WPS 都能直接打开，并统一白底黑字的打印版式。
 func writeExcelXLSX(w http.ResponseWriter, filename, title, sheetName string, headers []string, records [][]exportCell, widths []int) error {
+	return writeExcelXLSXWithExtraSheet(w, filename, title, sheetName, headers, records, widths, nil)
+}
+
+// writeExcelXLSXWithExtraSheet 在标准导出表后可追加独立工作表，避免把核算摘要混入流水明细。
+func writeExcelXLSXWithExtraSheet(w http.ResponseWriter, filename, title, sheetName string, headers []string, records [][]exportCell, widths []int, extraSheet func(*excelize.File) error) error {
 	file := excelize.NewFile()
 	defer file.Close()
 	defaultSheet := file.GetSheetName(0)
@@ -324,6 +329,11 @@ func writeExcelXLSX(w http.ResponseWriter, filename, title, sheetName string, he
 	if err := file.SetPanes(sheetName, &excelize.Panes{Freeze: true, Split: false, YSplit: 3, TopLeftCell: "A4", ActivePane: "bottomLeft"}); err != nil {
 		return err
 	}
+	if extraSheet != nil {
+		if err := extraSheet(file); err != nil {
+			return err
+		}
+	}
 	var content bytes.Buffer
 	if err := file.Write(&content); err != nil {
 		return err
@@ -332,6 +342,90 @@ func writeExcelXLSX(w http.ResponseWriter, filename, title, sheetName string, he
 	w.Header().Set("Content-Disposition", `attachment; filename="export.xlsx"; filename*=UTF-8''`+url.QueryEscape(filename))
 	_, err = w.Write(content.Bytes())
 	return err
+}
+
+// appendLedgerProfitShareSheet 将当月参与方盈亏单列为工作表，保持台账流水明细不混入核算数据。
+func appendLedgerProfitShareSheet(file *excelize.File, month string, shares []response.ProfitShare) error {
+	const sheetName = "当月盈亏分配"
+	if _, err := file.NewSheet(sheetName); err != nil {
+		return err
+	}
+	titleStyle, err := file.NewStyle(&excelize.Style{Font: &excelize.Font{Family: "微软雅黑", Size: 16, Bold: true, Color: "000000"}, Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"}})
+	if err != nil {
+		return err
+	}
+	borders := []excelize.Border{{Type: "left", Color: "000000", Style: 1}, {Type: "right", Color: "000000", Style: 1}, {Type: "top", Color: "000000", Style: 1}, {Type: "bottom", Color: "000000", Style: 1}}
+	headerStyle, err := file.NewStyle(&excelize.Style{Font: &excelize.Font{Family: "微软雅黑", Size: 10, Bold: true, Color: "000000"}, Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"}, Border: borders})
+	if err != nil {
+		return err
+	}
+	textStyle, err := file.NewStyle(&excelize.Style{Font: &excelize.Font{Family: "微软雅黑", Size: 10, Color: "000000"}, Alignment: &excelize.Alignment{Vertical: "center"}, Border: borders})
+	if err != nil {
+		return err
+	}
+	moneyStyle, err := file.NewStyle(&excelize.Style{Font: &excelize.Font{Family: "微软雅黑", Size: 10, Color: "000000"}, Alignment: &excelize.Alignment{Horizontal: "right", Vertical: "center"}, CustomNumFmt: &excelNumberFormat, Border: borders})
+	if err != nil {
+		return err
+	}
+	if err := file.MergeCell(sheetName, "A1", "D1"); err != nil {
+		return err
+	}
+	if err := file.SetCellValue(sheetName, "A1", monthTitle(month)+"经营盈亏分配"); err != nil {
+		return err
+	}
+	if err := file.SetCellStyle(sheetName, "A1", "D1", titleStyle); err != nil {
+		return err
+	}
+	if err := file.SetRowHeight(sheetName, 1, 32); err != nil {
+		return err
+	}
+	headers := []string{"参与方", "分配比例", "当月盈亏", "说明"}
+	for index, header := range headers {
+		column, err := excelize.ColumnNumberToName(index + 1)
+		if err != nil {
+			return err
+		}
+		if err := file.SetCellValue(sheetName, column+"3", header); err != nil {
+			return err
+		}
+	}
+	if err := file.SetCellStyle(sheetName, "A3", "D3", headerStyle); err != nil {
+		return err
+	}
+	for _, column := range []string{"A", "B", "C", "D"} {
+		if err := file.SetColWidth(sheetName, column, column, 18); err != nil {
+			return err
+		}
+	}
+	for index, item := range shares {
+		row := index + 4
+		amount, label := exportAmount(item.Amount), "盈利分配"
+		if item.LossAmount != "" && item.LossAmount != "0.00" {
+			amount, label = -exportAmount(item.LossAmount), "亏损承担"
+		}
+		if err := file.SetCellValue(sheetName, fmt.Sprintf("A%d", row), item.Name); err != nil {
+			return err
+		}
+		if err := file.SetCellValue(sheetName, fmt.Sprintf("B%d", row), item.Rate+"%"); err != nil {
+			return err
+		}
+		if err := file.SetCellValue(sheetName, fmt.Sprintf("C%d", row), amount); err != nil {
+			return err
+		}
+		if err := file.SetCellValue(sheetName, fmt.Sprintf("D%d", row), label); err != nil {
+			return err
+		}
+		if err := file.SetCellStyle(sheetName, fmt.Sprintf("A%d", row), fmt.Sprintf("B%d", row), textStyle); err != nil {
+			return err
+		}
+		if err := file.SetCellStyle(sheetName, fmt.Sprintf("C%d", row), fmt.Sprintf("C%d", row), moneyStyle); err != nil {
+			return err
+		}
+		if err := file.SetCellStyle(sheetName, fmt.Sprintf("D%d", row), fmt.Sprintf("D%d", row), textStyle); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // writeStallMonthlyXLSX 生成档口月度核算表，并保留自营档口的实际支付结算口径。

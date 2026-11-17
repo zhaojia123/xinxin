@@ -426,11 +426,14 @@ type StallTableTotals struct {
 	Remaining            string `json:"remaining"`
 }
 
-// StallMonthlyExpense 是档口月度核算使用的水电与工资经营支出。
+// StallMonthlyExpense 是档口月度核算使用的经营支出。
 type StallMonthlyExpense struct {
 	Month                  string `json:"month"`
 	WaterAmount            string `json:"water_amount"`
 	ElectricityAmount      string `json:"electricity_amount"`
+	SocialInsuranceAmount  string `json:"social_insurance_amount"`
+	DisinfectionAmount     string `json:"disinfection_amount"`
+	PrivatePurchaseAmount  string `json:"private_purchase_amount"`
 	AutomaticPayrollAmount string `json:"automatic_payroll_amount"`
 	PayrollAmount          string `json:"payroll_amount"`
 	TotalAmount            string `json:"total_amount"`

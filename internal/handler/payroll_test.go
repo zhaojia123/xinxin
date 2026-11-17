@@ -62,6 +62,28 @@ func TestWriteExcelXLSXProducesStandardWorkbook(t *testing.T) {
 	}
 }
 
+func TestWriteExcelXLSXWithProfitShareSheet(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	shares := []response.ProfitShare{{Name: "张", Rate: "80.00", Amount: "800.00"}, {Name: "林", Rate: "10.00", Amount: "100.00"}, {Name: "白", Rate: "10.00", LossAmount: "100.00"}}
+	err := writeExcelXLSXWithExtraSheet(recorder, "台账流水.xlsx", "台账流水", "台账流水", []string{"序号", "金额"}, [][]exportCell{{exportInteger("1"), exportNumber("100.00")}}, []int{48, 100}, func(file *excelize.File) error {
+		return appendLedgerProfitShareSheet(file, "2026-10", shares)
+	})
+	if err != nil {
+		t.Fatalf("生成含盈亏分配工作表的 XLSX 失败：%v", err)
+	}
+	book, err := excelize.OpenReader(bytes.NewReader(recorder.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("Excel 无法打开导出文件：%v", err)
+	}
+	defer book.Close()
+	if value, err := book.GetCellValue("当月盈亏分配", "A4"); err != nil || value != "张" {
+		t.Fatalf("参与方工作表读取错误：value=%q err=%v", value, err)
+	}
+	if value, err := book.GetCellValue("当月盈亏分配", "C6"); err != nil || value != "-100.00" {
+		t.Fatalf("亏损承担金额应为负数：value=%q err=%v", value, err)
+	}
+}
+
 func TestWriteSupplierCostsXLSXProducesSignatureLayout(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	columns := []SupplierCostMatrixColumn{{StallName: "档口A", TotalAmount: "10.00"}, {StallName: "档口B", TotalAmount: "0.00"}}

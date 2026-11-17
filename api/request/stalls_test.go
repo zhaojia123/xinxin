@@ -69,13 +69,13 @@ func TestStallMonthlyExpenseInputValidation(t *testing.T) {
 	}
 }
 
-func TestStallMonthlyExpenseEmptyWaterAndElectricityBecomeZero(t *testing.T) {
+func TestStallMonthlyExpenseEmptyAmountsBecomeZero(t *testing.T) {
 	v := StallMonthlyExpenseInput{Month: "2026-09"}
 	if err := v.Validate(); err != nil {
-		t.Fatalf("空水电应按0保存：%v", err)
+		t.Fatalf("空经营支出应按0保存：%v", err)
 	}
-	if v.WaterAmount != "0" || v.ElectricityAmount != "0" {
-		t.Fatalf("空水电应规范为0，实际水费=%q，电费=%q", v.WaterAmount, v.ElectricityAmount)
+	if v.WaterAmount != "0" || v.ElectricityAmount != "0" || v.SocialInsuranceAmount != "0" || v.DisinfectionAmount != "0" || v.PrivatePurchaseAmount != "0" {
+		t.Fatalf("空经营支出应规范为0，实际=%+v", v)
 	}
 }
 
