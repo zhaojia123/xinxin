@@ -27,8 +27,8 @@ func (s *Store) LedgerRangeFiltered(ctx context.Context, start, end string, cate
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	// 结存仅按当前列表可见的流水累计，康莱德抽点单独展示时不计入这里，避免导出与列表合计口径不一致。
-	query := `SELECT l.id,DATE_FORMAT(l.occurred_on,'%Y-%m-%d'),COALESCE(d.name,''),l.summary,l.counterparty,DATE_FORMAT(l.occurred_on,'%c月'),a.name,COALESCE(c.name,''),l.direction,l.amount,a.opening_balance+COALESCE((SELECT SUM(CASE WHEN x.direction='income' THEN x.amount WHEN COALESCE((SELECT xc.name FROM ledger_categories xc WHERE xc.id=x.category_id),'') LIKE '%康莱德%' OR x.summary LIKE '%康莱德%' THEN 0 ELSE -x.amount END) FROM ledger_entries x WHERE x.account_id=l.account_id AND x.active=1 AND (x.occurred_on<l.occurred_on OR (x.occurred_on=l.occurred_on AND x.id<=l.id))),0),l.voucher_no,COALESCE(pb.id,COALESCE((SELECT pi.payroll_batch_id FROM payroll_items pi WHERE pi.ledger_entry_id=l.id LIMIT 1),0)),COALESCE((SELECT pse.payroll_type FROM payroll_settlement_entries pse WHERE pse.ledger_entry_id=l.id LIMIT 1),'') FROM ledger_entries l JOIN ledger_accounts a ON a.id=l.account_id LEFT JOIN departments d ON d.id=l.department_id LEFT JOIN ledger_categories c ON c.id=l.category_id LEFT JOIN payroll_batches pb ON pb.ledger_entry_id=l.id WHERE l.active=1 AND l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND NOT (l.direction='expense' AND (COALESCE(c.name,'') LIKE '%康莱德%' OR l.summary LIKE '%康莱德%'))`
+	// 台账流水、列表合计和结存采用同一口径，康莱德抽点作为实际支出一并纳入。
+	query := `SELECT l.id,DATE_FORMAT(l.occurred_on,'%Y-%m-%d'),COALESCE(d.name,''),l.summary,l.counterparty,DATE_FORMAT(l.occurred_on,'%c月'),a.name,COALESCE(c.name,''),l.direction,l.amount,a.opening_balance+COALESCE((SELECT SUM(CASE WHEN x.direction='income' THEN x.amount ELSE -x.amount END) FROM ledger_entries x WHERE x.account_id=l.account_id AND x.active=1 AND (x.occurred_on<l.occurred_on OR (x.occurred_on=l.occurred_on AND x.id<=l.id))),0),l.voucher_no,COALESCE(pb.id,COALESCE((SELECT pi.payroll_batch_id FROM payroll_items pi WHERE pi.ledger_entry_id=l.id LIMIT 1),0)),COALESCE((SELECT pse.payroll_type FROM payroll_settlement_entries pse WHERE pse.ledger_entry_id=l.id LIMIT 1),'') FROM ledger_entries l JOIN ledger_accounts a ON a.id=l.account_id LEFT JOIN departments d ON d.id=l.department_id LEFT JOIN ledger_categories c ON c.id=l.category_id LEFT JOIN payroll_batches pb ON pb.ledger_entry_id=l.id WHERE l.active=1 AND l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY)`
 	args := []any{start, end}
 	if categoryID != 0 {
 		query += ` AND l.category_id=?`
@@ -89,14 +89,14 @@ func (s *Store) LedgerSummaryRangeFiltered(ctx context.Context, start, end strin
 	}
 	var v response.LedgerSummary
 	var mi, me, balance, conrad, listIncome, listExpense, yi, ye, maxi, maxe float64
-	// 兼容旧流水按摘要入账的情况，分类或摘要标注康莱德的支出均单独统计。
+	// 兼容旧流水按摘要入账的情况，分类或摘要标注康莱德的支出既纳入总额，也保留单独统计。
 	query := `SELECT
 		COALESCE(SUM(CASE WHEN l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='income' THEN l.amount ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='expense' THEN l.amount ELSE 0 END),0),
-		COALESCE((SELECT SUM(opening_balance) FROM ledger_accounts),0)+COALESCE(SUM(CASE WHEN l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) THEN IF(l.direction='income',l.amount,IF(COALESCE(c.name,'') LIKE '%康莱德%' OR l.summary LIKE '%康莱德%',0,-l.amount)) ELSE 0 END),0),
+		COALESCE((SELECT SUM(opening_balance) FROM ledger_accounts),0)+COALESCE(SUM(CASE WHEN l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) THEN IF(l.direction='income',l.amount,-l.amount) ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='expense' AND (COALESCE(c.name,'') LIKE '%康莱德%' OR l.summary LIKE '%康莱德%') THEN l.amount ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='income' THEN l.amount ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='expense' AND NOT (COALESCE(c.name,'') LIKE '%康莱德%' OR l.summary LIKE '%康莱德%') THEN l.amount ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN l.occurred_on>=? AND l.occurred_on<DATE_ADD(?,INTERVAL 1 DAY) AND l.direction='expense' THEN l.amount ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='income' THEN l.amount ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='expense' THEN l.amount ELSE 0 END),0),
 		COALESCE(MAX(CASE WHEN YEAR(l.occurred_on)=? AND l.direction='income' THEN l.amount END),0),

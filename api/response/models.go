@@ -434,6 +434,9 @@ type StallMonthlyExpense struct {
 	SocialInsuranceAmount  string `json:"social_insurance_amount"`
 	DisinfectionAmount     string `json:"disinfection_amount"`
 	PrivatePurchaseAmount  string `json:"private_purchase_amount"`
+	SchoolActivityAmount   string `json:"school_activity_amount"`
+	InsuranceAmount        string `json:"insurance_amount"`
+	SchoolFineAmount       string `json:"school_fine_amount"`
 	AutomaticPayrollAmount string `json:"automatic_payroll_amount"`
 	PayrollAmount          string `json:"payroll_amount"`
 	TotalAmount            string `json:"total_amount"`

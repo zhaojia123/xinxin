@@ -181,6 +181,9 @@ type StallMonthlyExpenseInput struct {
 	SocialInsuranceAmount string `json:"social_insurance_amount"`
 	DisinfectionAmount    string `json:"disinfection_amount"`
 	PrivatePurchaseAmount string `json:"private_purchase_amount"`
+	SchoolActivityAmount  string `json:"school_activity_amount"`
+	InsuranceAmount       string `json:"insurance_amount"`
+	SchoolFineAmount      string `json:"school_fine_amount"`
 }
 
 // StallMonthlyExpenseLedgerInput 确认月度核算产生的水电、康莱德及营业收支流水。
@@ -553,6 +556,14 @@ func (v *StallSettingsInput) Validate() error {
 }
 
 func (v *StallMonthlyExpenseInput) Validate() error {
+	for _, item := range []struct{ value, label string }{{v.InsuranceAmount, "保险"}, {v.SchoolFineAmount, "学校罚款"}} {
+		if err := validateDecimal(item.value, item.label, 1000000000); err != nil {
+			return err
+		}
+	}
+	if err := validateDecimal(v.SchoolActivityAmount, "承包学校活动", 1000000000); err != nil {
+		return err
+	}
 	if _, err := time.Parse("2006-01", strings.TrimSpace(v.Month)); err != nil {
 		return fmt.Errorf("经营支出月份格式必须是YYYY-MM")
 	}

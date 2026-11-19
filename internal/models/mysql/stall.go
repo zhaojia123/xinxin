@@ -131,7 +131,7 @@ func ApplyMonthlyOperatingExpense(summary *response.StallSummary, expense respon
 	commissionBeforeExpense := stallNumber(summary.SelfOperatedPayableAmount) + stallNumber(summary.OtherStallCommission)
 	// 广告、工装与非自营米油按约定作为正值加入盈亏；经营支出和康莱德抽点统一扣除。
 	extraOperatingCost := stallNumber(summary.TotalAdvertisingAmount) + stallNumber(summary.TotalUniformAmount)
-	result := commissionBeforeExpense - operating + extraOperatingCost + stallNumber(summary.OtherStallRiceOilCost)
+	result := commissionBeforeExpense - operating + extraOperatingCost + stallNumber(summary.OtherStallRiceOilCost) + stallNumber(expense.SchoolActivityAmount)
 	summary.OperatingExpense = Decimal(operating)
 	summary.CommissionBeforeOperatingExpense = Decimal(commissionBeforeExpense)
 	summary.BalanceBeforeExpenses = Decimal(commissionBeforeExpense)

@@ -24,7 +24,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const escapeHTML = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[char]);
 
   // 金额输入完成或离开输入框后直接保存，避免再额外点击保存按钮。
-  form?.querySelectorAll('input[name="water_amount"], input[name="electricity_amount"], input[name="social_insurance_amount"], input[name="disinfection_amount"], input[name="private_purchase_amount"]').forEach((input) => {
+  form?.querySelectorAll('input[name="water_amount"], input[name="electricity_amount"], input[name="social_insurance_amount"], input[name="disinfection_amount"], input[name="private_purchase_amount"], input[name="school_activity_amount"], input[name="insurance_amount"], input[name="school_fine_amount"]').forEach((input) => {
     const saveWhenReady = () => {
       clearTimeout(autoSaveTimer);
       if (input.value === "") return;

@@ -56,8 +56,12 @@ func (s *Store) MonthlyOperatingExpense(ctx context.Context, month string) (resp
 	v.SocialInsuranceAmount, v.DisinfectionAmount, v.PrivatePurchaseAmount = Decimal(row.socialInsurance), Decimal(row.disinfection), Decimal(row.privatePurchase)
 	// 人工成本始终取工资明细的实发合计，避免旧版月度手工覆盖掩盖临时工工资。
 	v.PayrollAmount = Decimal(automatic)
+	if err := s.DB.QueryRowContext(ctx, `SELECT school_activity_amount,insurance_amount,school_fine_amount FROM stall_monthly_expenses WHERE expense_month=?`, month+"-01").Scan(&v.SchoolActivityAmount, &v.InsuranceAmount, &v.SchoolFineAmount); err != nil {
+		return v, err
+	}
 	v.TotalAmount = Decimal(row.water + row.electricity + row.socialInsurance + row.disinfection + row.privatePurchase + stallNumber(v.PayrollAmount))
 	v.LedgerPosted = row.waterLedger.Valid || row.electricityLedger.Valid || row.socialInsuranceLedger.Valid || row.disinfectionLedger.Valid || row.privatePurchaseLedger.Valid || row.conradLedger.Valid || row.cardIncomeLedger.Valid || row.huilaimiIncomeLedger.Valid
+	v.TotalAmount = Decimal(stallNumber(v.TotalAmount) + stallNumber(v.InsuranceAmount) + stallNumber(v.SchoolFineAmount))
 	return v, nil
 }
 
@@ -95,10 +99,25 @@ func (s *Store) SaveMonthlyOperatingExpense(ctx context.Context, actor uint64, i
 		return MiniInputError{"已入账的经营支出不能修改；人工成本按工资表实发金额自动汇总"}
 	}
 	// 保留字段兼容旧数据，但保存水电时清除旧版工资覆盖值。
+	if strings.TrimSpace(input.SchoolActivityAmount) == "" {
+		input.SchoolActivityAmount = "0"
+	}
+	if row.waterLedger.Valid || row.electricityLedger.Valid || row.cardIncomeLedger.Valid || row.huilaimiIncomeLedger.Valid {
+		return MiniInputError{"已入账，请先撤销入账后修改"}
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO stall_monthly_expenses(expense_month,water_amount,electricity_amount,social_insurance_amount,disinfection_amount,private_purchase_amount,manual_payroll_amount) VALUES(?,?,?,?,?,?,NULL) ON DUPLICATE KEY UPDATE water_amount=VALUES(water_amount),electricity_amount=VALUES(electricity_amount),social_insurance_amount=VALUES(social_insurance_amount),disinfection_amount=VALUES(disinfection_amount),private_purchase_amount=VALUES(private_purchase_amount),manual_payroll_amount=NULL`, input.Month+"-01", input.WaterAmount, input.ElectricityAmount, input.SocialInsuranceAmount, input.DisinfectionAmount, input.PrivatePurchaseAmount); err != nil {
 		return apperror.Wrap(err, "保存经营支出失败")
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO audit_logs(admin_user_id,module,action,target_type,target_text,detail) VALUES(?,?,?,?,?,?)`, actor, "stalls", "保存经营支出", "stall_monthly_expenses", input.Month, "水电、社保、消杀、私下采购与工资核算"); err != nil {
+		return err
+	}
+	if strings.TrimSpace(input.InsuranceAmount) == "" {
+		input.InsuranceAmount = "0"
+	}
+	if strings.TrimSpace(input.SchoolFineAmount) == "" {
+		input.SchoolFineAmount = "0"
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE stall_monthly_expenses SET school_activity_amount=?,insurance_amount=?,school_fine_amount=? WHERE expense_month=?`, input.SchoolActivityAmount, input.InsuranceAmount, input.SchoolFineAmount, input.Month+"-01"); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -211,6 +230,26 @@ func (s *Store) PostMonthlyOperatingExpenseLedger(ctx context.Context, actor uin
 	if err != nil {
 		return apperror.Wrap(err, "写入私下采购费用台账失败")
 	}
+	var schoolActivity float64
+	var insurance, schoolFine float64
+	if err := tx.QueryRowContext(ctx, `SELECT insurance_amount,school_fine_amount FROM stall_monthly_expenses WHERE expense_month=?`, input.Month+"-01").Scan(&insurance, &schoolFine); err != nil {
+		return err
+	}
+	insuranceID, err := post("expense", "保险", "保险", insurance)
+	if err != nil {
+		return apperror.Wrap(err, "写入保险支出失败")
+	}
+	schoolFineID, err := post("expense", "学校罚款", "学校罚款", schoolFine)
+	if err != nil {
+		return apperror.Wrap(err, "写入学校罚款支出失败")
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT school_activity_amount FROM stall_monthly_expenses WHERE expense_month=?`, input.Month+"-01").Scan(&schoolActivity); err != nil {
+		return err
+	}
+	activityID, err := post("income", "承包学校活动", "承包学校活动", schoolActivity)
+	if err != nil {
+		return apperror.Wrap(err, "写入承包学校活动收入失败")
+	}
 	conradID, err := post("expense", "康莱德抽点", "康莱德卡机抽点", conradAmount)
 	if err != nil {
 		return apperror.Wrap(err, "写入康莱德抽点台账失败")
@@ -247,7 +286,7 @@ func (s *Store) PostMonthlyOperatingExpenseLedger(ctx context.Context, actor uin
 	if err != nil {
 		return apperror.Wrap(err, "写入实际需交付档口金额台账失败")
 	}
-	if waterID == 0 && electricityID == 0 && socialInsuranceID == 0 && disinfectionID == 0 && privatePurchaseID == 0 && conradID == 0 && cardIncomeID == 0 && huilaimiIncomeID == 0 && dailyFreshFruitHuilaimiID == 0 && stallCostID == 0 && deliveryID == 0 {
+	if insuranceID == 0 && schoolFineID == 0 && activityID == 0 && waterID == 0 && electricityID == 0 && socialInsuranceID == 0 && disinfectionID == 0 && privatePurchaseID == 0 && conradID == 0 && cardIncomeID == 0 && huilaimiIncomeID == 0 && dailyFreshFruitHuilaimiID == 0 && stallCostID == 0 && deliveryID == 0 {
 		return MiniInputError{"本月没有可确认入账的经营支出、康莱德抽点、档口成本、实际需交付档口金额、每日鲜果汇来米或营业收入"}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE stall_monthly_expenses SET water_ledger_entry_id=NULLIF(?,0),electricity_ledger_entry_id=NULLIF(?,0),social_insurance_ledger_entry_id=NULLIF(?,0),disinfection_ledger_entry_id=NULLIF(?,0),private_purchase_ledger_entry_id=NULLIF(?,0),conrad_ledger_entry_id=NULLIF(?,0),card_income_ledger_entry_id=NULLIF(?,0),huilaimi_income_ledger_entry_id=NULLIF(?,0) WHERE expense_month=?`, waterID, electricityID, socialInsuranceID, disinfectionID, privatePurchaseID, conradID, cardIncomeID, huilaimiIncomeID, input.Month+"-01"); err != nil {
@@ -279,6 +318,23 @@ func (s *Store) RevokeMonthlyOperatingExpenseLedger(ctx context.Context, actor u
 		return apperror.Wrap(err, "读取月度核算入账状态失败")
 	}
 	ids := make([]int64, 0, 8)
+	activityRows, err := tx.QueryContext(ctx, `SELECT id FROM ledger_entries WHERE summary IN (?,?,?) AND remark='档口月度核算自动入账' AND active=1 FOR UPDATE`, month+"承包学校活动", month+"保险", month+"学校罚款")
+	if err != nil {
+		return err
+	}
+	for activityRows.Next() {
+		var id int64
+		if err := activityRows.Scan(&id); err != nil {
+			activityRows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := activityRows.Err(); err != nil {
+		activityRows.Close()
+		return err
+	}
+	activityRows.Close()
 	for _, id := range []sql.NullInt64{row.waterLedger, row.electricityLedger, row.socialInsuranceLedger, row.disinfectionLedger, row.privatePurchaseLedger, row.conradLedger, row.cardIncomeLedger, row.huilaimiIncomeLedger} {
 		if id.Valid && id.Int64 > 0 {
 			ids = append(ids, id.Int64)
